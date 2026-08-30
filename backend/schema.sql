@@ -68,3 +68,11 @@ CREATE TABLE IF NOT EXISTS images (
   category TEXT,
   at TEXT
 );
+
+CREATE INDEX IF NOT EXISTS idx_events_date ON events(date);
+CREATE INDEX IF NOT EXISTS idx_events_student ON events(studentId);
+CREATE INDEX IF NOT EXISTS idx_events_date_student ON events(date, studentId);
+CREATE INDEX IF NOT EXISTS idx_daily_date ON daily(date);
+CREATE INDEX IF NOT EXISTS idx_daily_student ON daily(studentId);
+CREATE INDEX IF NOT EXISTS idx_students_finger ON students(fingerId);
+CREATE INDEX IF NOT EXISTS idx_students_roll ON students(roll);

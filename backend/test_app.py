@@ -429,5 +429,120 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(row["status"],"PRESENT")
         self.assertEqual(self.client.get(f"/api/students/{sid}").get_json()["grade"],"Grade 10")
 
+    def test_workingDays_string_false(self):
+        r = self.client.post("/api/settings", json={
+            "workingDays": {"0": "false", "1": "true", "2": "true", "3": "true", "4": "true", "5": "true", "6": "true"},
+        })
+        self.assertEqual(r.status_code, 200)
+        wd = r.get_json()["workingDays"]
+        self.assertFalse(wd["0"])
+        self.assertTrue(wd["1"])
+        self.assertFalse(atl.is_working_day("2026-08-30", r.get_json()))  # Sunday
+
+    def test_student_grade_class_alias(self):
+        r = self.client.post("/api/students", json={
+            "name": "Alias Kid", "roll": "ALIAS-01", "class": "Grade 10-A", "phone": "9000000000"
+        })
+        self.assertIn(r.status_code, (200, 201))
+        self.assertEqual(r.get_json()["grade"], "Grade 10-A")
+
+    def test_roll_case_unique_and_reactivate(self):
+        r = self.client.post("/api/students", json={
+            "name": "Case Kid", "roll": "10A-01", "grade": "Grade 10-A", "phone": "9000000000"
+        })
+        self.assertIn(r.status_code, (200, 201))
+        sid = r.get_json()["id"]
+        dup = self.client.post("/api/students", json={
+            "name": "Case Dup", "roll": "10a-01", "grade": "Grade 10-A", "phone": "9000000000"
+        })
+        self.assertEqual(dup.status_code, 409)
+        gone = self.client.delete(f"/api/students/{sid}")
+        self.assertEqual(gone.status_code, 200)
+        back = self.client.patch(f"/api/students/{sid}", json={"active": 1})
+        self.assertEqual(back.status_code, 200)
+        self.assertEqual(back.get_json()["roll"], "10A-01")
+        self.assertEqual(back.get_json()["active"], 1)
+
+    def test_photo_size_limit(self):
+        r = self.client.post("/api/students", json={
+            "name": "Photo Kid", "roll": "PH-01", "grade": "Grade 10-A", "phone": "9000000000"
+        })
+        sid = r.get_json()["id"]
+        huge = "data:image/jpeg;base64," + ("A" * (atl.PHOTO_MAX + 10))
+        bad = self.client.patch(f"/api/students/{sid}", json={"photo": huge})
+        self.assertEqual(bad.status_code, 400)
+
+    def test_api_no_store_cache(self):
+        r = self.client.get("/api/students")
+        self.assertIn("no-store", (r.headers.get("Cache-Control") or "").lower())
+        r2 = self.client.get("/api/settings")
+        self.assertIn("no-store", (r2.headers.get("Cache-Control") or "").lower())
+
+    def test_db_indexes_exist(self):
+        ctx = atl.app.app_context()
+        ctx.push()
+        db = atl.get_db()
+        names = {row[1] for row in db.execute("PRAGMA index_list(events)").fetchall()}
+        names |= {row[1] for row in db.execute("PRAGMA index_list(daily)").fetchall()}
+        ctx.pop()
+        self.assertIn("idx_events_date", names)
+        self.assertIn("idx_daily_date", names)
+
+    def test_reports_buckets_no_year_collision(self):
+        self.client.post("/api/students", json={
+            "name": "Bucket Kid", "roll": "BK-01", "grade": "Grade 7", "phone": "9000000000"
+        })
+        sid = None
+        for s in self.client.get("/api/students").get_json():
+            if s["roll"] == "BK-01":
+                sid = s["id"]
+        ctx = atl.app.app_context()
+        ctx.push()
+        db = atl.get_db()
+        db.execute("INSERT OR IGNORE INTO daily(key,date,studentId,status,firstScan,lastScan) VALUES (?,?,?,?,?,?)",
+                   (f"2026-07-15|{sid}", "2026-07-15", sid, "PRESENT", "08:00:00", "08:00:00"))
+        db.execute("INSERT OR IGNORE INTO daily(key,date,studentId,status,firstScan,lastScan) VALUES (?,?,?,?,?,?)",
+                   (f"2027-01-15|{sid}", "2027-01-15", sid, "LATE", "08:20:00", "08:20:00"))
+        db.commit()
+        ctx.pop()
+        self.client.post("/api/settings", json={"attendanceStartDate": "2026-06-15"})
+        old_today = atl.today_ist
+        atl.today_ist = lambda: "2027-03-01"
+        try:
+            rpt = self.client.get(f"/api/reports?studentId={sid}").get_json()
+        finally:
+            atl.today_ist = old_today
+        # Jul=index 1, Jan=index 7 — must not collide
+        self.assertGreaterEqual(rpt["buckets"][1]["attended"], 1)
+        self.assertGreaterEqual(rpt["buckets"][7]["attended"], 1)
+
+    def test_scan_not_scheduled_writes_real_seq(self):
+        self.client.post("/api/settings", json={
+            "workingDays": {str(i): True for i in range(7)},
+            "classSchedules": {"Grade 10": {"workingDays": {str(i): False for i in range(7)}}},
+            "holidays": [], "overrides": []
+        })
+        created = self.client.post("/api/students", json={
+            "name": "NS Seq", "roll": "NSSEQ-01", "grade": "Grade 10", "phone": "9000000000"
+        })
+        sid = created.get_json()["id"]
+        r = self.client.post("/api/scan", json={"studentId": sid})
+        body = r.get_json()
+        self.assertEqual(body.get("reason"), "NOT_SCHEDULED")
+        self.assertEqual(body.get("status"), "NOT_SCHEDULED")
+        self.assertIsInstance(body.get("seq"), int)
+        self.assertGreater(body["seq"], 0)
+
+    def test_gt511c3_is_press_finger_nack_is_false(self):
+        from gt511c3 import GT511C3
+        s = GT511C3(sim=True)
+        s.sim = False
+        s._cmd = lambda *a, **k: (False, "FINGER_IS_NOT_PRESSED")
+        self.assertIs(s.is_press_finger(), False)
+        s._cmd = lambda *a, **k: (True, 0)
+        self.assertIs(s.is_press_finger(), True)
+        s._cmd = lambda *a, **k: (False, "TIMEOUT")
+        self.assertIsNone(s.is_press_finger())
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

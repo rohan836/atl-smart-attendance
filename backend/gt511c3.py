@@ -247,6 +247,9 @@ class GT511C3:
             return True
         ok, param = self._cmd(CMD_IS_PRESS_FINGER, 0, timeout=timeout)
         if not ok:
+            # NACK 0x1012 is valid "not pressed", not a comms error
+            if "FINGER_IS_NOT_PRESSED" in str(param) or "0x1012" in str(param):
+                return False
             return None
         return int(param) == 0
 

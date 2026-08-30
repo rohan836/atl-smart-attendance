@@ -28,10 +28,10 @@ Artifacts gitignored: __pycache__/ *.db *.log uploads/ .venv/ (.pre_restore.bak,
 ```
 
 ## 4. UI Rules (approved, light editorial)
-* Theme `bg #FCFBF7 panel #FFFFFF ink #0A0A0A ink-2 #6B6B6B ink-3 #A8A5A0 line #E9E6E0 paper #F6F4EF ok #2F5D34 danger #8A3A3A` + Inter/Newsreader/monospace. Terminal empty: centered `PLACE YOUR FINGER TO SCAN` 11px 0.22em + `Admin` bottom-middle `ATL-Smart-Attendance-Production.html:14`. No frame/scan-line/countdown/clock/divider. Identity card overlays center.
-* Admin 6 tabs: Students, Today, Reports, Calendar, Settings, Backup. No right-drawer, no dark palette, no `__SSR_DATA__`.
-* Data model DB-driven since 2026-08-29: fetch `/api/students /settings /attendance /audit /daily /kpis` on load +15s `ui_app.js:1419`. LocalStorage `atl_students/attendance/holidays/overrides/settings/classes/audit/batches/class_schedules/batch_schedules` is cache only. `DUMMY_MODE/SAMPLE_STUDENTS/simulateScan` removed.
-* Maintained UI source is `backend/ui_app.js` (1421 lines); HTML inline script is fallback stale when opened via `file://`. Do not edit HTML without approval.
+* Theme `bg #FCFBF7 panel #FFFFFF ink #0A0A0A ink-2 #6B6B6B ink-3 #A8A5A0 line #E9E6E0 paper #F6F4EF ok #2F5D34 danger #8A3A3A` + Inter/Newsreader/monospace. Terminal empty: centered `PLACE YOUR FINGER TO SCAN` 11px 0.22em + `Admin` bottom-middle. No frame/scan-line/countdown/clock/divider. Identity card overlays center.
+* Admin 6 tabs: Students, Today, Reports, Calendar, Settings, Backup. No right-drawer, no dark palette, no `__SSR_DATA__`. New Enrollment is on the Students toolbar (not the terminal).
+* Data model DB-driven since 2026-08-29: fetch `/api/students?active=all /settings /attendance /audit /daily /kpis` on load +15s (skipped while the tab is hidden). LocalStorage `atl_*` is cache only and omits student photos. `DUMMY_MODE/SAMPLE_STUDENTS/simulateScan` removed.
+* Maintained UI source is `backend/ui_app.js`; HTML inline script is fallback stale when opened via `file://`. Do not edit HTML without approval.
 
 ## 5. Admin Requirements (current)
 * **Students:** search (name/roll/class/batch/phone/fid/section/parent), class/batch/status filters, new student form (photo ≤2MB) + 3-capture `POST /api/enroll`, detail card history 60, Edit (clear photo, active toggle), Re-enroll, Deactivate (`active 0 roll#d{id} free slot`), Re-activate, Print, CSV export/import (Batch/Section/Parent/Address, rate).
@@ -85,7 +85,7 @@ LocalStorage `atl_*` cache only `AGENTS.md`; API `cache:no-store`; HTML `file://
 `/ /assets/<path> /api/health /api/settings GET POST whitelist /api/students GET POST /api/students/:id GET PATCH DELETE /api/students/:id/reenroll /api/backup /api/restore /api/export/csv?type= /api/import/csv /api/correction /api/enroll /api/sensor/progress /api/scan /api/scan/last /api/reconcile /api/attendance /api/daily /api/export /api/kpis?date&class&batch /api/reports?studentId /api/images* /api/notifications /api/audit`. 404 JSON for `/api/`, fallback HTML else.
 
 ## 14. DB Schema & Migration
-`schema.sql:1` WAL, FK ON, tables students/events/daily/notifications/audit/settings/images. Init `get_db()` `app.py:96` creates schema if missing else `_migrate_db()` adds `address/batch/section/parent`. `get_settings()` `app.py:123` migrates missing keys (classes/batches/classSchedules/batchSchedules etc). Additive only, preserves history `test_app.py:406`.
+`schema.sql:1` WAL, FK ON, tables students/events/daily/notifications/audit/settings/images. Init `get_db()` creates schema if missing then `_migrate_db()` adds `address/batch/section/parent` plus indexes `events(date,studentId)`, `daily(date,studentId)`, `students(fingerId,roll)`. `get_settings()` migrates missing keys (classes/batches/classSchedules/batchSchedules etc). Additive only, preserves history.
 
 ## 15. Backup / CSV / Audit
 * Backup `GET /api/backup` `wal_checkpoint` `send_file` `atl_backup_YYYY-MM-DD.db` mime octet; restore `POST /api/restore` header `SQLite format 3\x00` → `.pre_restore.bak` → overwrite → `SELECT 1 FROM students` verify.
@@ -99,7 +99,7 @@ Target `lancer@192.168.1.8` Pi3B Rev1.2 Debian13, user `lancer` not `pi`, key `C
 * Local: `python backend/app.py` → `http://127.0.0.1:5000/` or `file://` HTML offline. Pi: `systemctl status atl-attendance` `journalctl -f`.
 * Deploy canonical `tools/deploy.ps1` (scp HTML+app.py/ui_app.js/gt511c3.py/schema.sql+assets+service) or `bash tools/deploy.sh` rsync excludes `.git/__pycache__/*.db/uploads/venv/config.json`. Never scp `attendance.db/config.json`.
 * Watch `tools/dev-watch.ps1` polls HTML/backend/*.py|sql/assets/pi 300ms debounce 700ms, SSE `127.0.0.1:35729/__dev_reload` injected only `?dev=1`.
-* Tests `backend/test_app.py` 22 unittest `python -m unittest backend.test_app -v` temp DB sim sensor — health, settings whitelist, students, scans (present/duplicate/real wait/no-finger/sensor fid), scan_last, audit, reconcile, calendar priority, holiday ranges, batch/section, class/batch schedules, not_scheduled, kpi/report, correction, CSV, migration. Verify `verify_pi_scan.py` live Pi.
+* Tests `backend/test_app.py` `python -m unittest backend.test_app -v` temp DB sim sensor — health, settings whitelist (`workingDays` string `"false"`), students (`class` alias, roll unique, re-activate restores roll, photo cap), scans (present/duplicate/real wait/no-finger/sensor fid/NOT_SCHEDULED seq), scan_last, audit, reconcile, calendar, holidays, class/batch schedules, kpi/report buckets, correction, CSV, indexes, GT-511C3 `is_press_finger` NACK, cache headers. Verify `verify_pi_scan.py` live Pi.
 
 ## 18. Deployment-Sensitive / Never Commit
 Artifacts never commit/deploy: `backend/__pycache__/ *.log *.db *.pre_restore.bak uploads/ .venv/ venv/ .env` `assets/images/students/*` `backend/config.json` (machine-specific). Deploy excludes them; template committed `backend/config.example.json`.
@@ -113,6 +113,6 @@ LocalStorage is truth; editing HTML inline instead of `ui_app.js`; `NOT_SCHEDULE
 ## 21. History (replaces PROJECT.md)
 * 2026-08-29: DB-driven switch, bridge resolved (`fingerId→fid`), LED always-on, class/batch columns migrated, Significa dark retired, clutter scripts `tools/significa.ps1` removed.
 * 2026-08-30: terminal empty `PLACE YOUR FINGER`, `ui_app.js` active `POST /api/scan` when admin closed, per-class/batch schedules backend-persisted (not UI-only), calendar schedule-only, settings single source, Today NOT_SCHEDULED muted, Reports custom validated, Backup DB+CSV.
-* `PROJECT.md` removed 2026-08-30 — history kept here to avoid duplication.
+* 2026-08-31: removed temporary PC `tools/dev-local.ps1`; sensor lift NACK `0x1012` is False; inserts use SQLite `lastrowid`; `/api/*` `no-store`; DB indexes; batched reconcile/kpis; exam days working in UI; Students New Enrollment toolbar; deploy `pkill` before start. `PROJECT.md` removed 2026-08-30 — history kept here to avoid duplication.
 
-*Aligned 2026-08-30 with `backend/app.py:2056` `backend/ui_app.js:1421` `ATL-Smart-Attendance-Production.html`.*
+*Aligned 2026-08-31 with `backend/app.py` `backend/ui_app.js` `ATL-Smart-Attendance-Production.html`.*

@@ -7,7 +7,7 @@ Base: `http://192.168.1.8:5000` (Pi) or `http://127.0.0.1:5000` (local). Server:
 ## Pages / static
 | Route | Serves |
 |-------|--------|
-| `/` | `ATL-Smart-Attendance-Production.html` (with injected `ui_app.js` + bridge) `Cache-Control: no-store` |
+| `/` | `ATL-Smart-Attendance-Production.html` (with injected `ui_app.js` + bridge) `Cache-Control: no-store` (`/api/*` also `no-store`) |
 | `/assets/<path>` | Files under `assets/` |
 | Other non-`/api`, non-`/assets` | Main UI (404 fallback) |
 
@@ -59,4 +59,4 @@ curl -X POST http://192.168.1.8:5000/api/reconcile -H "Content-Type: application
 curl -s http://192.168.1.8:5000/ | grep -o "ATL Smart Attendance Terminal"
 ```
 
-*Aligned 2026-08-30 with `backend/app.py:2056` `backend/ui_app.js:1421`.*
+*Aligned 2026-08-31 with `backend/app.py` `backend/ui_app.js`.*

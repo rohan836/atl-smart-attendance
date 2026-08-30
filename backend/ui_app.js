@@ -54,9 +54,19 @@ function statusUI(backendStatus){
   return m[backendStatus] || backendStatus || "";
 }
 // ---- persisted cache (offline fallback) ----
+function asBool(v){
+  if(v===true || v===1) return true;
+  if(v===false || v===0 || v==null) return false;
+  if(typeof v==="string") return ["1","true","yes","on"].includes(v.trim().toLowerCase());
+  return !!v;
+}
 function cacheSave(){
   try{
-    localStorage.setItem(LS.students, JSON.stringify(Students));
+    const slim=Students.map(s=>{
+      const o={}; for(const k in s){ if(k!=="photo") o[k]=s[k]; }
+      return o;
+    });
+    localStorage.setItem(LS.students, JSON.stringify(slim));
     localStorage.setItem(LS.settings, JSON.stringify(Settings));
     localStorage.setItem(LS.classes, JSON.stringify(Classes));
     localStorage.setItem(LS.batches, JSON.stringify(Batches));
@@ -142,7 +152,7 @@ async function loadClassesHolidaysSettings(){
     Settings.academicYear = st.academicYear || Settings.academicYear;
     Settings.startDate = st.attendanceStartDate || st.schoolOpeningDate || Settings.startDate;
     Settings.endDate = st.endDate || st.academicYearEnd || Settings.endDate;
-    Settings.lateAfter = st.lateCutoff || st.presentCutoff || Settings.lateAfter;
+    Settings.lateAfter = st.lateCutoff || Settings.lateAfter || "08:30";
     Settings.presentCutoff = st.presentCutoff || Settings.presentCutoff || "08:00";
     Settings.lateCutoff = st.lateCutoff || Settings.lateAfter || "08:30";
     Classes = (st.classes&&st.classes.length) ? st.classes.slice() : Classes;
@@ -152,7 +162,7 @@ async function loadClassesHolidaysSettings(){
     if(st.batchSchedules && typeof st.batchSchedules==="object") BatchSchedules = st.batchSchedules;
     if(Array.isArray(st.holidays)) Holidays = st.holidays.map(mapHolidayFromList).filter(Boolean);
     if(st.workingDays && typeof st.workingDays==="object"){
-      const wd={}; for(let i=0;i<7;i++) wd[i]=!!st.workingDays[i] || !!st.workingDays[String(i)]; Settings.workingDays=wd;
+      const wd={}; for(let i=0;i<7;i++) wd[i]=asBool(st.workingDays[i] ?? st.workingDays[String(i)]); Settings.workingDays=wd;
     }
     if(Array.isArray(st.overrides)) Overrides = st.overrides.map(mapOverride).filter(o=>o.date);
     Settings.address = st.address || Settings.address;
@@ -170,7 +180,7 @@ async function loadClassesHolidaysSettings(){
 }
 async function loadStudents(){
   try{
-    const list = await api("/api/students", {method:"GET"});
+    const list = await api("/api/students?active=all", {method:"GET"});
     if(Array.isArray(list)){
       Students = list.map(mapStudent);
     }
@@ -186,7 +196,9 @@ async function loadTodayAttendance(){
   const t = todayISO();
   try{
     // reconcile today's attendance (marks ABSENT/NOT_SCHEDULED after lateCutoff; backend guards BEFORE_CUTOFF)
-    try{ await api("/api/reconcile",{method:"POST",body:JSON.stringify({date:t})}); }catch(e){}
+    if(!(typeof document!=="undefined" && document.hidden)){
+      try{ await api("/api/reconcile",{method:"POST",body:JSON.stringify({date:t})}); }catch(e){}
+    }
     const ev = await api("/api/attendance?date="+t, {method:"GET"});
     if(Array.isArray(ev)){
       Attendance = ev.map(mapEvent).filter(a=>a.studentId||a.status==="Unknown");
@@ -221,7 +233,7 @@ const scannerFrame=$("scannerFrame"), promptText=$("promptText"), countdownEl=$(
   photoImg=$("photoImg"), photoFallback=$("photoFallback"),
   idName=$("idName"), idSub=$("idSub"), idStatus=$("idStatus"), idTime=$("idTime"),
   idDate=$("idDate"), idConfirm=$("idConfirm"), idConfirmTxt=$("idConfirm"),
-  adminLayer=$("adminLayer"), adminNav=$("adminNav"),
+  adminLayer=$("adminLayer"), adminNav=$("adminNav"), adminTitle=$("adminTitle"),
   studentListEl=$("studentList"), searchInput=$("searchInput"), classFilter=$("classFilter"), batchFilter=$("batchFilter"), studentStatusFilter=$("studentStatusFilter"),
   detailScroll=$("detailScroll"),
   todayDateLabel=$("todayDateLabel"), todayClassFilter=$("todayClassFilter"),
@@ -246,7 +258,12 @@ function openModal(m){ m.classList.add("open"); }
 function closeModal(m){ m.classList.remove("open"); }
 [enrollModal, holidayModal, overrideModal, correctionModal].forEach(m=>{
   if(!m) return;
-  m.addEventListener("click", (e)=>{ if(e.target===m){ closeModal(m); if(m===enrollModal) resumeSensorScan(); } });
+  m.addEventListener("click", (e)=>{
+    if(e.target!==m) return;
+    if(m===enrollModal){ _enrollAbort=true; if(_enrollPoll) clearTimeout(_enrollPoll); }
+    closeModal(m);
+    if(m===enrollModal) resumeSensorScan();
+  });
 });
 
 // ---- terminal ----
@@ -256,17 +273,19 @@ function closeModal(m){ m.classList.remove("open"); }
     const s=document.createElement("style");
     s.id="atl-scan-state-styles";
     s.textContent=`
-      .prompt{transition:color 220ms var(--ease),opacity 220ms var(--ease)}
+      .prompt{transition:color 220ms var(--ease),opacity 220ms var(--ease),transform 220ms var(--ease)}
       .prompt.scanning,.prompt.detecting,.prompt.identifying{color:var(--ink)}
-      .prompt.scanning::before,.prompt.detecting::before,.prompt.identifying::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--ink);vertical-align:middle;margin-right:8px;animation:atlScanDot 0.92s ease-in-out infinite}
+      .prompt.scanning::before,.prompt.detecting::before,.prompt.identifying::before{content:"";display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--ink);vertical-align:middle;margin-right:8px;animation:atlScanDot 0.92s ease-in-out infinite}
       .prompt.identifying::before{background:var(--ink-2);animation-duration:0.62s}
       @keyframes atlScanDot{0%,100%{opacity:0.28;transform:scale(0.85)}50%{opacity:1;transform:scale(1)}}
-      .prompt.scanning::after,.prompt.detecting::after{content:"";display:block;width:32px;height:1px;background:var(--line-strong);margin:7px auto 0;animation:atlScanLine 1.1s cubic-bezier(0.45,0,0.55,1) infinite}
-      .prompt.identifying::after{content:"";display:block;width:24px;height:1px;background:var(--ink-2);margin:7px auto 0;opacity:0.62}
-      @keyframes atlScanLine{0%{transform:scaleX(0.2);opacity:0.35}50%{transform:scaleX(1);opacity:1}100%{transform:scaleX(0.2);opacity:0.35}}
+      .prompt.detecting::after{content:"";display:block;width:28px;height:1px;background:var(--line-strong);margin:7px auto 0;animation:atlScanLine 1.1s cubic-bezier(0.45,0,0.55,1) infinite}
+      .prompt.identifying::after{content:"";display:block;width:22px;height:1px;background:var(--ink-2);margin:7px auto 0;opacity:0.5}
+      @keyframes atlScanLine{0%{transform:scaleX(0.22);opacity:0.35}50%{transform:scaleX(1);opacity:1}100%{transform:scaleX(0.22);opacity:0.35}}
       .unknown-sub{display:none!important}
-      .id-confirm{display:none!important}
-      @media (prefers-reduced-motion:reduce){.prompt.scanning::before,.prompt.scanning::after,.prompt.detecting::before,.prompt.detecting::after,.prompt.identifying::before{animation:none!important}}
+      .identity-layer,.unknown-layer{will-change:opacity,transform}
+      .id-confirm{opacity:0;transform:translateY(4px);transition:opacity 360ms var(--ease) 100ms,transform 360ms var(--ease) 100ms}
+      .identity-layer.visible .id-confirm.atl-show{opacity:1;transform:translateY(0)}
+      @media (prefers-reduced-motion:reduce){.prompt.scanning::before,.prompt.detecting::before,.prompt.identifying::before,.prompt.detecting::after{animation:none!important}.identity-layer,.unknown-layer,.id-confirm{transition:none!important}}
     `;
     document.head.appendChild(s);
   }catch(e){}
@@ -275,6 +294,8 @@ let _resultHold=false;
 function setState(state){
   if(!promptText) return;
   promptText.classList.remove("scanning","identifying","detecting");
+  promptText.style.opacity="";
+  promptText.style.transform="";
   if(state==="detecting"){
     promptText.textContent="FINGER DETECTED";
     promptText.classList.add("detecting");
@@ -282,14 +303,18 @@ function setState(state){
     promptText.textContent="IDENTIFYING\u2026";
     promptText.classList.add("identifying");
   } else if(state==="scanning"){
-    promptText.textContent="SCANNING";
-    promptText.classList.add("scanning");
+    promptText.textContent="FINGER DETECTED";
+    promptText.classList.add("detecting");
   } else {
-    promptText.textContent="PLACE YOUR FINGER";
+    promptText.textContent="PLACE YOUR FINGER TO SCAN";
   }
 }
 function showIdentity(student, status, time, dateStr){
-  if(promptText){ promptText.classList.remove("scanning","identifying","detecting"); }
+  if(promptText){
+    promptText.classList.remove("scanning","identifying","detecting");
+    promptText.style.opacity="0";
+    promptText.style.transform="translateY(-6px)";
+  }
   _resultHold=true;
   if(_scanLoopTimer){ clearTimeout(_scanLoopTimer); _scanLoopTimer=null; }
   Timers.clear("hold");
@@ -299,31 +324,94 @@ function showIdentity(student, status, time, dateStr){
   else { photoImg.style.display="none"; photoFallback.style.display="flex"; photoFallback.textContent=student.name.trim().split(" ").map(w=>w[0]).slice(0,2).join("").toUpperCase(); }
   idName.textContent=student.name;
   idSub.innerHTML=`<span class="id-sub-item">${esc(student.class)}</span><span class="id-sub-item">${esc(student.roll)}</span>`;
-  idStatus.textContent=status; idStatus.className="id-status";
-  if(status==="Late") idStatus.style.borderColor="#C7B07A"; else idStatus.style.borderColor="var(--line-strong)";
+  const norm = String(status||"").trim().toLowerCase();
+  let displayStatus = status;
+  let footer = "";
+  let footerColor = "";
+  let holdMs = 2200;
+  if(norm==="present"){
+    displayStatus="Present";
+    footer="ATTENDANCE RECORDED";
+    footerColor="var(--ok)";
+    holdMs=2200;
+  } else if(norm==="late"){
+    displayStatus="Late";
+    footer="ATTENDANCE RECORDED";
+    footerColor="var(--ok)";
+    holdMs=2200;
+  } else if(norm==="already recorded" || norm==="duplicate"){
+    displayStatus="Already recorded";
+    footer="ALREADY RECORDED";
+    footerColor="var(--ink-2)";
+    holdMs=2000;
+  } else if(norm==="not scheduled" || norm==="not_scheduled"){
+    displayStatus="Not Scheduled";
+    footer="NOT SCHEDULED";
+    footerColor="var(--ink-2)";
+    holdMs=2000;
+  } else {
+    displayStatus=status;
+    footer="";
+  }
+  idStatus.textContent=displayStatus; idStatus.className="id-status";
+  if(norm==="not scheduled" || norm==="not_scheduled"){
+    idStatus.style.borderColor="var(--line)";
+    idStatus.style.color="var(--ink-2)";
+    idStatus.style.background="var(--paper)";
+  } else if(norm==="already recorded" || norm==="duplicate"){
+    idStatus.style.borderColor="var(--line)";
+    idStatus.style.color="var(--ink-2)";
+    idStatus.style.background="#fff";
+  } else if(displayStatus==="Late"){
+    idStatus.style.borderColor="#C7B07A";
+    idStatus.style.color="var(--ink)";
+    idStatus.style.background="#fff";
+  } else {
+    idStatus.style.borderColor="var(--line-strong)";
+    idStatus.style.color="var(--ink)";
+    idStatus.style.background="#fff";
+  }
   idTime.textContent=(time||"").slice(0,5);
   idDate.textContent=dateStr||new Date().toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'});
-  if(idConfirm) idConfirm.style.display="none";
+  if(idConfirm){
+    if(footer){
+      idConfirm.textContent=footer;
+      idConfirm.style.color=footerColor;
+      idConfirm.style.display="block";
+      idConfirm.classList.remove("atl-show");
+      void idConfirm.offsetWidth;
+      idConfirm.classList.add("atl-show");
+    } else {
+      idConfirm.style.display="none";
+      idConfirm.classList.remove("atl-show");
+    }
+  }
   identityLayer.classList.add("visible");
   Timers.set("hold", setTimeout(()=>{
     identityLayer.classList.remove("visible");
     idleLayer.classList.remove("hidden");
+    if(idConfirm) idConfirm.classList.remove("atl-show");
     setState("ready");
     _resultHold=false;
     if(_scanLoopActive && adminLayer && !adminLayer.classList.contains("open") && enrollModal && !enrollModal.classList.contains("open")){
       _scanLoopTimer=setTimeout(sensorScanLoop, 180);
     }
-  }, 2800));
+  }, holdMs));
 }
 function showUnknown(){
-  if(promptText){ promptText.classList.remove("scanning","identifying","detecting"); }
+  if(promptText){
+    promptText.classList.remove("scanning","identifying","detecting");
+    promptText.style.opacity="0";
+    promptText.style.transform="translateY(-6px)";
+  }
   _resultHold=true;
   if(_scanLoopTimer){ clearTimeout(_scanLoopTimer); _scanLoopTimer=null; }
   Timers.clear("hold");
   idleLayer.classList.add("hidden");
   identityLayer.classList.remove("visible");
+  if(idConfirm) idConfirm.classList.remove("atl-show");
   const _ut = unknownLayer.querySelector(".unknown-title");
-  if(_ut) _ut.textContent="UNKNOWN FINGERPRINT";
+  if(_ut) _ut.textContent="NOT RECOGNIZED";
   const _us = unknownLayer.querySelector(".unknown-sub");
   if(_us) _us.style.display="none";
   unknownLayer.classList.add("visible");
@@ -335,7 +423,7 @@ function showUnknown(){
     if(_scanLoopActive && adminLayer && !adminLayer.classList.contains("open") && enrollModal && !enrollModal.classList.contains("open")){
       _scanLoopTimer=setTimeout(sensorScanLoop, 180);
     }
-  }, 2500));
+  }, 2000));
 }
 function tickClock(){
   if(!leftClock) return;
@@ -353,9 +441,12 @@ window.handleRealScan = async function(fid, info){
   if(seq) _lastHandledScanSeq=seq;
   if(fid && String(fid).indexOf("__unknown__")===0){
     setState("detecting");
-    await new Promise(r=>setTimeout(r, 150));
+    await new Promise(r=>setTimeout(r, 120));
     if(seq && seq < _lastHandledScanSeq) return;
     setState("identifying");
+    // subtle scan tick driven by real API, not fake timing for success
+    await new Promise(r=>setTimeout(r, 120));
+    if(seq && seq < _lastHandledScanSeq) return;
     showUnknown();
     loadTodayAttendance().then(()=>{ if(currentTab==="today") renderToday(); });
     return;
@@ -387,18 +478,22 @@ window.handleRealScan = async function(fid, info){
     }
     if(!s){
       setState("detecting");
-      await new Promise(r=>setTimeout(r, 150));
+      await new Promise(r=>setTimeout(r, 120));
       if(seq && seq < _lastHandledScanSeq) return;
       setState("identifying");
+      await new Promise(r=>setTimeout(r, 120));
+      if(seq && seq < _lastHandledScanSeq) return;
       showUnknown();
       loadTodayAttendance().then(()=>{ if(currentTab==="today") renderToday(); });
       return;
     }
   }
   setState("detecting");
-  await new Promise(r=>setTimeout(r, 150));
+  await new Promise(r=>setTimeout(r, 120));
   if(seq && seq < _lastHandledScanSeq) return;
   setState("identifying");
+  await new Promise(r=>setTimeout(r, 120));
+  if(seq && seq < _lastHandledScanSeq) return;
   const status = info.status ? statusUI(info.status) : "Present";
   const time = info.time || new Date().toTimeString().slice(0,8);
   showIdentity(s, status, time, info.date ? fmtDate(info.date) : "");
@@ -455,7 +550,7 @@ function renderClassFilters(){
   if(todayClassFilter) todayClassFilter.innerHTML=opts;
   reportClass.innerHTML='<option value="">Select class</option>'+Classes.map(c=>`<option>${esc(c)}</option>`).join("");
   if(batchFilter){
-    const batches=[...new Set(Students.map(s=>s.batch).filter(Boolean))].sort();
+    const batches=[...new Set([...(Batches||[]), ...Students.map(s=>s.batch).filter(Boolean)])].sort();
     const cur=batchFilter.value;
     batchFilter.innerHTML='<option value="">All Batches</option>'+batches.map(b=>`<option ${b===cur?'selected':''}>${esc(b)}</option>`).join("");
     if(!batches.includes(cur)) batchFilter.value="";
@@ -539,7 +634,8 @@ function selectStudent(id){ selectedStudentId=id; renderStudentList(); renderStu
 // ---- render: Today ----
 function renderToday(){
   const t=todayISO(), cf=todayClassFilter.value, sf=todayStatusFilter.value, sort=todaySort.value;
-  let rows=Attendance.filter(a=>a.date===t && a.studentId).map(a=>{ const s=Students.find(x=>x.id===a.studentId); return s?{a,s}:null; }).filter(Boolean);
+  const byId=new Map(Students.map(s=>[s.id,s]));
+  let rows=Attendance.filter(a=>a.date===t && a.studentId).map(a=>{ const s=byId.get(a.studentId); return s?{a,s}:null; }).filter(Boolean);
   if(cf) rows=rows.filter(r=>r.s.class===cf);
   // backend-persisted schedule: determine scheduled vs not scheduled via per-student precedence
   const allActiveFiltered = Students.filter(s=>s.active && (!cf || s.class===cf));
@@ -579,8 +675,8 @@ function renderToday(){
     absentAll = Kpis.absent||Math.max(0, (Kpis.scheduled||scheduledTotal) - presentAll - lateAll);
     pct = Kpis.scheduled ? Math.round((presentAll+lateAll)/Kpis.scheduled*100) : 0;
   } else {
-    presentAll = Attendance.filter(a=>a.date===t && a.studentId).map(a=>{const s=Students.find(x=>x.id===a.studentId); return s&& (!cf||s.class===cf) && isWorkingDayForStudent(t, s) ? a:null}).filter(a=>a&&a.status==="Present").length;
-    lateAll = Attendance.filter(a=>a.date===t && a.studentId).map(a=>{const s=Students.find(x=>x.id===a.studentId); return s&& (!cf||s.class===cf) && isWorkingDayForStudent(t, s) ? a:null}).filter(a=>a&&a.status==="Late").length;
+    presentAll = Attendance.filter(a=>a.date===t && a.studentId).map(a=>{const s=byId.get(a.studentId); return s&& (!cf||s.class===cf) && isWorkingDayForStudent(t, s) ? a:null}).filter(a=>a&&a.status==="Present").length;
+    lateAll = Attendance.filter(a=>a.date===t && a.studentId).map(a=>{const s=byId.get(a.studentId); return s&& (!cf||s.class===cf) && isWorkingDayForStudent(t, s) ? a:null}).filter(a=>a&&a.status==="Late").length;
     absentAll = Math.max(0, scheduledTotal - presentAll - lateAll);
     pct = scheduledTotal?Math.round((presentAll+lateAll)/scheduledTotal*100):0;
   }
@@ -662,9 +758,13 @@ function getOverride(d){ return Overrides.find(o=>o.date===d)||null; }
 function isWorkingDayUI(d){
   const ov=getOverride(d);
   if(ov) return ov.isWorking;
-  if(isHoliday(d)) return false;
+  const hol=isHoliday(d);
+  if(hol){
+    const type=String(hol.type||"holiday").toLowerCase();
+    return type==="exam";
+  }
   const day=new Date(d+"T00:00:00").getDay();
-  return !!Settings.workingDays[day];
+  return asBool(Settings.workingDays[day] ?? Settings.workingDays[String(day)]);
 }
 function getWorkingDaysForClass(grade){
   if(grade && ClassSchedules[grade]){
@@ -714,7 +814,7 @@ function isWorkingDayForClass(d, grade){
   }
   const day=new Date(d+"T00:00:00").getDay();
   const wd=getWorkingDaysForClass(grade);
-  return !!wd[day] || !!wd[String(day)];
+  return asBool(wd[day] ?? wd[String(day)]);
 }
 function isWorkingDayForStudent(d, student){
   const ov=getOverride(d);
@@ -726,7 +826,7 @@ function isWorkingDayForStudent(d, student){
   }
   const day=new Date(d+"T00:00:00").getDay();
   const wd=getWorkingDaysForStudent(student);
-  return !!wd[day] || !!wd[String(day)];
+  return asBool(wd[day] ?? wd[String(day)]);
 }
 function isScheduledToday(student){
   if(!student) return true;
@@ -785,7 +885,7 @@ function renderWeekly(){
   const wd = selectedClass ? getWorkingDaysForClass(selectedClass) : Settings.workingDays;
   const days=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
   tbody.innerHTML=days.map((name,idx)=>{
-    const on=!!wd[idx] || !!wd[String(idx)];
+    const on=asBool(wd[idx] ?? wd[String(idx)]);
     return `<tr><td>${name}</td><td><div class="toggle ${on?"on":""}" data-day="${idx}"></div></td></tr>`;
   }).join("");
   // update selector options if needed (UI-only)
@@ -1054,7 +1154,8 @@ function updateTabs(){
   if(currentTab==="backup") renderAudit();
 }
 document.getElementById("openAdminBtn").onclick=openAdmin;
-document.getElementById("openEnrollBtn").onclick=openNewStudent;
+const _frontEnrollBtn=document.getElementById("openEnrollBtn"); if(_frontEnrollBtn) _frontEnrollBtn.onclick=openNewStudent;
+const _newToolbarBtn=document.getElementById("newStudentToolbarBtn"); if(_newToolbarBtn) _newToolbarBtn.onclick=openNewStudent;
 document.getElementById("adminClose").onclick=()=>{ adminLayer.classList.remove("open"); resumeSensorScan(); };
 adminNav.onclick=(e)=>{
   if(e.target.tagName!=="BUTTON") return;
@@ -1176,7 +1277,7 @@ $("todayExportBtn").onclick=async()=>{
       return notSched.map(s=>["—",s.name,s.roll,s.class,"Not Scheduled",s.fid||""]);
     }
     if(sf==="Absent"){
-      const presentIds=new Set(Attendance.filter(a=>a.date===t&&a.status==="Present"||a.status==="Late").map(a=>a.studentId));
+      const presentIds=new Set(Attendance.filter(a=>a.date===t&&(a.status==="Present"||a.status==="Late")).map(a=>a.studentId));
       const abs=scheduledFiltered.filter(s=> !Attendance.some(a=>a.date===t&&a.studentId===s.id&&(a.status==="Present"||a.status==="Late")));
       return abs.map(s=>["—",s.name,s.roll,s.class,"Absent",""]);
     }
@@ -1494,11 +1595,14 @@ detailScroll.addEventListener("click",(e)=>{
 });
 document.addEventListener("keydown",(e)=>{
   if(e.key==="Escape"){
-    if(enrollModal.classList.contains("open")){ closeModal(enrollModal); resumeSensorScan(); }
-    else if(holidayModal.classList.contains("open")) closeModal(holidayModal);
-    else if(overrideModal.classList.contains("open")) closeModal(overrideModal);
-    else if(correctionModal.classList.contains("open")) closeModal(correctionModal);
-    else if(adminLayer.classList.contains("open")){ adminLayer.classList.remove("open"); resumeSensorScan(); }
+    if(enrollModal && enrollModal.classList.contains("open")){
+      _enrollAbort=true; if(_enrollPoll) clearTimeout(_enrollPoll);
+      closeModal(enrollModal); resumeSensorScan();
+    }
+    else if(holidayModal && holidayModal.classList.contains("open")) closeModal(holidayModal);
+    else if(overrideModal && overrideModal.classList.contains("open")) closeModal(overrideModal);
+    else if(correctionModal && correctionModal.classList.contains("open")) closeModal(correctionModal);
+    else if(adminLayer && adminLayer.classList.contains("open")){ adminLayer.classList.remove("open"); resumeSensorScan(); }
   }
 });
 // ---- init ----
@@ -1506,6 +1610,9 @@ cacheLoad();
 renderAll();
 setState("ready");
 loadAll().then(()=>{ setTimeout(sensorScanLoop,300); });
-setInterval(()=>{ loadTodayAttendance().then(()=>{ if(currentTab==="today") renderToday(); }); }, 15000);
+setInterval(()=>{
+  if(typeof document!=="undefined" && document.hidden) return;
+  loadTodayAttendance().then(()=>{ if(currentTab==="today") renderToday(); });
+}, 15000);
 // alias used by the injected backend bridge
 function saveStorage(){ return cacheSave(); }

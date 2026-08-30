@@ -148,7 +148,7 @@ tr:hover td{background:var(--paper)}
     <div class="scanner-stage">
       <div class="prompt" id="promptText">PLACE YOUR FINGER TO SCAN</div>
     </div>
-    <div class="left-bottom"><button class="admin-trigger" id="openAdminBtn">Admin</button><button class="admin-trigger" id="openEnrollBtn">New Student Enrollment</button></div>
+    <div class="left-bottom"><button class="admin-trigger" id="openAdminBtn">Admin</button></div>
   </div>
   <div class="right">
     <div class="result-viewport">
@@ -185,6 +185,7 @@ tr:hover td{background:var(--paper)}
           <select id="classFilter"><option value="">All Classes</option></select>
           <select id="batchFilter"><option value="">All Batches</option></select>
           <select id="studentStatusFilter"><option value="active">Active only</option><option value="all">All</option><option value="inactive">Inactive only</option></select>
+          <button class="btn primary" id="newStudentToolbarBtn">New Enrollment</button>
           <button class="btn" id="importStudentsBtn">Import CSV</button>
           <button class="btn" id="exportStudentsBtn">Export CSV</button>
         </div>
@@ -216,7 +217,7 @@ tr:hover td{background:var(--paper)}
           <select id="reportScope"><option value="school">Entire school</option><option value="class">One class</option><option value="student">One student</option></select>
           <select id="reportClass"><option value="">Select class</option></select>
           <select id="reportStudent" style="display:none"><option value="">Select student</option></select>
-          <select id="reportTime"><option value="today">Today</option><option value="week">This week</option><option value="month">This month</option><option value="year">This year</option><option value="academic">Academic year 2026–27</option><option value="custom">Custom range</option></select>
+          <select id="reportTime"><option value="today">Today</option><option value="week">This week</option><option value="month">This month</option><option value="year">This year</option><option value="academic">Academic year 2026-27</option><option value="custom">Custom range</option></select>
           <input type="date" id="reportFrom" style="display:none"><input type="date" id="reportTo" style="display:none">
           <button class="btn primary" id="reportApplyBtn">Apply</button>
           <button class="btn" id="reportPrintBtn">Print</button>
@@ -231,7 +232,7 @@ tr:hover td{background:var(--paper)}
       <div class="admin-pane hidden" id="pane-calendar">
         <div class="detail-scroll">
           <div class="detail-card">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px;flex-wrap:wrap"><div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:600">Weekly schedule — Administrator decides working days</div><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><select id="calClassSelect" style="height:30px;border:1px solid var(--line);background:#fff;padding:0 10px;font-size:11px"><option value="">All classes (global)</option></select><span style="font-size:10px;color:var(--ink-3);white-space:nowrap">per-class — UI preview</span><button class="btn" id="calResetWeekBtn">Reset week to Mon-Sat</button></div></div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px;flex-wrap:wrap"><div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:600">Weekly schedule — Administrator decides working days</div><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><select id="calClassSelect" style="height:30px;border:1px solid var(--line);background:#fff;padding:0 10px;font-size:11px"><option value="">All classes (global)</option></select><span style="font-size:10px;color:var(--ink-3);white-space:nowrap">per-class — saved with settings</span><button class="btn" id="calResetWeekBtn">Reset week to Mon-Sat</button></div></div>
             <table class="weekly-table" id="weeklyTable"><thead><tr><th>Day</th><th>Working?</th></tr></thead><tbody></tbody></table>
             <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span class="badge working" style="font-size:8px">Working</span><span class="badge holiday" style="font-size:8px;background:#FFF8F6">Holiday</span><span class="badge" style="font-size:8px;background:#F6F8FF">Vacation</span><span class="badge" style="font-size:8px;border-color:var(--ink)">Override</span></div>
             <div style="margin-top:8px;font-size:10px;color:var(--ink-2);line-height:1.5">Priority: Specific date override → Holiday/Vacation → Weekly schedule. Holiday = not counted as absent. Examples: Mon-Fri, Mon-Sat, Tue-Sat, Mon/Wed/Fri custom. School info (name, year, late rule) is now in Settings.</div>
@@ -270,7 +271,7 @@ tr:hover td{background:var(--paper)}
                 <div class="form-field full"><label>School name</label><input id="setSchoolName" value="ATL Public School"></div>
                 <div class="form-field full"><label>Address</label><input id="setSchoolAddress" value="Shikrapur, Pune, Maharashtra"></div>
                 <div class="form-field"><label>Late threshold</label><input type="time" id="setLateThreshold" value="08:30"></div>
-                <div class="form-field"><label>Academic year</label><select id="setAcademicYear"><option>2026–27</option><option>2027–28</option></select></div>
+                <div class="form-field"><label>Academic year</label><select id="setAcademicYear"><option>2026-27</option><option>2027-28</option></select></div>
                 <div class="form-field full"><label>Attendance start date</label><input type="date" id="setAttendanceStart"></div>
               </div>
               <div style="margin-top:12px;display:flex;gap:8px"><button class="btn primary" id="settingsSaveBtn">Save settings</button><button class="btn" id="settingsExportBtn">Export school info CSV</button></div>
@@ -287,7 +288,7 @@ tr:hover td{background:var(--paper)}
               <div style="font-size:11px;line-height:1.6;color:var(--ink-2);margin-bottom:12px">Full SQLite database backup. Includes students, attendance, calendar, holidays, overrides, settings, fingerprint mappings, classes, audit. Works offline. Restore validates SQLite header before replacing.</div>
               <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="backupDownloadBtn">Download backup (DB)</button><label class="btn" style="cursor:pointer"><input type="file" id="backupFileInput" accept=".db,.sqlite,.sqlite3" style="display:none">Restore from file</label></div>
               <div id="backupStatus" style="margin-top:12px;font-size:11px;color:var(--ink-2)"></div>
-              <div style="margin-top:18px"><div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;font-weight:600;margin-bottom:8px">What gets backed up</div><div style="font-size:11px;line-height:1.6">Students, Attendance, Calendar (weekly schedule per global, holidays, overrides), School settings, Classes, Fingerprint mappings, Audit history. Per-class preview is UI-only and not in backup yet.</div></div>
+              <div style="margin-top:18px"><div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;font-weight:600;margin-bottom:8px">What gets backed up</div><div style="font-size:11px;line-height:1.6">Students, Attendance, Calendar (global weekly schedule plus per-class and per-batch schedules, holidays, overrides), School settings, Classes, Fingerprint mappings, Audit history. Per-class and per-batch schedules are stored in the database and included in this backup.</div></div>
             </div>
             <div class="detail-card" style="flex:2 1 480px">
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:600">Audit history — attendance is administrative record</div><div style="display:flex;gap:8px"><button class="btn" id="auditExportBtn">Export CSV</button><button class="btn" id="auditClearBtn" title="Managed on backend" disabled style="opacity:0.5">Clear audit</button></div></div>
@@ -917,7 +918,8 @@ function updateTabs(){
   if(currentTab==="backup") renderAudit();
 }
 document.getElementById("openAdminBtn").onclick=openAdmin;
-document.getElementById("openEnrollBtn").onclick=openNewStudent;
+const _frontA=document.getElementById("openEnrollBtn"); if(_frontA) _frontA.onclick=openNewStudent;
+const _newBtnA=document.getElementById("newStudentToolbarBtn"); if(_newBtnA) _newBtnA.onclick=openNewStudent;
 document.getElementById("adminClose").onclick=()=>adminLayer.classList.remove("open");
 adminNav.onclick=(e)=>{
   if(e.target.tagName!=="BUTTON") return;
@@ -1106,7 +1108,8 @@ renderCalendarMonth=function(){
 const _atlRenderAll=renderAll;
 renderAll=function(){ _atlRenderAll(); renderWeekly(); };
 document.getElementById("openAdminBtn").onclick=function(){ pauseSensorScan(); adminLayer.classList.add("open"); renderAll(); };
-document.getElementById("openEnrollBtn").onclick=openNewStudent;
+const _frontB=document.getElementById("openEnrollBtn"); if(_frontB) _frontB.onclick=openNewStudent;
+const _newBtnB=document.getElementById("newStudentToolbarBtn"); if(_newBtnB) _newBtnB.onclick=openNewStudent;
 document.getElementById("adminClose").onclick=function(){ adminLayer.classList.remove("open"); resumeSensorScan(); };
 const _atlOpenNewStudent=openNewStudent;
 openNewStudent=function(){ pauseSensorScan(); return _atlOpenNewStudent(); };
