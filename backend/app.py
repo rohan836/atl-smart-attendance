@@ -416,8 +416,8 @@ SCAN_BRIDGE_SCRIPT = """<script>
       if (d.student && d.fingerId !== null && d.fingerId !== undefined){
         var fid = 'F-' + d.fingerId;
         ensureStudent(d.student, fid);
-        // pass scan info so the UI shows the real status (PRESENT/LATE/DUPLICATE) + time
-        window.handleRealScan(fid, { status: d.status, result: d.result, time: d.time, date: d.date, seq: d.seq });
+        // pass scan info so the UI shows the real status (PRESENT/LATE/DUPLICATE) + time - include student for immediate cache
+        window.handleRealScan(fid, { status: d.status, result: d.result, time: d.time, date: d.date, seq: d.seq, student: d.student });
       } else if (d.status === 'UNKNOWN' || d.result === 'UNKNOWN'){
         window.handleRealScan('__unknown__' + d.seq, { seq: d.seq });
       }
@@ -1434,24 +1434,59 @@ def enroll():
     except sqlite3.Error as e:
         return jsonify({"error":f"DB_FAIL {e}"}), 500
 
-    # --- REAL SENSOR ENROLL (no timers) ---
+    # --- REAL SENSOR ENROLL with ID sync (sensor + DB atomic) ---
+    # Strategy: DB next_finger_id is first guess, but sensor may have orphan templates
+    # (e.g., delete skipped when hardware_unusable). GT-511C3 enroll_start returns
+    # IS_ALREADY_USED if ID occupied on sensor. We retry with next DB-free ID on that
+    # specific error (bounded), and only report success after BOTH sensor and DB succeed.
+    # If DB fails after sensor success, we delete the sensor template to avoid orphan.
     if not SENSOR_LOCK.acquire(timeout=5):
         return jsonify({"error":"sensor busy — wait for the current scan to finish"}), 503
     set_sensor_progress(mode="enroll", step=1, steps_total=3, state="place", title="Place your finger",
                         detail="Sensor light is on. Put your finger on the glass.", timeout_sec=40, finger=False)
+    ok, msg = False, "NOT_STARTED"
+    attempted_fids = []
+    fid_candidate = fid
     try:
-        sensor = get_sensor()
-        if hardware_unusable(sensor):
-            sensor.close()
-            return jsonify({"error":"sensor offline — hardware not ready", "sensor":"offline", "hint": getattr(sensor, "last_error", "")}), 503
-        try:
-            ok, msg = sensor.enroll(int(fid), log=set_sensor_progress)
-            app.logger.info("sensor enroll fid=%s ok=%s result=%s", fid, ok, msg)
-        except Exception as e:
-            ok, msg = False, f"EXC {e}"
-            app.logger.exception("sensor enroll exception fid=%s", fid)
-        finally:
-            sensor.close()
+        for attempt in range(10):
+            fid_candidate = fid_candidate if attempt == 0 else None
+            if fid_candidate is None:
+                # find next DB-free fid not yet attempted
+                used = {r[0] for r in db.execute("SELECT fingerId FROM students WHERE active=1 AND fingerId IS NOT NULL")}
+                used.update(attempted_fids)
+                for i in range(1, 200):
+                    if i not in used:
+                        fid_candidate = i
+                        break
+                if fid_candidate is None:
+                    ok, msg = False, "DB_IS_FULL"
+                    break
+            attempted_fids.append(fid_candidate)
+            sensor = get_sensor()
+            if hardware_unusable(sensor):
+                try: sensor.close()
+                except: pass
+                ok, msg = False, f"sensor offline — hardware not ready {getattr(sensor, 'last_error','')}"
+                break
+            try:
+                ok, msg = sensor.enroll(int(fid_candidate), log=set_sensor_progress)
+                app.logger.info("sensor enroll fid=%s ok=%s result=%s (attempt %s)", fid_candidate, ok, msg, attempt+1)
+            except Exception as e:
+                ok, msg = False, f"EXC {e}"
+                app.logger.exception("sensor enroll exception fid=%s", fid_candidate)
+            finally:
+                try: sensor.close()
+                except: pass
+            if ok:
+                fid = fid_candidate
+                break
+            # retry only on already-used
+            if "IS_ALREADY_USED" in str(msg) or "IS_ALREADY_USED" in str(msg):
+                # try next fid in next loop
+                fid_candidate = None
+                continue
+            else:
+                break
     finally:
         SENSOR_LOCK.release()
     if not ok:
@@ -1635,7 +1670,15 @@ def scan():
                     return jsonify({"ok": False, "reason": "NON_WORKING_DAY", "status": "NOT_SCHEDULED", "date": date, "time": t, "student": dict(stu), "seq": int(existing_seq[0])})
             except Exception:
                 pass
-            return jsonify({"ok": False, "reason": "NON_WORKING_DAY", "status": "NOT_SCHEDULED", "date": date, "time": t, "student": dict(stu), "seq": 0})
+            # Fallback: ensure a real event seq (never 0) for UI
+            try:
+                eid = str(uuid.uuid4())
+                cur = db.execute("INSERT INTO events(id, date, time, studentId, fingerId, result, status, source) VALUES (?,?,?,?,?,?,?,?)", (eid, date, t, student_id, stu["fingerId"], "NOT_SCHEDULED", "NOT_SCHEDULED", "GT511C3"))
+                db.commit()
+                return jsonify({"ok": False, "reason": "NON_WORKING_DAY", "status": "NOT_SCHEDULED", "date": date, "time": t, "student": dict(stu), "seq": int(cur.lastrowid)})
+            except Exception:
+                pass
+            return jsonify({"ok": False, "reason": "NON_WORKING_DAY", "status": "NOT_SCHEDULED", "date": date, "time": t, "student": dict(stu), "seq": int((db.execute("SELECT COALESCE(MAX(rowid),0) FROM events").fetchone()[0] or 0) + 1)})
         try:
             ensure_daily(date, student_id, db)
             row_ns = db.execute("SELECT status FROM daily WHERE key=?", (f"{date}|{student_id}",)).fetchone()
@@ -1662,14 +1705,21 @@ def scan():
                     return jsonify({"ok": False, "reason": "NOT_SCHEDULED", "status": "NOT_SCHEDULED", "date": date, "time": t, "student": dict(stu), "seq": int(existing_seq[0])})
         except Exception:
             pass
-        # fallback always with seq for UI (ensure front-page shows feedback)
+        # fallback always with seq for UI (ensure front-page shows feedback) - never seq:0
         try:
             existing_seq = db.execute("SELECT rowid FROM events WHERE date=? AND studentId=? AND status='NOT_SCHEDULED' ORDER BY rowid DESC LIMIT 1", (date, student_id)).fetchone()
             if existing_seq:
                 return jsonify({"ok": False, "reason": "NOT_SCHEDULED", "status": "NOT_SCHEDULED", "date": date, "time": t, "student": dict(stu), "seq": int(existing_seq[0])})
         except Exception:
             pass
-        return jsonify({"ok": False, "reason": "NOT_SCHEDULED", "status": "NOT_SCHEDULED", "date": date, "time": t, "student": dict(stu), "seq": 0})
+        try:
+            eid = str(uuid.uuid4())
+            cur = db.execute("INSERT INTO events(id, date, time, studentId, fingerId, result, status, source) VALUES (?,?,?,?,?,?,?,?)", (eid, date, t, student_id, stu["fingerId"], "NOT_SCHEDULED", "NOT_SCHEDULED", "GT511C3"))
+            db.commit()
+            return jsonify({"ok": False, "reason": "NOT_SCHEDULED", "status": "NOT_SCHEDULED", "date": date, "time": t, "student": dict(stu), "seq": int(cur.lastrowid)})
+        except Exception:
+            pass
+        return jsonify({"ok": False, "reason": "NOT_SCHEDULED", "status": "NOT_SCHEDULED", "date": date, "time": t, "student": dict(stu), "seq": int((db.execute("SELECT COALESCE(MAX(rowid),0) FROM events").fetchone()[0] or 0) + 1)})
 
     # Duplicate scan edge
     try:

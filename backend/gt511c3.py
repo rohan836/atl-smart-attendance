@@ -136,11 +136,11 @@ class GT511C3:
         """Datasheet Open: param 0 = no extra info. Close first if the device is in DEV_ERR."""
         if self.sim:
             return True, "SIM"
-        self._cmd(CMD_CLOSE, 0, timeout=1.0)
-        ok, msg = self._cmd(CMD_OPEN, 0, timeout=2.0)
+        ok, msg = self._cmd(CMD_OPEN, 0, timeout=0.5)
         if not ok:
-            time.sleep(0.2)
-            ok, msg = self._cmd(CMD_OPEN, 0, timeout=2.0)
+            self._cmd(CMD_CLOSE, 0, timeout=0.3)
+            time.sleep(0.05)
+            ok, msg = self._cmd(CMD_OPEN, 0, timeout=0.5)
         return ok, msg
 
     def _read_packet(self, timeout):
@@ -216,7 +216,7 @@ class GT511C3:
     def is_ready(self):
         if self.sim:
             return True
-        ok, _ = self._cmd(CMD_CMOS_LED, 1, timeout=1.0)  # LED on as ping
+        ok, _ = self._cmd(CMD_CMOS_LED, 1, timeout=0.5)  # LED on as ping
         if ok:
             self.set_led(self.keep_led_on)
             return True
@@ -226,7 +226,7 @@ class GT511C3:
             ok,_ = self.initialize()
             if not ok:
                 return False
-            ok,_ = self._cmd(CMD_CMOS_LED, 1, timeout=1.0)
+            ok,_ = self._cmd(CMD_CMOS_LED, 1, timeout=0.5)
             if ok:
                 self.set_led(self.keep_led_on)
             return ok
@@ -237,15 +237,15 @@ class GT511C3:
         """CMOS LED control. Returns True on sensor ACK."""
         if self.sim:
             return True
-        ok, _ = self._cmd(CMD_CMOS_LED, 1 if on else 0, timeout=1.0)
+        ok, _ = self._cmd(CMD_CMOS_LED, 1 if on else 0, timeout=0.5)
         return ok
 
-    def is_press_finger(self):
+    def is_press_finger(self, timeout=0.2):
         """Datasheet + live sensor: ACK param 0 = pressed; ACK param 0x1012 = not pressed.
         Returns True / False / None (comms error). LED must already be on."""
         if self.sim:
             return True
-        ok, param = self._cmd(CMD_IS_PRESS_FINGER, 0, timeout=1.5)
+        ok, param = self._cmd(CMD_IS_PRESS_FINGER, 0, timeout=timeout)
         if not ok:
             return None
         return int(param) == 0
@@ -264,12 +264,19 @@ class GT511C3:
         streak = 0
         while time.time() < deadline:
             remain = max(0, int(deadline - time.time()))
-            st = self.is_press_finger()
+            # cap is_press_finger timeout to remaining wait time, max 0.2s - respects requested timeout
+            if time.time() >= deadline:
+                return False
+            cmd_timeout = min(0.2, max(0.05, deadline - time.time()))
+            st = self.is_press_finger(timeout=cmd_timeout)
             if on_wait:
                 on_wait(remain, st, expect_press, deadline)
             if st is None:
                 streak = 0
-                time.sleep(0.05)
+                # check deadline before next sensor command
+                if time.time() >= deadline:
+                    return False
+                time.sleep(0.02)
                 continue
             if st == expect_press:
                 streak += 1
@@ -277,8 +284,9 @@ class GT511C3:
                     return True
             else:
                 streak = 0
-            time.sleep(0.12)
-        return False
+            if time.time() >= deadline:
+                return False
+            time.sleep(0.02)
 
     def capture(self, best_image=False):
         if self.sim:
@@ -415,10 +423,8 @@ class GT511C3:
         if self.sim:
             time.sleep(0.3)
             return None, "SIM"
-        ok, msg = self.initialize()
-        if not ok:
-            return None, f"UART_INIT_FAIL {msg}"
-        self._cmd(CMD_CMOS_LED, 1, timeout=1.0)
+        # For wait_finger, don't re-initialize before waiting - LED is already on via keep_led_on
+        # This makes wait_finger(timeout=2) actually respect 2s instead of 2s+initialize(1.5s)
         try:
             def on_press(remain, finger, expect, deadline):
                 emit({
@@ -435,6 +441,11 @@ class GT511C3:
             })
             if not self.wait_finger(timeout=WAIT, expect_press=True, on_wait=on_press):
                 return None, "NO_FINGER"
+            # Finger pressed - now ensure sensor is ready for capture
+            ok, msg = self.initialize()
+            if not ok:
+                return None, f"UART_INIT_FAIL {msg}"
+            self._cmd(CMD_CMOS_LED, 1, timeout=0.3)
             emit({"mode": "scan", "state": "capturing", "title": "Scanning", "detail": "Keep still.", "timeout_sec": 0, "deadline": 0, "finger": True})
             ok, msg = False, "NO_CAPTURE"
             for _ in range(8):

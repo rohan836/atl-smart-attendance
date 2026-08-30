@@ -250,31 +250,92 @@ function closeModal(m){ m.classList.remove("open"); }
 });
 
 // ---- terminal ----
+(function injectScanStateStyles(){
+  try{
+    if(document.getElementById("atl-scan-state-styles")) return;
+    const s=document.createElement("style");
+    s.id="atl-scan-state-styles";
+    s.textContent=`
+      .prompt{transition:color 220ms var(--ease),opacity 220ms var(--ease)}
+      .prompt.scanning,.prompt.detecting,.prompt.identifying{color:var(--ink)}
+      .prompt.scanning::before,.prompt.detecting::before,.prompt.identifying::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--ink);vertical-align:middle;margin-right:8px;animation:atlScanDot 0.92s ease-in-out infinite}
+      .prompt.identifying::before{background:var(--ink-2);animation-duration:0.62s}
+      @keyframes atlScanDot{0%,100%{opacity:0.28;transform:scale(0.85)}50%{opacity:1;transform:scale(1)}}
+      .prompt.scanning::after,.prompt.detecting::after{content:"";display:block;width:32px;height:1px;background:var(--line-strong);margin:7px auto 0;animation:atlScanLine 1.1s cubic-bezier(0.45,0,0.55,1) infinite}
+      .prompt.identifying::after{content:"";display:block;width:24px;height:1px;background:var(--ink-2);margin:7px auto 0;opacity:0.62}
+      @keyframes atlScanLine{0%{transform:scaleX(0.2);opacity:0.35}50%{transform:scaleX(1);opacity:1}100%{transform:scaleX(0.2);opacity:0.35}}
+      .unknown-sub{display:none!important}
+      .id-confirm{display:none!important}
+      @media (prefers-reduced-motion:reduce){.prompt.scanning::before,.prompt.scanning::after,.prompt.detecting::before,.prompt.detecting::after,.prompt.identifying::before{animation:none!important}}
+    `;
+    document.head.appendChild(s);
+  }catch(e){}
+})();
+let _resultHold=false;
 function setState(state){
   if(!promptText) return;
-  if(state==="detecting") promptText.textContent="Finger detected";
-  else if(state==="scanning") promptText.textContent="Scanning";
-  else if(state==="ready") promptText.textContent="PLACE YOUR FINGER TO SCAN";
+  promptText.classList.remove("scanning","identifying","detecting");
+  if(state==="detecting"){
+    promptText.textContent="FINGER DETECTED";
+    promptText.classList.add("detecting");
+  } else if(state==="identifying"){
+    promptText.textContent="IDENTIFYING\u2026";
+    promptText.classList.add("identifying");
+  } else if(state==="scanning"){
+    promptText.textContent="SCANNING";
+    promptText.classList.add("scanning");
+  } else {
+    promptText.textContent="PLACE YOUR FINGER";
+  }
 }
 function showIdentity(student, status, time, dateStr){
+  if(promptText){ promptText.classList.remove("scanning","identifying","detecting"); }
+  _resultHold=true;
+  if(_scanLoopTimer){ clearTimeout(_scanLoopTimer); _scanLoopTimer=null; }
+  Timers.clear("hold");
   idleLayer.classList.add("hidden");
   unknownLayer.classList.remove("visible");
   if(student.photo){ photoImg.src=student.photo; photoImg.style.display="block"; photoFallback.style.display="none"; }
   else { photoImg.style.display="none"; photoFallback.style.display="flex"; photoFallback.textContent=student.name.trim().split(" ").map(w=>w[0]).slice(0,2).join("").toUpperCase(); }
   idName.textContent=student.name;
-  idSub.innerHTML=`<span class="id-sub-item">Roll ${esc(student.roll)}</span><span class="id-sub-item">${esc(student.class)}</span><span class="id-sub-item">ID ${esc(String(student.id))}</span><span class="id-sub-item">${esc(student.phone)}</span>`;
+  idSub.innerHTML=`<span class="id-sub-item">${esc(student.class)}</span><span class="id-sub-item">${esc(student.roll)}</span>`;
   idStatus.textContent=status; idStatus.className="id-status";
   if(status==="Late") idStatus.style.borderColor="#C7B07A"; else idStatus.style.borderColor="var(--line-strong)";
   idTime.textContent=(time||"").slice(0,5);
   idDate.textContent=dateStr||new Date().toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'});
+  if(idConfirm) idConfirm.style.display="none";
   identityLayer.classList.add("visible");
-  Timers.set("hold", setTimeout(()=>{ identityLayer.classList.remove("visible"); idleLayer.classList.remove("hidden"); setState("ready"); }, 5000));
+  Timers.set("hold", setTimeout(()=>{
+    identityLayer.classList.remove("visible");
+    idleLayer.classList.remove("hidden");
+    setState("ready");
+    _resultHold=false;
+    if(_scanLoopActive && adminLayer && !adminLayer.classList.contains("open") && enrollModal && !enrollModal.classList.contains("open")){
+      _scanLoopTimer=setTimeout(sensorScanLoop, 180);
+    }
+  }, 2800));
 }
 function showUnknown(){
+  if(promptText){ promptText.classList.remove("scanning","identifying","detecting"); }
+  _resultHold=true;
+  if(_scanLoopTimer){ clearTimeout(_scanLoopTimer); _scanLoopTimer=null; }
+  Timers.clear("hold");
   idleLayer.classList.add("hidden");
   identityLayer.classList.remove("visible");
+  const _ut = unknownLayer.querySelector(".unknown-title");
+  if(_ut) _ut.textContent="UNKNOWN FINGERPRINT";
+  const _us = unknownLayer.querySelector(".unknown-sub");
+  if(_us) _us.style.display="none";
   unknownLayer.classList.add("visible");
-  Timers.set("hold", setTimeout(()=>{ unknownLayer.classList.remove("visible"); idleLayer.classList.remove("hidden"); setState("ready"); }, 4000));
+  Timers.set("hold", setTimeout(()=>{
+    unknownLayer.classList.remove("visible");
+    idleLayer.classList.remove("hidden");
+    setState("ready");
+    _resultHold=false;
+    if(_scanLoopActive && adminLayer && !adminLayer.classList.contains("open") && enrollModal && !enrollModal.classList.contains("open")){
+      _scanLoopTimer=setTimeout(sensorScanLoop, 180);
+    }
+  }, 2500));
 }
 function tickClock(){
   if(!leftClock) return;
@@ -290,7 +351,15 @@ window.handleRealScan = async function(fid, info){
   const seq=Number(info.seq||0);
   if(seq && seq<=_lastHandledScanSeq) return;
   if(seq) _lastHandledScanSeq=seq;
-  if(fid && String(fid).indexOf("__unknown__")===0){ showUnknown(); return; }
+  if(fid && String(fid).indexOf("__unknown__")===0){
+    setState("detecting");
+    await new Promise(r=>setTimeout(r, 150));
+    if(seq && seq < _lastHandledScanSeq) return;
+    setState("identifying");
+    showUnknown();
+    loadTodayAttendance().then(()=>{ if(currentTab==="today") renderToday(); });
+    return;
+  }
   let s = Students.find(x=>x.fid===fid);
   if(!s){
     // startup race: Students not yet loaded from backend (loadAll async) — try to use info.student or fetch
@@ -316,8 +385,20 @@ window.handleRealScan = async function(fid, info){
         }
       }catch(e){}
     }
-    if(!s){ showUnknown(); return; }
+    if(!s){
+      setState("detecting");
+      await new Promise(r=>setTimeout(r, 150));
+      if(seq && seq < _lastHandledScanSeq) return;
+      setState("identifying");
+      showUnknown();
+      loadTodayAttendance().then(()=>{ if(currentTab==="today") renderToday(); });
+      return;
+    }
   }
+  setState("detecting");
+  await new Promise(r=>setTimeout(r, 150));
+  if(seq && seq < _lastHandledScanSeq) return;
+  setState("identifying");
   const status = info.status ? statusUI(info.status) : "Present";
   const time = info.time || new Date().toTimeString().slice(0,8);
   showIdentity(s, status, time, info.date ? fmtDate(info.date) : "");
@@ -325,28 +406,30 @@ window.handleRealScan = async function(fid, info){
   loadTodayAttendance().then(()=>{ if(currentTab==="today") renderToday(); });
 };
 let _scanLoopActive=true, _scanRequestInFlight=false, _scanLoopTimer=null;
-function pauseSensorScan(){ _scanLoopActive=false; if(_scanLoopTimer) clearTimeout(_scanLoopTimer); }
+function pauseSensorScan(){ _scanLoopActive=false; if(_scanLoopTimer){ clearTimeout(_scanLoopTimer); _scanLoopTimer=null; } if(promptText){ promptText.classList.remove("scanning","identifying","detecting"); } }
 function resumeSensorScan(){
   if(_scanLoopActive) return;
   _scanLoopActive=true;
+  if(!_resultHold) setState("ready");
   sensorScanLoop();
 }
 async function sensorScanLoop(){
   if(!_scanLoopActive || _scanRequestInFlight) return;
+  if(_resultHold){ _scanLoopTimer=setTimeout(sensorScanLoop, 180); return; }
   if(adminLayer && adminLayer.classList.contains("open")){ _scanLoopTimer=setTimeout(sensorScanLoop,500); return; }
+  if(enrollModal && enrollModal.classList.contains("open")){ _scanLoopTimer=setTimeout(sensorScanLoop,500); return; }
   _scanRequestInFlight=true;
   let nextDelay=150;
-  setState("scanning");
   try{
     const res=await api("/api/scan",{method:"POST",body:JSON.stringify({waitSec:2})});
-    if(res && res.seq){
+    if(res && res.seq !== undefined && res.seq !== null){
       if(res.student && res.student.fingerId!==null && res.student.fingerId!==undefined){
         const mapped=mapStudent(res.student), existing=Students.findIndex(x=>x.id===mapped.id);
         if(existing>=0) Students[existing]=mapped; else Students.push(mapped);
         cacheSave();
-        window.handleRealScan("F-"+res.student.fingerId,{status:res.status,time:res.time,date:res.date,seq:res.seq});
+        await window.handleRealScan("F-"+res.student.fingerId,{status:res.status,time:res.time,date:res.date,seq:res.seq,student:res.student});
       } else if(res.reason==="UNKNOWN"){
-        window.handleRealScan("__unknown__"+res.seq,{seq:res.seq});
+        await window.handleRealScan("__unknown__"+res.seq,{seq:res.seq});
       }
     }
   }catch(err){
@@ -355,7 +438,14 @@ async function sensorScanLoop(){
     if(reason!=="NO_FINGER" && reason!=="SENSOR_BUSY" && reason!=="SENSOR_DISCONNECT") console.warn("Sensor scan:",err.message);
   }finally{
     _scanRequestInFlight=false;
-    if(_scanLoopActive){ setState("ready"); _scanLoopTimer=setTimeout(sensorScanLoop,nextDelay); }
+    if(_scanLoopActive){
+      if(_resultHold){
+        // hold active — result card visible, do not overwrite prompt or schedule duplicate
+      } else {
+        setState("ready");
+        _scanLoopTimer=setTimeout(sensorScanLoop,nextDelay);
+      }
+    }
   }
 }
 // ---- render: Students ----
