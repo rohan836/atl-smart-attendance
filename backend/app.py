@@ -1,0 +1,2056 @@
+#!/usr/bin/env python3
+"""
+ATL Smart Attendance — Pi Backend (REAL)
+Replaces simulated timer flows with actual GT-511C3 UART, SQLite persistence,
+and full edge-case handling. Offline-first: no internet required.
+"""
+import os, json, sqlite3, time, uuid, pathlib, datetime, re, threading
+from flask import Flask, request, jsonify, send_from_directory, g, Response
+from flask_cors import CORS
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+CONFIG_PATH = pathlib.Path(__file__).with_name("config.json")
+SCHEMA_PATH = pathlib.Path(__file__).with_name("schema.sql")
+
+cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+DB_PATH = os.path.expanduser(cfg.get("db") or str(ROOT / "backend" / "attendance.db"))
+if os.name == "nt" and DB_PATH.startswith("/var"):
+    DB_PATH = str(ROOT / "backend" / "attendance.db")
+IMAGES_DIR = cfg.get("imagesDir") or str(ROOT / "assets" / "images" / "students")
+if os.name == "nt" and IMAGES_DIR.startswith("/var"):
+    IMAGES_DIR = str(ROOT / "backend" / "uploads")
+
+PORT = int(cfg.get("port", 5000))
+HOST = cfg.get("host", "0.0.0.0")
+
+app = Flask(__name__, static_folder=str(ROOT), static_url_path="")
+CORS(app)
+# --- Auto cache-bust: never cache HTML/CSS/JS so deploys show instantly ---
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
+@app.after_request
+def _no_cache(resp):
+    # HTML + CSS/JS + API health must not be cached during dev/deploy
+    p = request.path
+    if p == "/" or p.endswith((".html", ".css", ".js")) or p.startswith("/api/health"):
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+    return resp
+
+SENSOR_LOCK = threading.Lock()
+_UART_PING = {"t": 0.0, "ok": True, "msg": "ready", "name": "ready"}
+SENSOR_PROGRESS = {
+    "mode": "idle", "step": 0, "steps_total": 3, "state": "idle",
+    "title": "", "detail": "", "timeout_sec": 0, "deadline": 0,
+    "remain_sec": 0, "finger": None, "raw": "", "text": "",
+}
+
+DEFAULT_WORKING_DAYS = {"0": False, "1": True, "2": True, "3": True,
+                       "4": True, "5": True, "6": True}
+
+def set_sensor_progress(ev=None, **kw):
+    if isinstance(ev, str):
+        kw.setdefault("title", ev)
+        kw.setdefault("detail", ev)
+        kw.setdefault("raw", ev)
+        kw.setdefault("text", ev)
+    elif isinstance(ev, dict):
+        kw = {**ev, **kw}
+    for k, v in kw.items():
+        if k in SENSOR_PROGRESS or k in ("title", "detail", "state", "mode", "step", "steps_total", "timeout_sec", "deadline", "remain_sec", "finger", "raw", "text"):
+            SENSOR_PROGRESS[k] = v
+    if SENSOR_PROGRESS.get("title") and not SENSOR_PROGRESS.get("text"):
+        SENSOR_PROGRESS["text"] = SENSOR_PROGRESS["title"]
+    if "timeout_sec" in kw and not kw.get("timeout_sec"):
+        SENSOR_PROGRESS["deadline"] = 0
+    elif kw.get("timeout_sec") and not kw.get("deadline"):
+        SENSOR_PROGRESS["deadline"] = time.time() + float(kw["timeout_sec"])
+
+def sensor_progress_view():
+    d = dict(SENSOR_PROGRESS)
+    dl = float(d.get("deadline") or 0)
+    if dl:
+        d["remain_sec"] = max(0, int(dl - time.time()))
+    else:
+        d["remain_sec"] = 0
+    return d
+
+def set_enroll_progress(text, pct=None, raw=""):
+    set_sensor_progress(title=text, detail=text, raw=raw or text, text=text, mode="enroll")
+
+# --- DB ---
+def _migrate_db(db):
+    # Preserve historical data: add columns if missing (safe, additive only)
+    try:
+        cols = [r[1] for r in db.execute("PRAGMA table_info(students)").fetchall()]
+        for col in ("address", "batch", "section", "parent"):
+            if col not in cols:
+                try:
+                    db.execute(f"ALTER TABLE students ADD COLUMN {col} TEXT")
+                except Exception:
+                    pass
+        db.commit()
+    except Exception:
+        pass
+
+def get_db():
+    if "db" not in g:
+        os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
+        need_init = not os.path.exists(DB_PATH)
+        try:
+            g.db = sqlite3.connect(DB_PATH, timeout=10, check_same_thread=False, isolation_level=None)
+        except sqlite3.Error as e:
+            raise RuntimeError(f"DB open failed {DB_PATH}: {e}")
+        g.db.row_factory = sqlite3.Row
+        g.db.execute("PRAGMA journal_mode=WAL;")
+        g.db.execute("PRAGMA synchronous=NORMAL;")
+        g.db.execute("PRAGMA foreign_keys=ON;")
+        if need_init:
+            g.db.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+            g.db.execute("INSERT OR IGNORE INTO settings(key,value) VALUES (?,?)", ("config", json.dumps(cfg)))
+            g.db.commit()
+        else:
+            _migrate_db(g.db)
+    return g.db
+
+@app.teardown_appcontext
+def close_db(exc):
+    db = g.pop("db", None)
+    if db:
+        try: db.close()
+        except: pass
+
+def get_settings():
+    try:
+        db = get_db()
+        row = db.execute("SELECT value FROM settings WHERE key='config'").fetchone()
+        if row:
+            j = json.loads(row["value"])
+            # migrations - keep additive, preserve existing data
+            if "trajectoryLabels" not in j: j["trajectoryLabels"] = cfg["trajectoryLabels"]
+            if "classes" not in j: j["classes"] = cfg["classes"]
+            if "batches" not in j: j["batches"] = cfg.get("batches", [])
+            if "classSchedules" not in j: j["classSchedules"] = cfg.get("classSchedules", {})
+            if "batchSchedules" not in j: j["batchSchedules"] = cfg.get("batchSchedules", {})
+            if "schoolLogo" not in j: j["schoolLogo"] = cfg["schoolLogo"]
+            if "planetImage" not in j: j["planetImage"] = cfg["planetImage"]
+            if "heroImage" not in j: j["heroImage"] = cfg["heroImage"]
+            if "imageGallery" not in j: j["imageGallery"] = []
+            if "holidays" not in j: j["holidays"] = []
+            if "halfDayCutoff" not in j: j["halfDayCutoff"] = "10:00"
+            if "workingDays" not in j: j["workingDays"] = dict(DEFAULT_WORKING_DAYS)
+            if "overrides" not in j: j["overrides"] = []
+            # ensure classSchedules values are dicts
+            if not isinstance(j.get("classSchedules"), dict): j["classSchedules"] = {}
+            if not isinstance(j.get("batchSchedules"), dict): j["batchSchedules"] = {}
+            if not isinstance(j.get("batches"), list): j["batches"] = []
+            return j
+    except Exception:
+        pass
+    return cfg
+
+def save_settings(new_cfg):
+    db = get_db()
+    db.execute("INSERT OR REPLACE INTO settings(key,value) VALUES (?,?)", ("config", json.dumps(new_cfg)))
+    db.commit()
+
+def public_settings():
+    """Return UI-safe settings without deployment/hardware connection fields."""
+    s = dict(get_settings())
+    for k in ("sensor", "uart", "baud", "db", "host", "port", "imagesDir"):
+        s.pop(k, None)
+    return s
+
+# --- Clock & validation ---
+def today_ist():
+    tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+    return datetime.datetime.now(tz).date().isoformat()
+
+def now_ist():
+    tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+    return datetime.datetime.now(tz).strftime("%d/%m/%Y, %H:%M:%S")
+
+def validate_clock():
+    # Edge: invalid clock (system time absurd)
+    try:
+        iso = today_ist()
+        d = datetime.date.fromisoformat(iso)
+        if d.year < 2020 or d.year > 2035:
+            return False, f"INVALID_CLOCK {iso}"
+        return True, "OK"
+    except Exception as e:
+        return False, f"CLOCK_ERR {e}"
+
+def is_working_day(date_iso, s):
+    """Apply override -> holiday/vacation -> weekly calendar precedence."""
+    try:
+        day = datetime.date.fromisoformat(str(date_iso))
+    except (TypeError, ValueError):
+        return False
+
+    def holiday_range(value):
+        if isinstance(value, dict):
+            start = value.get("start") or value.get("date")
+            end = value.get("end") or start
+            kind = str(value.get("type") or "holiday").lower()
+            return start, end, kind
+        raw = str(value or "").strip()
+        if not raw:
+            return None, None, "holiday"
+        head = raw.split(":", 1)[0].strip()
+        if ".." in head:
+            start, end = [x.strip() for x in head.split("..", 1)]
+        else:
+            start = end = head
+        rest = raw[len(head):].lstrip(":")
+        parts = rest.split(":", 1)
+        kind = parts[0].strip().lower() if len(parts) == 2 else "holiday"
+        return start, end, kind if kind in ("holiday", "vacation", "exam") else "holiday"
+
+    def contains(start, end):
+        try:
+            return datetime.date.fromisoformat(start) <= day <= datetime.date.fromisoformat(end)
+        except (TypeError, ValueError):
+            return False
+
+    for override in (s.get("overrides") or []):
+        if isinstance(override, dict):
+            raw_date = override.get("date")
+            value = override.get("isWorking", override.get("working", False))
+        else:
+            parts = str(override).split(":", 2)
+            raw_date = parts[0].strip() if parts else ""
+            value = len(parts) > 1 and parts[1].strip().lower() in ("1", "true", "yes", "on")
+        if raw_date == str(date_iso):
+            return bool(value)
+
+    for holiday in (s.get("holidays") or []):
+        start, end, kind = holiday_range(holiday)
+        if contains(start, end):
+            return kind == "exam"
+
+    weekly = s.get("workingDays") or DEFAULT_WORKING_DAYS
+    # UI/JSON convention is Sunday=0, Monday=1, ..., Saturday=6.
+    weekday_key = (day.weekday() + 1) % 7
+    value = weekly.get(str(weekday_key), weekly.get(weekday_key, False))
+    if isinstance(value, str):
+        value = value.strip().lower() in ("1", "true", "yes", "on")
+    return bool(value)
+
+def _get_working_days_for_student(student, s):
+    """Return weekly workingDays dict for a student with precedence: batch composite → batch → class → global."""
+    if student:
+        grade = (student.get("grade") or student.get("class") or "").strip()
+        batch = (student.get("batch") or student.get("group") or "").strip()
+        batch_schedules = s.get("batchSchedules") or {}
+        class_schedules = s.get("classSchedules") or {}
+        # batch composite key: "Grade|Batch"
+        if grade and batch:
+            key = f"{grade}|{batch}"
+            if key in batch_schedules:
+                v = batch_schedules[key]
+                # allow {workingDays:{...}} or directly {0:..}
+                if isinstance(v, dict) and "workingDays" in v:
+                    return v["workingDays"]
+                if isinstance(v, dict):
+                    return v
+        if batch and batch in batch_schedules:
+            v = batch_schedules[batch]
+            if isinstance(v, dict) and "workingDays" in v:
+                return v["workingDays"]
+            if isinstance(v, dict):
+                return v
+        if grade and grade in class_schedules:
+            v = class_schedules[grade]
+            if isinstance(v, dict) and "workingDays" in v:
+                return v["workingDays"]
+            if isinstance(v, dict):
+                return v
+    return s.get("workingDays") or DEFAULT_WORKING_DAYS
+
+def is_student_scheduled(date_iso, student, s):
+    """Canonical: Is this student scheduled/eligible on this date? Precedence: override → holiday/vacation/exam → class/batch → global."""
+    # Reuse holiday/override logic from is_working_day but with student-specific weekly
+    try:
+        day = datetime.date.fromisoformat(str(date_iso))
+    except (TypeError, ValueError):
+        return False
+    def holiday_range(value):
+        if isinstance(value, dict):
+            start = value.get("start") or value.get("date")
+            end = value.get("end") or start
+            kind = str(value.get("type") or "holiday").lower()
+            return start, end, kind
+        raw = str(value or "").strip()
+        if not raw:
+            return None, None, "holiday"
+        head = raw.split(":", 1)[0].strip()
+        if ".." in head:
+            start, end = [x.strip() for x in head.split("..", 1)]
+        else:
+            start = end = head
+        rest = raw[len(head):].lstrip(":")
+        parts = rest.split(":", 1)
+        kind = parts[0].strip().lower() if len(parts) == 2 else "holiday"
+        return start, end, kind if kind in ("holiday", "vacation", "exam") else "holiday"
+    def contains(start, end):
+        try:
+            return datetime.date.fromisoformat(start) <= day <= datetime.date.fromisoformat(end)
+        except (TypeError, ValueError):
+            return False
+    for override in (s.get("overrides") or []):
+        if isinstance(override, dict):
+            raw_date = override.get("date")
+            value = override.get("isWorking", override.get("working", False))
+        else:
+            parts = str(override).split(":", 2)
+            raw_date = parts[0].strip() if parts else ""
+            value = len(parts) > 1 and parts[1].strip().lower() in ("1", "true", "yes", "on")
+        if raw_date == str(date_iso):
+            return bool(value)
+    for holiday in (s.get("holidays") or []):
+        start, end, kind = holiday_range(holiday)
+        if contains(start, end):
+            return kind == "exam"
+    weekly = _get_working_days_for_student(student, s)
+    weekday_key = (day.weekday() + 1) % 7
+    value = weekly.get(str(weekday_key), weekly.get(weekday_key, False))
+    if isinstance(value, str):
+        value = value.strip().lower() in ("1", "true", "yes", "on")
+    return bool(value)
+
+def classify(time_str, s):
+    try:
+        # Validate HH:MM:SS
+        datetime.datetime.strptime(time_str, "%H:%M:%S")
+    except:
+        return "LATE"
+    p = s.get("presentCutoff","08:00")
+    l = s.get("lateCutoff","08:30")
+    # normalize to HH:MM:SS for compare
+    def norm(t):
+        if len(t)==5: t+=":00"
+        return t
+    p = norm(p); l = norm(l)
+    if time_str <= p: return "PRESENT"
+    if time_str <= l: return "LATE"
+    return "LATE"
+
+def ensure_daily(date, student_id, db):
+    key = f"{date}|{student_id}"
+    row = db.execute("SELECT * FROM daily WHERE key=?", (key,)).fetchone()
+    if row: return dict(row)
+    rec = {"key": key, "date": date, "studentId": student_id, "status": None, "firstScan": None, "lastScan": None}
+    db.execute("INSERT INTO daily VALUES (?,?,?,?,?,?)", (key, date, student_id, None, None, None))
+    return rec
+
+# --- Sensor helper (real) ---
+def get_sensor():
+    from gt511c3 import GT511C3
+    # cfg sensor: "sim" forces sim, "real" forces hardware, else auto
+    mode = cfg.get("sensor","sim")
+    if mode == "sim":
+        return GT511C3(sim=True)
+    if mode == "real":
+        try:
+            s = GT511C3(uart=cfg.get("uart","/dev/serial0"), baud=int(cfg.get("baud",9600)), sim=False)
+            s.keep_led_on = True  # sensor light stays on while the Pi runs
+            return s
+        except Exception as e:
+            # Do not silently enroll/scan in sim when config demands hardware.
+            s = GT511C3(sim=True)
+            s.last_error = f"REAL_FORCED_FAIL {e}"
+            s.hw_failed = True
+            return s
+    # auto: try hardware, fallback sim
+    try:
+        s = GT511C3(uart=cfg.get("uart","/dev/serial0"), baud=int(cfg.get("baud",9600)), sim=None)
+        s.keep_led_on = True
+        return s
+    except Exception as e:
+        s = GT511C3(sim=True)
+        s.last_error = str(e)
+        return s
+
+# --- Static ---
+def next_finger_id(db):
+    used = {r[0] for r in db.execute("SELECT fingerId FROM students WHERE active=1 AND fingerId IS NOT NULL")}
+    for i in range(1, 200):
+        if i not in used:
+            return i
+    return None
+
+def hardware_unusable(sensor):
+    return cfg.get("sensor") == "real" and (getattr(sensor, "hw_failed", False) or sensor.sim)
+
+PROD_HTML = "ATL-Smart-Attendance-Production.html"
+
+# Injected into the served page (serve-time only — HTML file on disk is untouched).
+# Polls /api/scan/last and maps backend scans (SQLite, integer fingerId, PRESENT/LATE)
+# onto the UI's window.handleRealScan(fid) (localStorage, string fid "F-<n>", Present/Late).
+SCAN_BRIDGE_SCRIPT = """<script>
+/* ATL scan bridge - injected by backend; drives the UI's handleRealScan from real sensor scans */
+(function(){
+  if (window.__ATL_BRIDGE__) return; window.__ATL_BRIDGE__ = true;
+  var last = -1;
+  function ensureStudent(stu, fid){
+    try{
+      if (typeof Students === 'undefined') return;
+      var s = Students.find(function(x){ return x.fid === fid; });
+      if (s) return;
+      s = { id: stu.id, name: stu.name, roll: stu.roll, class: stu.grade || '', section: '',
+            parent: '', phone: stu.phone || '', address: stu.address || '', photo: stu.photo || '',
+            fid: fid, active: 1, enroll: stu.createdAt || '' };
+      Students.push(s);
+      try { saveStorage(); } catch(e){}
+      try { renderClassFilters(); renderStudentList(); renderClasses(); } catch(e){}
+    }catch(e){}
+  }
+  function poll(){
+    fetch('/api/scan/last', {cache:'no-store'}).then(function(r){ return r.ok ? r.json() : null; }).then(function(d){
+      if (!d || typeof d.seq !== 'number') return;
+      if (last === -1){ last = d.seq; return; }
+      if (d.seq <= last) return;
+      last = d.seq;
+      if (typeof window.handleRealScan !== 'function') return;
+      if (d.student && d.fingerId !== null && d.fingerId !== undefined){
+        var fid = 'F-' + d.fingerId;
+        ensureStudent(d.student, fid);
+        // pass scan info so the UI shows the real status (PRESENT/LATE/DUPLICATE) + time
+        window.handleRealScan(fid, { status: d.status, result: d.result, time: d.time, date: d.date, seq: d.seq });
+      } else if (d.status === 'UNKNOWN' || d.result === 'UNKNOWN'){
+        window.handleRealScan('__unknown__' + d.seq, { seq: d.seq });
+      }
+    }).catch(function(){});
+  }
+  setInterval(poll, 2000);
+  poll();
+})();
+</script>"""
+
+@app.route("/")
+def index():
+    return _serve_production()
+
+@app.route("/assets/<path:path>")
+def assets(path):
+    return send_from_directory(str(ROOT / "assets"), path)
+
+def _serve_production():
+    """Serve the single-file production UI: ATL-Smart-Attendance-Production.html.
+
+    Injects the scan-bridge script (before </body>) that polls /api/scan/last and
+    drives the UI's window.handleRealScan(fid) from real GT-511C3 scans.
+    The HTML file on disk is never modified — injection happens at serve time only.
+    """
+    try:
+        html = (ROOT / PROD_HTML).read_text(encoding="utf-8")
+        # The HTML shell is intentionally kept immutable.  Replace its inline
+        # application script at serve time with the maintained source so the
+        # deployed page cannot drift from backend/ui_app.js.
+        ui_source = ROOT / "backend" / "ui_app.js"
+        if ui_source.exists():
+            start = html.find("<script>")
+            end = html.rfind("</script>")
+            if start != -1 and end > start:
+                source = ui_source.read_text(encoding="utf-8")
+                html = html[:start] + "<script>\n" + source + "\n</script>" + html[end + len("</script>"):]
+        if "window.handleRealScan" in html and "__ATL_BRIDGE__" not in html:
+            # Insert before the LAST </body> (document end). The UI's printHTML()
+            # template contains an earlier "</body>" inside a JS string — injecting
+            # there would terminate the main <script> block early and break the UI.
+            idx = html.rfind("</body>")
+            if idx != -1:
+                html = html[:idx] + SCAN_BRIDGE_SCRIPT + html[idx:]
+        # Dev-only live reload (watcher): only when ?dev=1, inject SSE client that reloads on watcher deploy
+        if request.args.get("dev") is not None:
+            try:
+                dev_script = """<script>(function(){try{var es=new EventSource('http://127.0.0.1:35729/__dev_reload');es.onmessage=function(e){if(e.data==='reload')location.reload();};es.onerror=function(){setTimeout(function(){try{es.close();}catch(e){}},1000);};}catch(e){}})();</script>"""
+                idx2 = html.rfind("</body>")
+                if idx2 != -1:
+                    html = html[:idx2] + dev_script + html[idx2:]
+            except Exception:
+                pass
+        return Response(html, mimetype="text/html", headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        })
+    except Exception:
+        return send_from_directory(str(ROOT), PROD_HTML)
+
+
+# --- Health with edge checks ---
+@app.route("/api/health")
+def health():
+    clk_ok, clk_msg = validate_clock()
+    db_ok = True
+    db_msg = DB_PATH
+    try:
+        get_db().execute("SELECT 1")
+    except Exception as e:
+        db_ok = False
+        db_msg = f"DB_FAIL {e}"
+    uart_ok = True
+    uart_msg = "sim"
+    ready = True
+    sensor_name = "sim"
+    if not SENSOR_LOCK.acquire(blocking=False):
+        uart_msg = "busy enroll/scan"
+        sensor_name = "busy"
+        status = "ok" if (clk_ok and db_ok) else "degraded"
+        return jsonify({
+            "ok": status == "ok",
+            "status": status,
+            "sensor": sensor_name,
+            "sensor_detail": uart_msg,
+            "clock": clk_msg,
+            "db": db_msg,
+            "db_ok": db_ok,
+            "imagesDir": IMAGES_DIR,
+            "sensor_mode": cfg.get("sensor", "sim"),
+            "settings": public_settings()
+        })
+    try:
+        if cfg.get("sensor") == "sim":
+            sensor_name = "sim"
+            uart_msg = "sim"
+        elif (time.time() - _UART_PING["t"]) < 25:
+            # Reuse last ping — opening UART / LED / Close here fights the scan loop.
+            uart_ok = _UART_PING["ok"]
+            uart_msg = _UART_PING["msg"]
+            sensor_name = _UART_PING["name"]
+            ready = uart_ok
+        else:
+            sensor = get_sensor()
+            ready = sensor.is_ready()
+            if hardware_unusable(sensor):
+                ready = False
+                uart_ok = False
+                uart_msg = f"offline {getattr(sensor,'last_error','') or 'hardware not ready'}"
+            else:
+                uart_ok = ready
+                uart_msg = "ready" if ready else f"offline {getattr(sensor,'last_error','')}"
+            sensor_name = "ready" if uart_ok else "offline"
+            sensor.close()
+            _UART_PING.update({"t": time.time(), "ok": uart_ok, "msg": uart_msg, "name": sensor_name})
+    finally:
+        SENSOR_LOCK.release()
+    status = "ok" if (clk_ok and db_ok and (cfg.get("sensor")=="sim" or uart_ok)) else "degraded"
+    return jsonify({
+        "ok": status=="ok",
+        "status": status,
+        "sensor": sensor_name,
+        "sensor_detail": uart_msg,
+        "clock": clk_msg,
+        "db": db_msg,
+        "db_ok": db_ok,
+        "imagesDir": IMAGES_DIR,
+        "sensor_mode": cfg.get("sensor", "sim"),
+        "settings": public_settings()
+    })
+
+# --- Settings ---
+@app.route("/api/settings", methods=["GET","POST"])
+def settings():
+    if request.method == "GET":
+        return jsonify(public_settings())
+    try:
+        j = request.get_json(force=True)
+    except Exception:
+        return jsonify({"error":"invalid JSON"}), 400
+    cur = get_settings()
+    # whitelist (never accept sensor/uart/db/host from the UI)
+    for k in ["schoolName","address","region","academicYear","schoolOpeningDate","attendanceStartDate","presentCutoff","lateCutoff","halfDayCutoff","trajectoryLabels","schoolLogo","planetImage","heroImage"]:
+        if k in j:
+            cur[k] = j[k]
+    if "workingDays" in j:
+        wd = j["workingDays"]
+        if isinstance(wd, dict):
+            clean = {}
+            for i in range(7):
+                clean[str(i)] = bool(wd.get(str(i), wd.get(i, i in (1,2,3,4,5,6))))
+            cur["workingDays"] = clean
+        else:
+            return jsonify({"error": "workingDays must be an object"}), 400
+    if "overrides" in j:
+        ov = j["overrides"]
+        if isinstance(ov, str):
+            ov = [x.strip() for x in ov.splitlines() if x.strip()]
+        elif not isinstance(ov, list):
+            return jsonify({"error": "overrides must be a list"}), 400
+        clean_ov = []
+        for o in ov[:100]:
+            raw = str(o).strip()
+            if not raw:
+                continue
+            date_part = raw.split(":")[0].strip()
+            try:
+                datetime.date.fromisoformat(date_part)
+            except Exception:
+                return jsonify({"error": f"bad override {raw}"}), 400
+            clean_ov.append(raw[:120])
+        cur["overrides"] = clean_ov
+    if "minPercent" in j:
+        try: cur["minPercent"] = int(j["minPercent"])
+        except: return jsonify({"error":"minPercent must be an integer"}), 400
+        if cur["minPercent"] < 0 or cur["minPercent"] > 100:
+            return jsonify({"error":"minPercent must be 0-100"}), 400
+    if "holidays" in j:
+        hol = j["holidays"]
+        if isinstance(hol, str):
+            hol = [x.strip() for x in hol.splitlines() if x.strip()]
+        elif not isinstance(hol, list):
+            return jsonify({"error":"holidays must be a list"}), 400
+        cleaned_h = []
+        for h in hol[:80]:
+            raw = str(h).strip()
+            if not raw:
+                continue
+            day = raw.split(":", 1)[0].strip()
+            try:
+                if ".." in day:
+                    start, end = [x.strip() for x in day.split("..", 1)]
+                    datetime.date.fromisoformat(start)
+                    datetime.date.fromisoformat(end)
+                    if start > end:
+                        raise ValueError("range is reversed")
+                else:
+                    datetime.date.fromisoformat(day)
+            except Exception:
+                return jsonify({"error":f"bad holiday {raw}"}), 400
+            cleaned_h.append(raw[:80])
+        cur["holidays"] = cleaned_h
+    if "classes" in j:
+        if isinstance(j["classes"], str):
+            cur["classes"] = [x.strip() for x in j["classes"].split(",") if x.strip()]
+        elif isinstance(j["classes"], list):
+            cur["classes"] = [str(x).strip() for x in j["classes"] if str(x).strip()]
+        else:
+            return jsonify({"error":"classes must be a list"}), 400
+    if "batches" in j:
+        if isinstance(j["batches"], str):
+            cur["batches"] = [x.strip() for x in j["batches"].split(",") if x.strip()][:50]
+        elif isinstance(j["batches"], list):
+            cur["batches"] = [str(x).strip() for x in j["batches"] if str(x).strip()][:50]
+        else:
+            return jsonify({"error":"batches must be a list"}), 400
+    # helper to normalize workingDays dict
+    def _clean_wd(wd):
+        if not isinstance(wd, dict):
+            raise ValueError("workingDays must be object")
+        clean = {}
+        for i in range(7):
+            v = wd.get(str(i))
+            if v is None:
+                v = wd.get(i)
+            if v is None:
+                clean[str(i)] = False
+            elif isinstance(v, str):
+                clean[str(i)] = v.strip().lower() in ("1","true","yes","on")
+            else:
+                clean[str(i)] = bool(v)
+        return clean
+    if "classSchedules" in j:
+        raw = j["classSchedules"]
+        if not isinstance(raw, dict):
+            return jsonify({"error":"classSchedules must be an object"}), 400
+        cleaned_cs = {}
+        for k, v in raw.items():
+            key = str(k).strip()
+            if not key:
+                continue
+            if len(key) > 80:
+                return jsonify({"error":f"classSchedules key too long {key}"}), 400
+            if isinstance(v, dict) and "workingDays" in v:
+                try:
+                    cleaned_cs[key] = {"workingDays": _clean_wd(v["workingDays"])}
+                except Exception as e:
+                    return jsonify({"error":f"bad classSchedules for {key}: {e}"}), 400
+            elif isinstance(v, dict):
+                try:
+                    cleaned_cs[key] = _clean_wd(v)
+                except Exception as e:
+                    return jsonify({"error":f"bad classSchedules for {key}: {e}"}), 400
+            else:
+                return jsonify({"error":f"bad classSchedules for {key}"}), 400
+            if len(cleaned_cs) >= 50:
+                break
+        cur["classSchedules"] = cleaned_cs
+    if "batchSchedules" in j:
+        raw = j["batchSchedules"]
+        if not isinstance(raw, dict):
+            return jsonify({"error":"batchSchedules must be an object"}), 400
+        cleaned_bs = {}
+        for k, v in raw.items():
+            key = str(k).strip()
+            if not key:
+                continue
+            if len(key) > 80:
+                return jsonify({"error":f"batchSchedules key too long {key}"}), 400
+            if isinstance(v, dict) and "workingDays" in v:
+                try:
+                    cleaned_bs[key] = {"workingDays": _clean_wd(v["workingDays"])}
+                except Exception as e:
+                    return jsonify({"error":f"bad batchSchedules for {key}: {e}"}), 400
+            elif isinstance(v, dict):
+                try:
+                    cleaned_bs[key] = _clean_wd(v)
+                except Exception as e:
+                    return jsonify({"error":f"bad batchSchedules for {key}: {e}"}), 400
+            else:
+                return jsonify({"error":f"bad batchSchedules for {key}"}), 400
+            if len(cleaned_bs) >= 50:
+                break
+        cur["batchSchedules"] = cleaned_bs
+    if "imageGallery" in j:
+        gal = j["imageGallery"]
+        if not isinstance(gal, list):
+            return jsonify({"error":"imageGallery must be a list"}), 400
+        cleaned = []
+        for item in gal[:60]:
+            if not isinstance(item, dict):
+                continue
+            cleaned.append({
+                "id": str(item.get("id") or uuid.uuid4())[:80],
+                "url": str(item.get("url") or "")[:4000],
+                "name": str(item.get("name") or "image")[:120],
+                "category": str(item.get("category") or "gallery")[:40],
+                "at": str(item.get("at") or today_ist())[:32],
+            })
+        cur["imageGallery"] = [x for x in cleaned if x["url"]]
+    # validate dates
+    for dk in ["schoolOpeningDate","attendanceStartDate"]:
+        if dk in cur:
+            try: datetime.date.fromisoformat(cur[dk])
+            except: return jsonify({"error":f"bad date {dk}"}), 400
+    # validate cutoffs
+    for ck in ["presentCutoff","lateCutoff","halfDayCutoff"]:
+        if ck in cur and cur[ck]:
+            try: datetime.datetime.strptime(cur[ck], "%H:%M")
+            except:
+                try: datetime.datetime.strptime(cur[ck], "%H:%M:%S")
+                except: return jsonify({"error":f"bad time {ck}"}), 400
+    def _mins(t):
+        p = str(t).split(":")
+        return int(p[0]) * 60 + int(p[1])
+    try:
+        if cur.get("presentCutoff") and cur.get("lateCutoff") and _mins(cur["presentCutoff"]) > _mins(cur["lateCutoff"]):
+            return jsonify({"error":"presentCutoff must be before lateCutoff"}), 400
+    except Exception:
+        return jsonify({"error":"bad time cutoff"}), 400
+    save_settings(cur)
+    try:
+        db = get_db()
+        db.execute("INSERT INTO audit VALUES (?,?,?,?)", (str(uuid.uuid4()), now_ist(), "SETTINGS_CHANGED", json.dumps(cur)[:500]))
+        db.commit()
+    except: pass
+    return jsonify(cur)
+
+# --- Students ---
+@app.route("/api/students", methods=["GET","POST"])
+def list_students():
+    try:
+        db = get_db()
+        if request.method == "GET":
+            # support search query ?q=, ?class=, ?active=all
+            q = (request.args.get("q") or "").strip().lower()
+            cls = (request.args.get("class") or "").strip()
+            active_filter = request.args.get("active") or "1"
+            sql = "SELECT * FROM students WHERE 1=1"
+            params = []
+            if active_filter != "all":
+                sql += " AND active=1"
+            if cls:
+                sql += " AND lower(grade)=lower(?)"
+                params.append(cls)
+            sql += " ORDER BY id"
+            rows = db.execute(sql, params).fetchall()
+            # post-filter for q (name/roll/class/phone/address)
+            if q:
+                filtered = []
+                for r in rows:
+                    d = dict(r)
+                    hay = " ".join([str(d.get("name","")), str(d.get("roll","")), str(d.get("grade","")), str(d.get("phone","")), str(d.get("address",""))]).lower()
+                    if q in hay:
+                        filtered.append(r)
+                rows = filtered
+            rates = {}
+            for r in db.execute("SELECT studentId, status, COUNT(*) AS c FROM daily GROUP BY studentId, status"):
+                sid = r["studentId"]
+                rec = rates.setdefault(sid, {"ok": 0, "all": 0})
+                if r["status"] in ("PRESENT", "LATE", "ABSENT"):
+                    rec["all"] += r["c"]
+                    if r["status"] in ("PRESENT", "LATE"):
+                        rec["ok"] += r["c"]
+            out = []
+            for row in rows:
+                d = dict(row)
+                st = rates.get(d["id"], {"ok": 0, "all": 0})
+                d["attendance_rate"] = round(st["ok"] / st["all"] * 100) if st["all"] else 0
+                # ensure address field present
+                if "address" not in d:
+                    d["address"] = ""
+                out.append(d)
+            return jsonify(out)
+        try:
+            j = request.get_json(force=True)
+        except Exception:
+            return jsonify({"error":"invalid JSON"}), 400
+        name = (j.get("name") or "").strip()
+        roll = (j.get("roll") or "").strip()
+        grade = (j.get("grade") or "").strip()
+        batch = (j.get("batch") or j.get("group") or "").strip()
+        section = (j.get("section") or "").strip()
+        parent = (j.get("parent") or j.get("parent_name") or "").strip()
+        phone = (j.get("phone") or "").strip()
+        address = (j.get("address") or "").strip()
+        photo = (j.get("photo") or "").strip()
+        if not name or not roll:
+            return jsonify({"error":"name and roll required"}), 400
+        if len(roll) > 20 or len(name) > 80:
+            return jsonify({"error":"name/roll too long"}), 400
+        if not grade:
+            return jsonify({"error":"grade required"}), 400
+        if grade and len(grade) > 40:
+            return jsonify({"error":"grade too long"}), 400
+        if len(batch) > 40:
+            return jsonify({"error":"batch too long"}), 400
+        if len(section) > 20:
+            return jsonify({"error":"section too long"}), 400
+        if len(parent) > 80:
+            return jsonify({"error":"parent too long"}), 400
+        if len(phone) > 40:
+            return jsonify({"error":"phone too long"}), 400
+        if len(address) > 200:
+            return jsonify({"error":"address too long"}), 400
+        digits = "".join(c for c in phone if c.isdigit())
+        if phone and len(digits) < 8:
+            return jsonify({"error":"phone too short"}), 400
+        if db.execute("SELECT 1 FROM students WHERE active=1 AND lower(roll)=lower(?)", (roll,)).fetchone():
+            return jsonify({"error":"roll exists"}), 409
+        nid = int(db.execute("SELECT COALESCE(MAX(id),0) FROM students").fetchone()[0])+1
+        s = get_settings()
+        if grade and grade.lower() not in [c.lower() for c in s.get("classes",[])]:
+            s["classes"] = s.get("classes",[])+[grade]
+            save_settings(s)
+        if batch and batch.lower() not in [b.lower() for b in s.get("batches",[])]:
+            s["batches"] = s.get("batches",[])+[batch]
+            save_settings(s)
+        db.execute("INSERT INTO students (id, name, roll, grade, batch, section, parent, phone, address, fingerId, photo, active, createdAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", (nid, name, roll, grade, batch, section, parent, phone, address, None, photo, 1, today_ist()))
+        db.execute("INSERT INTO audit VALUES (?,?,?,?)", (str(uuid.uuid4()), now_ist(), "STUDENT_IMPORTED", f"{name} -> {grade} (no sensor)"))
+        db.commit()
+        return jsonify({"id": nid, "fingerId": None, "grade": grade, "sensor": False}), 201
+    except sqlite3.Error as e:
+        return jsonify({"error":f"DB_FAIL {e}"}), 500
+
+@app.route("/api/students/<int:sid>", methods=["GET"])
+def get_student(sid):
+    try:
+        db = get_db()
+        row = db.execute("SELECT * FROM students WHERE id=?", (sid,)).fetchone()
+        if not row:
+            return jsonify({"error":"not found"}), 404
+        d = dict(row)
+        # attendance history
+        events = [dict(r) for r in db.execute("SELECT * FROM events WHERE studentId=? ORDER BY date DESC, time DESC LIMIT 500", (sid,)).fetchall()]
+        daily = [dict(r) for r in db.execute("SELECT * FROM daily WHERE studentId=? ORDER BY date DESC LIMIT 500", (sid,)).fetchall()]
+        # also include unknown/duplicate attempts if fingerId matches?
+        d["events"] = events
+        d["daily"] = daily
+        # stats
+        present = db.execute("SELECT COUNT(*) FROM daily WHERE studentId=? AND status='PRESENT'", (sid,)).fetchone()[0]
+        late = db.execute("SELECT COUNT(*) FROM daily WHERE studentId=? AND status='LATE'", (sid,)).fetchone()[0]
+        dup = db.execute("SELECT COUNT(*) FROM events WHERE studentId=? AND status='DUPLICATE'", (sid,)).fetchone()[0]
+        unknown = 0
+        if d.get("fingerId") is not None:
+            unknown = db.execute("SELECT COUNT(*) FROM events WHERE fingerId=? AND status='UNKNOWN'", (d["fingerId"],)).fetchone()[0]
+        d["stats"] = {"present": present, "late": late, "duplicate": dup, "unknown": unknown}
+        return jsonify(d)
+    except sqlite3.Error as e:
+        return jsonify({"error":f"DB_FAIL {e}"}), 500
+
+@app.route("/api/students/<int:sid>", methods=["PATCH"])
+def patch_student(sid):
+    try:
+        j = request.get_json(force=True) or {}
+    except Exception:
+        return jsonify({"error":"invalid JSON"}), 400
+    try:
+        db = get_db()
+        row = db.execute("SELECT * FROM students WHERE id=? AND active=1", (sid,)).fetchone()
+        if not row:
+            return jsonify({"error":"not found"}), 404
+        updates = []
+        params = []
+        # photo
+        if "photo" in j:
+            photo = str(j.get("photo") or "").strip()
+            if len(photo) > 8000:
+                return jsonify({"error":"photo too long"}), 400
+            updates.append("photo=?")
+            params.append(photo)
+        # phone
+        if "phone" in j:
+            phone = str(j.get("phone") or "").strip()
+            if len(phone) > 40:
+                return jsonify({"error":"phone too long"}), 400
+            digits = "".join(c for c in phone if c.isdigit())
+            if phone and len(digits) < 8:
+                return jsonify({"error":"phone too short"}), 400
+            updates.append("phone=?")
+            params.append(phone)
+        # address
+        if "address" in j:
+            address = str(j.get("address") or "").strip()
+            if len(address) > 200:
+                return jsonify({"error":"address too long"}), 400
+            updates.append("address=?")
+            params.append(address)
+        # name
+        if "name" in j:
+            name = str(j.get("name") or "").strip()
+            if not name or len(name) > 80:
+                return jsonify({"error":"invalid name"}), 400
+            updates.append("name=?")
+            params.append(name)
+        # roll
+        if "roll" in j:
+            roll = str(j.get("roll") or "").strip()
+            if not roll or len(roll) > 20:
+                return jsonify({"error":"invalid roll"}), 400
+            # check duplicate
+            existing = db.execute("SELECT id FROM students WHERE active=1 AND lower(roll)=lower(?) AND id!=?", (roll, sid)).fetchone()
+            if existing:
+                return jsonify({"error":"roll exists"}), 409
+            updates.append("roll=?")
+            params.append(roll)
+        # grade / class
+        if "grade" in j or "class" in j:
+            grade = str(j.get("grade") or j.get("class") or "").strip()
+            if not grade or len(grade) > 40:
+                return jsonify({"error":"invalid grade"}), 400
+            updates.append("grade=?")
+            params.append(grade)
+            # auto-add class to settings
+            s = get_settings()
+            if grade.lower() not in [c.lower() for c in s.get("classes",[])]:
+                s["classes"] = s.get("classes",[])+[grade]
+                save_settings(s)
+        # batch / group
+        if "batch" in j or "group" in j:
+            raw_batch = j.get("batch") if "batch" in j else j.get("group")
+            batch = str(raw_batch or "").strip()
+            if len(batch) > 40:
+                return jsonify({"error":"batch too long"}), 400
+            updates.append("batch=?")
+            params.append(batch)
+            if batch:
+                s = get_settings()
+                if batch.lower() not in [b.lower() for b in s.get("batches",[])]:
+                    s["batches"] = s.get("batches",[])+[batch]
+                    save_settings(s)
+        # section
+        if "section" in j:
+            section = str(j.get("section") or "").strip()
+            if len(section) > 20:
+                return jsonify({"error":"section too long"}), 400
+            updates.append("section=?")
+            params.append(section)
+        # parent / parent_name / guardian
+        if "parent" in j or "parent_name" in j or "guardian" in j:
+            raw_parent = j.get("parent") if "parent" in j else (j.get("parent_name") if "parent_name" in j else j.get("guardian"))
+            parent = str(raw_parent or "").strip()
+            if len(parent) > 80:
+                return jsonify({"error":"parent too long"}), 400
+            updates.append("parent=?")
+            params.append(parent)
+        # active
+        if "active" in j:
+            active = 1 if j.get("active") else 0
+            updates.append("active=?")
+            params.append(active)
+        if not updates:
+            return jsonify({"error":"no fields to update"}), 400
+        params.append(sid)
+        db.execute(f"UPDATE students SET {', '.join(updates)} WHERE id=?", params)
+        db.execute("INSERT INTO audit VALUES (?,?,?,?)", (str(uuid.uuid4()), now_ist(), "STUDENT_UPDATED", f"id {sid} {list(j.keys())}"))
+        db.commit()
+        out = db.execute("SELECT * FROM students WHERE id=?", (sid,)).fetchone()
+        return jsonify(dict(out))
+    except sqlite3.Error as e:
+        return jsonify({"error":f"DB_FAIL {e}"}), 500
+
+@app.route("/api/students/<int:sid>", methods=["DELETE"])
+def delete_student(sid):
+    try:
+        db = get_db()
+        row = db.execute("SELECT * FROM students WHERE id=?", (sid,)).fetchone()
+        if not row:
+            return jsonify({"error":"not found"}), 404
+        fid = row["fingerId"]
+        sensor_msg = "NO_SLOT"
+        sensor_ok = True
+        # Only need sensor if there is a fingerprint to free
+        if fid is not None:
+            if not SENSOR_LOCK.acquire(timeout=5):
+                return jsonify({"error":"sensor busy"}), 503
+            try:
+                sensor = get_sensor()
+                if hardware_unusable(sensor):
+                    try: sensor.close()
+                    except: pass
+                    sensor_ok = True
+                    sensor_msg = "SENSOR_OFFLINE_DB_FREED"
+                else:
+                    try:
+                        ok, msg = sensor.delete_id(int(fid))
+                    except Exception as e:
+                        ok, msg = False, f"EXC {e}"
+                    finally:
+                        try: sensor.close()
+                        except: pass
+                    sensor_ok = ok
+                    sensor_msg = msg
+                    if not ok:
+                        return jsonify({"error":f"sensor delete failed: {msg}", "sensor":"offline" if not sensor.is_ready() else "error"}), 500
+            finally:
+                try: SENSOR_LOCK.release()
+                except: pass
+        # Free unique roll/slot so a later enroll can reuse them. Keep the row for history.
+        db.execute("UPDATE students SET active=0, roll=?, fingerId=? WHERE id=?", (f"{row['roll']}#d{sid}", None, sid))
+        db.execute("INSERT INTO audit VALUES (?,?,?,?)", (str(uuid.uuid4()), now_ist(), "STUDENT_DELETED", f"{row['name']} fid {fid} {sensor_msg}"))
+        db.commit()
+        return jsonify({"ok":True, "id":sid, "fingerId":fid, "sensor": sensor_msg})
+    except sqlite3.Error as e:
+        return jsonify({"error":f"DB_FAIL {e}"}), 500
+
+@app.route("/api/students/<int:sid>/reenroll", methods=["POST"])
+def reenroll_student(sid):
+    try:
+        db = get_db()
+        row = db.execute("SELECT * FROM students WHERE id=? AND active=1", (sid,)).fetchone()
+        if not row:
+            return jsonify({"error":"not found"}), 404
+        old_fid = row["fingerId"]
+        # allocate new fingerId (keep old until success, then delete old)
+        new_fid = next_finger_id(db)
+        if new_fid is None:
+            return jsonify({"error":"fingerprint DB full (200 slots)"}), 507
+        if not SENSOR_LOCK.acquire(timeout=5):
+            return jsonify({"error":"sensor busy"}), 503
+        set_sensor_progress(mode="enroll", step=1, steps_total=3, state="place", title="Place your finger",
+                            detail="Re-enroll: place the finger.", timeout_sec=40, finger=False)
+        try:
+            sensor = get_sensor()
+            if hardware_unusable(sensor):
+                sensor.close()
+                return jsonify({"error":"sensor offline", "sensor":"offline"}), 503
+            try:
+                ok, msg = sensor.enroll(int(new_fid), log=set_sensor_progress)
+            except Exception as e:
+                ok, msg = False, f"EXC {e}"
+            finally:
+                sensor.close()
+        finally:
+            SENSOR_LOCK.release()
+        if not ok:
+            hint = enroll_hint(msg)
+            set_sensor_progress(state="fail", title="Try again", detail=hint, raw=str(msg), timeout_sec=0, deadline=0)
+            return jsonify({"error": f"reenroll failed: {msg}", "hint": hint}), 500
+        # success: delete old finger if exists and different
+        if old_fid is not None and int(old_fid) != int(new_fid):
+            try:
+                if SENSOR_LOCK.acquire(timeout=3):
+                    try:
+                        s2 = get_sensor()
+                        if not hardware_unusable(s2):
+                            s2.delete_id(int(old_fid))
+                            s2.close()
+                    finally:
+                        SENSOR_LOCK.release()
+            except:
+                pass
+        db.execute("UPDATE students SET fingerId=? WHERE id=?", (new_fid, sid))
+        db.execute("INSERT INTO audit VALUES (?,?,?,?)", (str(uuid.uuid4()), now_ist(), "FINGER_REENROLLED", f"id {sid} {old_fid}->{new_fid}"))
+        db.commit()
+        set_sensor_progress(mode="enroll", step=3, steps_total=3, state="success", title="Fingerprint re-enrolled", detail="Updated", timeout_sec=0, deadline=0)
+        return jsonify({"id": sid, "fingerId": new_fid, "oldFingerId": old_fid})
+    except sqlite3.Error as e:
+        return jsonify({"error":f"DB_FAIL {e}"}), 500
+
+@app.route("/api/backup", methods=["GET"])
+def backup_db():
+    try:
+        db = get_db()
+        # checkpoint WAL
+        try:
+            db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except:
+            pass
+        from flask import send_file
+        # Ensure file exists
+        if not os.path.exists(DB_PATH):
+            return jsonify({"error":"no DB"}), 404
+        return send_file(DB_PATH, as_attachment=True, download_name=f"atl_backup_{today_ist()}.db", mimetype="application/octet-stream")
+    except Exception as e:
+        return jsonify({"error": f"FAIL {e}"}), 500
+
+@app.route("/api/restore", methods=["POST"])
+def restore_db():
+    try:
+        if "file" not in request.files:
+            # also accept raw body
+            data = request.get_data()
+            if not data or len(data) < 100:
+                return jsonify({"error":"no file"}), 400
+            tmp = data
+        else:
+            f = request.files["file"]
+            tmp = f.read()
+            if len(tmp) < 100:
+                return jsonify({"error":"invalid backup"}), 400
+        # validate sqlite header
+        if not tmp.startswith(b"SQLite format 3\x00"):
+            return jsonify({"error":"invalid SQLite file"}), 400
+        # close existing connections
+        try:
+            # force close g.db if open
+            db = g.pop("db", None)
+            if db:
+                try: db.close()
+                except: pass
+        except:
+            pass
+        # backup current
+        try:
+            import shutil
+            if os.path.exists(DB_PATH):
+                shutil.copy2(DB_PATH, DB_PATH + ".pre_restore.bak")
+        except:
+            pass
+        # write new
+        os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
+        with open(DB_PATH, "wb") as out:
+            out.write(tmp)
+        # verify
+        try:
+            test = sqlite3.connect(DB_PATH)
+            test.execute("SELECT 1 FROM students LIMIT 1")
+            test.close()
+        except Exception as e:
+            return jsonify({"error": f"restore verify failed {e}"}), 500
+        return jsonify({"ok": True, "restored": len(tmp)})
+    except Exception as e:
+        return jsonify({"error": f"FAIL {e}"}), 500
+
+@app.route("/api/export/csv")
+def export_csv():
+    try:
+        typ = (request.args.get("type") or "attendance").lower()
+        date = request.args.get("date")
+        start = request.args.get("start")
+        end = request.args.get("end")
+        cls = request.args.get("class")
+        sid = request.args.get("studentId")
+        status = request.args.get("status")
+        db = get_db()
+        import csv, io
+        output = io.StringIO()
+        writer = csv.writer(output, quoting=csv.QUOTE_MINIMAL)
+        if typ == "students":
+            writer.writerow(["id","name","roll","class","batch","section","parent","phone","address","fingerId","photo","active","createdAt","attendance_rate"])
+            rows = db.execute("SELECT * FROM students ORDER BY id").fetchall()
+            # compute rates
+            rates = {}
+            for r in db.execute("SELECT studentId, status, COUNT(*) AS c FROM daily GROUP BY studentId, status"):
+                rec = rates.setdefault(r["studentId"], {"ok":0,"all":0})
+                if r["status"] in ("PRESENT","LATE","ABSENT"):
+                    rec["all"]+=r["c"]
+                    if r["status"] in ("PRESENT","LATE"): rec["ok"]+=r["c"]
+            for r in rows:
+                d=dict(r)
+                rate = round(rates.get(d["id"], {"ok":0,"all":0})["ok"]/rates.get(d["id"], {"ok":0,"all":0})["all"]*100) if rates.get(d["id"], {"ok":0,"all":0})["all"] else 0
+                writer.writerow([d["id"], d["name"], d["roll"], d["grade"], d.get("batch",""), d.get("section",""), d.get("parent",""), d.get("phone",""), d.get("address",""), d.get("fingerId",""), d.get("photo",""), d.get("active",1), d.get("createdAt",""), rate])
+            csv_data = output.getvalue()
+            headers = {"Content-Disposition": f"attachment; filename=students_{today_ist()}.csv"}
+            return csv_data, 200, {**headers, "Content-Type":"text/csv; charset=utf-8"}
+        else:
+            # attendance
+            writer.writerow(["date","time","studentId","name","roll","class","status","fingerId","result","source"])
+            # build query
+            where = []
+            params = []
+            # date filters
+            if date:
+                try: datetime.date.fromisoformat(date)
+                except: return jsonify({"error":"bad date"}), 400
+                where.append("e.date=?")
+                params.append(date)
+            if start:
+                try: datetime.date.fromisoformat(start)
+                except: return jsonify({"error":"bad start"}), 400
+                where.append("e.date>=?")
+                params.append(start)
+            if end:
+                try: datetime.date.fromisoformat(end)
+                except: return jsonify({"error":"bad end"}), 400
+                where.append("e.date<=?")
+                params.append(end)
+            if sid:
+                where.append("e.studentId=?")
+                params.append(int(sid))
+            if status:
+                where.append("e.status=?")
+                params.append(status)
+            # class filter needs join
+            sql = "SELECT e.*, s.name as sname, s.roll as sroll, s.grade as sgrade, s.fingerId as sfid FROM events e LEFT JOIN students s ON e.studentId=s.id"
+            if where:
+                sql += " WHERE " + " AND ".join(where)
+            if cls:
+                # filter after join
+                sql += (" AND " if where else " WHERE ") + " lower(s.grade)=lower(?)"
+                params.append(cls)
+            sql += " ORDER BY e.date DESC, e.time DESC LIMIT 5000"
+            rows = db.execute(sql, params).fetchall()
+            for r in rows:
+                writer.writerow([r["date"], r["time"], r["studentId"] or "", r["sname"] or "", r["sroll"] or "", r["sgrade"] or "", r["status"] or "", r["fingerId"] or r["sfid"] or "", r["result"] or "", r["source"] or ""])
+            csv_data = output.getvalue()
+            headers = {"Content-Disposition": f"attachment; filename=attendance_{start or date or today_ist()}_{end or ''}.csv".replace("__","_")}
+            return csv_data, 200, {**headers, "Content-Type":"text/csv; charset=utf-8"}
+    except Exception as e:
+        return jsonify({"error": f"FAIL {e}"}), 500
+
+@app.route("/api/import/csv", methods=["POST"])
+def import_csv():
+    try:
+        # accept file upload or json with csv text
+        csv_text = ""
+        if "file" in request.files:
+            f = request.files["file"]
+            csv_text = f.read().decode("utf-8", errors="ignore")
+        else:
+            try:
+                j = request.get_json(force=True) or {}
+                csv_text = j.get("csv") or j.get("data") or ""
+                if not csv_text and request.data:
+                    csv_text = request.data.decode("utf-8", errors="ignore")
+            except:
+                csv_text = request.data.decode("utf-8", errors="ignore") if request.data else ""
+        if not csv_text or len(csv_text.strip()) < 5:
+            return jsonify({"error":"no CSV data"}), 400
+        import csv, io
+        reader = csv.DictReader(io.StringIO(csv_text))
+        # normalize headers
+        field_map = {k.lower().strip(): k for k in reader.fieldnames or []}
+        # expected: name, roll, class/grade, phone, address
+        def get_field(row, *keys):
+            for k in keys:
+                lk = k.lower()
+                if lk in field_map:
+                    return (row.get(field_map[lk]) or "").strip()
+                # also try exact
+                for rk in row:
+                    if rk and rk.lower().strip()==lk:
+                        return (row[rk] or "").strip()
+            return ""
+        db = get_db()
+        s = get_settings()
+        added = 0
+        skipped = 0
+        errors = []
+        for idx, row in enumerate(reader, start=2):
+            name = get_field(row, "name", "full name", "student name")
+            roll = get_field(row, "roll", "roll number", "roll no", "roll_no")
+            grade = get_field(row, "class", "grade", "className")
+            batch = get_field(row, "batch", "group", "batch/group")
+            section = get_field(row, "section")
+            parent = get_field(row, "parent", "parent name", "guardian")
+            phone = get_field(row, "phone", "parent phone", "parent_phone", "contact")
+            address = get_field(row, "address", "addr")
+            if not name or not roll:
+                errors.append(f"row {idx}: name and roll required")
+                skipped+=1
+                continue
+            if len(roll)>20 or len(name)>80:
+                errors.append(f"row {idx}: name/roll too long")
+                skipped+=1
+                continue
+            if not grade:
+                grade = s.get("classes", ["Grade 10-A"])[0]
+            if len(grade)>40:
+                errors.append(f"row {idx}: grade too long")
+                skipped+=1
+                continue
+            if len(batch)>40:
+                errors.append(f"row {idx}: batch too long")
+                skipped+=1
+                continue
+            if len(section)>20:
+                errors.append(f"row {idx}: section too long")
+                skipped+=1
+                continue
+            if len(parent)>80:
+                errors.append(f"row {idx}: parent too long")
+                skipped+=1
+                continue
+            if len(address)>200:
+                address = address[:200]
+            # phone validation soft
+            if phone and len("".join(c for c in phone if c.isdigit())) < 8:
+                errors.append(f"row {idx}: phone too short")
+                # not fatal, allow
+            # duplicate roll
+            if db.execute("SELECT 1 FROM students WHERE active=1 AND lower(roll)=lower(?)", (roll,)).fetchone():
+                errors.append(f"row {idx}: roll {roll} exists")
+                skipped+=1
+                continue
+            nid = int(db.execute("SELECT COALESCE(MAX(id),0) FROM students").fetchone()[0])+1
+            if grade.lower() not in [c.lower() for c in s.get("classes",[])]:
+                s["classes"] = s.get("classes",[])+[grade]
+                save_settings(s)
+            if batch and batch.lower() not in [b.lower() for b in s.get("batches",[])]:
+                s["batches"] = s.get("batches",[])+[batch]
+                save_settings(s)
+            try:
+                db.execute("INSERT INTO students (id, name, roll, grade, batch, section, parent, phone, address, fingerId, photo, active, createdAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                           (nid, name, roll, grade, batch, section, parent, phone, address, None, "", 1, today_ist()))
+                db.execute("INSERT INTO audit VALUES (?,?,?,?)", (str(uuid.uuid4()), now_ist(), "STUDENT_IMPORTED_CSV", f"{name} {roll}"))
+                added+=1
+            except sqlite3.Error as e:
+                errors.append(f"row {idx}: DB {e}")
+                skipped+=1
+        db.commit()
+        return jsonify({"added": added, "skipped": skipped, "errors": errors[:20]})
+    except Exception as e:
+        return jsonify({"error": f"FAIL {e}"}), 500
+
+@app.route("/api/correction", methods=["POST"])
+def correction():
+    """Attendance correction with audit trail. Requires date, studentId, status, reason. Preserves original."""
+    try:
+        j = request.get_json(force=True) or {}
+    except Exception:
+        return jsonify({"error":"invalid JSON"}), 400
+    date = (j.get("date") or "").strip()
+    sid = j.get("studentId") or j.get("id")
+    new_status = (j.get("status") or "").strip().upper()
+    reason = (j.get("reason") or "").strip()
+    if not date or not sid or not new_status or not reason:
+        return jsonify({"error":"date, studentId, status, reason required"}), 400
+    if new_status not in ("PRESENT","LATE","ABSENT","NOT_SCHEDULED"):
+        return jsonify({"error":"invalid status"}), 400
+    if len(reason) < 3 or len(reason) > 300:
+        return jsonify({"error":"reason must be 3-300 chars"}), 400
+    try:
+        datetime.date.fromisoformat(date)
+    except Exception:
+        return jsonify({"error":"bad date"}), 400
+    try:
+        db = get_db()
+        stu = db.execute("SELECT * FROM students WHERE id=?", (sid,)).fetchone()
+        if not stu:
+            return jsonify({"error":"student not found"}), 404
+        key = f"{date}|{sid}"
+        row = db.execute("SELECT status FROM daily WHERE key=?", (key,)).fetchone()
+        old_status = row["status"] if row and row["status"] else None
+        # ensure daily exists
+        ensure_daily(date, sid, db)
+        # update daily
+        db.execute("UPDATE daily SET status=?, lastScan=? WHERE key=?", (new_status, datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30))).strftime("%H:%M:%S"), key))
+        eid = str(uuid.uuid4())
+        db.execute("INSERT INTO events(id, date, time, studentId, fingerId, result, status, source) VALUES (?,?,?,?,?,?,?,?)", (eid, date, datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30))).strftime("%H:%M:%S"), sid, stu["fingerId"], "CORRECTED", new_status, "CORRECTION"))
+        db.execute("INSERT INTO audit VALUES (?,?,?,?)", (str(uuid.uuid4()), now_ist(), "ATTENDANCE_CORRECTED", f"sid {sid} {date} {old_status}->{new_status} reason:{reason}"))
+        db.commit()
+        return jsonify({"ok": True, "oldStatus": old_status, "newStatus": new_status, "date": date, "studentId": sid})
+    except sqlite3.Error as e:
+        return jsonify({"error":f"DB_FAIL {e}"}), 500
+
+def enroll_hint(msg):
+    m = str(msg)
+    if "TIMEOUT_WAIT_REMOVED" in m:
+        return "Lift your finger completely off the glass, then wait for the next prompt. " + m
+    if "TIMEOUT_WAIT_FINGER" in m or "NO_FINGER" in m:
+        return "Press the same finger flat on the glass and hold still until the capture finishes. " + m
+    if "CAPTURE" in m:
+        return "Hold still — the sensor did not get a clear image. " + m
+    if "UART" in m or m == "TIMEOUT":
+        return "The sensor did not answer on serial. Check the GT-511C3 cable. " + m
+    return m
+
+@app.route("/api/enroll/progress")
+@app.route("/api/sensor/progress")
+def enroll_progress():
+    return jsonify(sensor_progress_view())
+
+# --- Enroll (REAL) ---
+@app.route("/api/enroll", methods=["POST"])
+def enroll():
+    try:
+        j = request.get_json(force=True)
+    except:
+        return jsonify({"error":"invalid JSON"}), 400
+    name = (j.get("name") or "").strip()
+    roll = (j.get("roll") or "").strip()
+    grade = (j.get("grade") or "").strip()
+    batch = (j.get("batch") or j.get("group") or "").strip()
+    section = (j.get("section") or "").strip()
+    parent = (j.get("parent") or j.get("parent_name") or "").strip()
+    phone = (j.get("phone") or "").strip()
+    address = (j.get("address") or "").strip()
+    photo = (j.get("photo") or "").strip()
+    if not name or not roll:
+        return jsonify({"error":"name and roll required"}), 400
+    if len(roll) > 20 or len(name) > 80:
+        return jsonify({"error":"name/roll too long"}), 400
+    if not grade:
+        return jsonify({"error":"grade required"}), 400
+    if len(batch) > 40:
+        return jsonify({"error":"batch too long"}), 400
+    if len(section) > 20:
+        return jsonify({"error":"section too long"}), 400
+    if len(parent) > 80:
+        return jsonify({"error":"parent too long"}), 400
+    if len(address) > 200:
+        return jsonify({"error":"address too long"}), 400
+    digits = "".join(c for c in phone if c.isdigit())
+    if phone and len(digits) < 8:
+        return jsonify({"error":"phone too short"}), 400
+    # clock check
+    ok_clk, clk_msg = validate_clock()
+    if not ok_clk:
+        return jsonify({"error":clk_msg}), 500
+    db = get_db()
+    try:
+        if db.execute("SELECT 1 FROM students WHERE active=1 AND lower(roll)=lower(?)", (roll,)).fetchone():
+            return jsonify({"error":"roll exists"}), 409
+        if grade and len(grade)>40:
+            return jsonify({"error":"grade too long"}), 400
+        fid = next_finger_id(db)
+        if fid is None:
+            return jsonify({"error":"fingerprint DB full (200 slots)"}), 507
+        mx2 = db.execute("SELECT COALESCE(MAX(id),0) FROM students").fetchone()[0]
+        nid = int(mx2)+1
+    except sqlite3.Error as e:
+        return jsonify({"error":f"DB_FAIL {e}"}), 500
+
+    # --- REAL SENSOR ENROLL (no timers) ---
+    if not SENSOR_LOCK.acquire(timeout=5):
+        return jsonify({"error":"sensor busy — wait for the current scan to finish"}), 503
+    set_sensor_progress(mode="enroll", step=1, steps_total=3, state="place", title="Place your finger",
+                        detail="Sensor light is on. Put your finger on the glass.", timeout_sec=40, finger=False)
+    try:
+        sensor = get_sensor()
+        if hardware_unusable(sensor):
+            sensor.close()
+            return jsonify({"error":"sensor offline — hardware not ready", "sensor":"offline", "hint": getattr(sensor, "last_error", "")}), 503
+        try:
+            ok, msg = sensor.enroll(int(fid), log=set_sensor_progress)
+            app.logger.info("sensor enroll fid=%s ok=%s result=%s", fid, ok, msg)
+        except Exception as e:
+            ok, msg = False, f"EXC {e}"
+            app.logger.exception("sensor enroll exception fid=%s", fid)
+        finally:
+            sensor.close()
+    finally:
+        SENSOR_LOCK.release()
+    if not ok:
+        hint = enroll_hint(msg)
+        set_sensor_progress(state="fail", title="Try again", detail=hint, raw=str(msg), timeout_sec=0, deadline=0)
+        comms = "UART" in str(msg) or str(msg) in ("TIMEOUT", "BAD_CHECKSUM", "SHORT")
+        if comms:
+            return jsonify({"error": f"enroll failed: {msg}", "sensor": "offline", "hint": hint, "raw": str(msg)}), 500
+        return jsonify({"error": f"sensor enroll failed: {msg}", "hint": hint, "raw": str(msg)}), 500
+
+    # Auto-add class if new
+    try:
+        s = get_settings()
+        if grade and grade.lower() not in [c.lower() for c in s.get("classes",[])]:
+            s["classes"] = s.get("classes",[])+[grade]
+            save_settings(s)
+        if batch and batch.lower() not in [b.lower() for b in s.get("batches",[])]:
+            s["batches"] = s.get("batches",[])+[batch]
+            save_settings(s)
+        db.execute("INSERT INTO students (id, name, roll, grade, batch, section, parent, phone, address, fingerId, photo, active, createdAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", (nid, name, roll, grade, batch, section, parent, phone, address, fid, photo, 1, today_ist()))
+        db.execute("INSERT INTO audit VALUES (?,?,?,?)", (str(uuid.uuid4()), now_ist(), "STUDENT_ENROLLED", f"{name} -> {grade} #{fid}"))
+        db.commit()
+    except sqlite3.Error as e:
+        # Rollback fingerprint if DB fail → try delete from sensor
+        try:
+            sens2 = get_sensor()
+            sens2.delete_id(int(fid))
+            sens2.close()
+        except: pass
+        return jsonify({"error":f"DB_FAIL {e}"}), 500
+    set_sensor_progress(mode="enroll", step=3, steps_total=3, state="success", title="Fingerprint enrolled",
+                        detail="Saved on the sensor and in SQLite.", timeout_sec=0, deadline=0)
+    return jsonify({"id": nid, "fingerId": fid, "grade": grade})
+
+# --- Scan (REAL) ---
+@app.route("/api/scan", methods=["POST"])
+def scan():
+    try:
+        j = request.get_json(force=True) or {}
+    except:
+        j = {}
+    # clock validation
+    ok_clk, clk_msg = validate_clock()
+    if not ok_clk:
+        return jsonify({"ok":False, "reason":"INVALID_CLOCK", "detail":clk_msg}), 500
+    # Support two modes: legacy UI sends studentId, real hardware sends no id → we identify
+    student_id = j.get("studentId")
+    is_unknown = bool(j.get("isUnknown"))
+    # If no studentId and not explicit unknown, try real identify
+    sensor_fid = None
+    sensor_err = None
+    if not is_unknown and not student_id:
+        try:
+            wait_sec = max(1, min(30, int(j.get("waitSec", 30))))
+        except (TypeError, ValueError):
+            wait_sec = 30
+        # REAL path: student puts finger → Pi reads → identifies
+        if not SENSOR_LOCK.acquire(timeout=5):
+            return jsonify({"ok": False, "reason": "SENSOR_BUSY", "detail": "enroll in progress"}), 503
+        sensor = get_sensor()
+        if hardware_unusable(sensor):
+            sensor.close()
+            SENSOR_LOCK.release()
+            return jsonify({"ok": False, "reason": "SENSOR_DISCONNECT", "detail": getattr(sensor, "last_error", "hardware not ready")}), 503
+        try:
+            # If sim mode and no hardware, identify returns None,UNKNOWN — but we treat as need studentId
+            fid, msg = sensor.identify(log=set_sensor_progress, timeout=wait_sec)
+            app.logger.info("sensor identify ok=%s fid=%s result=%s", fid is not None, fid, msg)
+            if fid is not None:
+                sensor_fid = int(fid)
+            else:
+                # msg contains UNKNOWN or NO_FINGER or UART_ERR
+                sensor_err = msg
+                msg_text = str(msg)
+                if any(token in msg_text for token in ("UART", "COMM_ERR", "BAD_CHECKSUM", "SHORT", "INIT_FAIL")):
+                    return jsonify({"ok":False, "reason":"SENSOR_DISCONNECT", "detail":msg_text, "sensor":"offline"}), 503
+                if "NO_FINGER" in msg_text or msg_text == "TIMEOUT":
+                    return jsonify({"ok":False, "reason":"NO_FINGER", "detail":msg, "sensor": "offline" if "UART" in str(msg) else "ok"}), 400
+                if "UNKNOWN" in msg_text:
+                    # fall through to unknown handling
+                    is_unknown = True
+                elif sensor.sim:
+                    # sim without hardware — require studentId from UI choice (legacy fallback)
+                    # If frontend is old UI that expects to pick student, allow it: return need studentId
+                    return jsonify({"ok":False, "reason":"NEED_STUDENT_ID", "detail":"sim mode: send studentId"}), 400
+                else:
+                    is_unknown = True
+        except Exception as e:
+            sensor_err = str(e)
+            return jsonify({"ok":False, "reason":"SENSOR_DISCONNECT", "detail":sensor_err}), 503
+        finally:
+            try:
+                sensor.close()
+            except Exception:
+                pass
+            SENSOR_LOCK.release()
+        # Map fingerId to student
+        if sensor_fid is not None:
+            db = get_db()
+            row = db.execute("SELECT * FROM students WHERE fingerId=? AND active=1", (sensor_fid,)).fetchone()
+            if row:
+                student_id = row["id"]
+            else:
+                # Finger exists in sensor but no student (orphan) → unknown
+                is_unknown = True
+
+    tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+    now = datetime.datetime.now(tz)
+    date = now.date().isoformat()
+    t = now.strftime("%H:%M:%S")
+    # Bad date edge: if date parse fails, already handled; also check future?
+    if date > (now.date() + datetime.timedelta(days=1)).isoformat():
+        return jsonify({"ok":False, "reason":"BAD_DATE", "date":date}), 400
+
+    s = get_settings()
+    try:
+        db = get_db()
+    except sqlite3.Error as e:
+        return jsonify({"error":f"DB_FAIL {e}"}), 500
+
+    if is_unknown or not student_id:
+        try:
+            eid = str(uuid.uuid4())
+            cur = db.execute("INSERT INTO events(id, date, time, studentId, fingerId, result, status, source) VALUES (?,?,?,?,?,?,?,?)", (eid, date, t, None, sensor_fid, "UNKNOWN", "UNKNOWN", "GT511C3"))
+            db.execute("INSERT INTO audit VALUES (?,?,?,?)", (str(uuid.uuid4()), now_ist(), "UNKNOWN_FINGERPRINT", f"{t} fid={sensor_fid} {sensor_err or ''}"))
+            db.commit()
+        except sqlite3.Error as e:
+            return jsonify({"error":f"DB_FAIL {e}"}), 500
+        return jsonify({"ok": False, "reason": "UNKNOWN", "date": date, "time": t, "fingerId": sensor_fid, "seq": int(cur.lastrowid)})
+
+    # Validate student exists
+    try:
+        stu = db.execute("SELECT * FROM students WHERE id=? AND active=1", (student_id,)).fetchone()
+    except sqlite3.Error as e:
+        return jsonify({"error":f"DB_FAIL {e}"}), 500
+    if not stu:
+        # Could be deleted student → treat as unknown, not attendance
+        try:
+            eid = str(uuid.uuid4())
+            db.execute("INSERT INTO events(id, date, time, studentId, fingerId, result, status, source) VALUES (?,?,?,?,?,?,?,?)", (eid, date, t, None, None, "UNKNOWN", "UNKNOWN", "GT511C3"))
+            db.commit()
+        except: pass
+        return jsonify({"ok": False, "reason": "UNKNOWN"}), 404
+
+    # canonical eligibility: per-student schedule with global fallback
+    stu_dict = dict(stu)
+    if not is_student_scheduled(date, stu_dict, s):
+        # Also check global holiday case for correct reason code
+        if not is_working_day(date, s):
+            try:
+                ensure_daily(date, student_id, db)
+                row_nw = db.execute("SELECT status FROM daily WHERE key=?", (f"{date}|{student_id}",)).fetchone()
+                cur_nw = row_nw["status"] if row_nw and row_nw["status"] else None
+                if not cur_nw or cur_nw in ("ABSENT", None):
+                    db.execute("UPDATE daily SET status='NOT_SCHEDULED', firstScan=?, lastScan=? WHERE key=?", (t, t, f"{date}|{student_id}"))
+                    eid_nw = str(uuid.uuid4())
+                    existing_nw = db.execute("SELECT rowid FROM events WHERE date=? AND studentId=? AND status='NOT_SCHEDULED' LIMIT 1", (date, student_id)).fetchone()
+                    if not existing_nw:
+                        cur_nw_ins = db.execute("INSERT INTO events(id, date, time, studentId, fingerId, result, status, source) VALUES (?,?,?,?,?,?,?,?)", (eid_nw, date, t, student_id, stu["fingerId"], "NOT_SCHEDULED", "NOT_SCHEDULED", "GT511C3"))
+                        db.execute("INSERT INTO audit VALUES (?,?,?,?)", (str(uuid.uuid4()), now_ist(), "NON_WORKING_DAY_SCAN", f"{stu['name']} {t} non-working {stu_dict.get('grade')}/{stu_dict.get('batch')}"))
+                        db.commit()
+                        return jsonify({"ok": False, "reason": "NON_WORKING_DAY", "status": "NOT_SCHEDULED", "date": date, "time": t, "student": dict(stu), "seq": int(cur_nw_ins.lastrowid)})
+                    db.commit()
+                    existing_seq = db.execute("SELECT rowid FROM events WHERE date=? AND studentId=? AND status='NOT_SCHEDULED' ORDER BY rowid DESC LIMIT 1", (date, student_id)).fetchone()
+                    if existing_seq:
+                        return jsonify({"ok": False, "reason": "NON_WORKING_DAY", "status": "NOT_SCHEDULED", "date": date, "time": t, "student": dict(stu), "seq": int(existing_seq[0])})
+                else:
+                    existing_seq = db.execute("SELECT rowid FROM events WHERE date=? AND studentId=? AND status='NOT_SCHEDULED' ORDER BY rowid DESC LIMIT 1", (date, student_id)).fetchone()
+                    if existing_seq:
+                        return jsonify({"ok": False, "reason": "NON_WORKING_DAY", "status": "NOT_SCHEDULED", "date": date, "time": t, "student": dict(stu), "seq": int(existing_seq[0])})
+                    # fallback create if none exists
+                    eid_fallback = str(uuid.uuid4())
+                    cur_fallback = db.execute("INSERT INTO events(id, date, time, studentId, fingerId, result, status, source) VALUES (?,?,?,?,?,?,?,?)", (eid_fallback, date, t, student_id, stu["fingerId"], "NOT_SCHEDULED", "NOT_SCHEDULED", "GT511C3"))
+                    db.commit()
+                    return jsonify({"ok": False, "reason": "NON_WORKING_DAY", "status": "NOT_SCHEDULED", "date": date, "time": t, "student": dict(stu), "seq": int(cur_fallback.lastrowid)})
+            except Exception:
+                pass
+            try:
+                existing_seq = db.execute("SELECT rowid FROM events WHERE date=? AND studentId=? AND status='NOT_SCHEDULED' ORDER BY rowid DESC LIMIT 1", (date, student_id)).fetchone()
+                if existing_seq:
+                    return jsonify({"ok": False, "reason": "NON_WORKING_DAY", "status": "NOT_SCHEDULED", "date": date, "time": t, "student": dict(stu), "seq": int(existing_seq[0])})
+            except Exception:
+                pass
+            return jsonify({"ok": False, "reason": "NON_WORKING_DAY", "status": "NOT_SCHEDULED", "date": date, "time": t, "student": dict(stu), "seq": 0})
+        try:
+            ensure_daily(date, student_id, db)
+            row_ns = db.execute("SELECT status FROM daily WHERE key=?", (f"{date}|{student_id}",)).fetchone()
+            cur_ns = row_ns["status"] if row_ns and row_ns["status"] else None
+            # Only set NOT_SCHEDULED if not already PRESENT/LATE/NOT_SCHEDULED
+            if not cur_ns or cur_ns in ("ABSENT", None):
+                db.execute("UPDATE daily SET status='NOT_SCHEDULED', firstScan=?, lastScan=? WHERE key=?", (t, t, f"{date}|{student_id}"))
+                eid = str(uuid.uuid4())
+                # avoid duplicate NOT_SCHEDULED events for same day
+                existing = db.execute("SELECT rowid FROM events WHERE date=? AND studentId=? AND status='NOT_SCHEDULED' LIMIT 1", (date, student_id)).fetchone()
+                if not existing:
+                    cur = db.execute("INSERT INTO events(id, date, time, studentId, fingerId, result, status, source) VALUES (?,?,?,?,?,?,?,?)", (eid, date, t, student_id, stu["fingerId"], "NOT_SCHEDULED", "NOT_SCHEDULED", "GT511C3"))
+                    db.execute("INSERT INTO audit VALUES (?,?,?,?)", (str(uuid.uuid4()), now_ist(), "NOT_SCHEDULED_SCAN", f"{stu['name']} {t} not scheduled {stu_dict.get('grade')}/{stu_dict.get('batch')}"))
+                    db.commit()
+                    return jsonify({"ok": False, "reason": "NOT_SCHEDULED", "status": "NOT_SCHEDULED", "date": date, "time": t, "student": dict(stu), "seq": int(cur.lastrowid)})
+                db.commit()
+                existing_seq = db.execute("SELECT rowid FROM events WHERE date=? AND studentId=? AND status='NOT_SCHEDULED' ORDER BY rowid DESC LIMIT 1", (date, student_id)).fetchone()
+                if existing_seq:
+                    return jsonify({"ok": False, "reason": "NOT_SCHEDULED", "status": "NOT_SCHEDULED", "date": date, "time": t, "student": dict(stu), "seq": int(existing_seq[0])})
+            else:
+                # already NOT_SCHEDULED/PRESENT/LATE — return existing seq for UI feedback
+                existing_seq = db.execute("SELECT rowid FROM events WHERE date=? AND studentId=? AND status='NOT_SCHEDULED' ORDER BY rowid DESC LIMIT 1", (date, student_id)).fetchone()
+                if existing_seq:
+                    return jsonify({"ok": False, "reason": "NOT_SCHEDULED", "status": "NOT_SCHEDULED", "date": date, "time": t, "student": dict(stu), "seq": int(existing_seq[0])})
+        except Exception:
+            pass
+        # fallback always with seq for UI (ensure front-page shows feedback)
+        try:
+            existing_seq = db.execute("SELECT rowid FROM events WHERE date=? AND studentId=? AND status='NOT_SCHEDULED' ORDER BY rowid DESC LIMIT 1", (date, student_id)).fetchone()
+            if existing_seq:
+                return jsonify({"ok": False, "reason": "NOT_SCHEDULED", "status": "NOT_SCHEDULED", "date": date, "time": t, "student": dict(stu), "seq": int(existing_seq[0])})
+        except Exception:
+            pass
+        return jsonify({"ok": False, "reason": "NOT_SCHEDULED", "status": "NOT_SCHEDULED", "date": date, "time": t, "student": dict(stu), "seq": 0})
+
+    # Duplicate scan edge
+    try:
+        row = db.execute("SELECT status FROM daily WHERE key=?", (f"{date}|{student_id}",)).fetchone()
+        status = row["status"] if row and row["status"] else None
+        # NOT_SCHEDULED/ABSENT may be overwritten by a later valid scan if schedule changes; PRESENT/LATE/NOT_SCHEDULED stay first-scan otherwise
+        if status and status not in ("ABSENT", "NOT_SCHEDULED"):
+            eid = str(uuid.uuid4())
+            cur = db.execute("INSERT INTO events(id, date, time, studentId, fingerId, result, status, source) VALUES (?,?,?,?,?,?,?,?)", (eid, date, t, student_id, stu["fingerId"], "MATCH", "DUPLICATE", "GT511C3"))
+            db.execute("INSERT INTO audit VALUES (?,?,?,?)", (str(uuid.uuid4()), now_ist(), "DUPLICATE_SCAN", f"{stu['name']} {t} already {status}"))
+            db.commit()
+            return jsonify({"ok": False, "reason": "DUPLICATE", "status": "DUPLICATE", "student": dict(stu), "date": date, "time": t, "seq": int(cur.lastrowid)})
+        # Ensure daily row exists
+        ensure_daily(date, student_id, db)
+        st = classify(t, s)
+        key = f"{date}|{student_id}"
+        cur = db.execute("SELECT firstScan FROM daily WHERE key=?", (key,)).fetchone()
+        first = cur["firstScan"] if cur and cur["firstScan"] else t
+        db.execute("UPDATE daily SET status=?, firstScan=?, lastScan=? WHERE key=?", (st, first, t, key))
+        eid = str(uuid.uuid4())
+        event_cur = db.execute("INSERT INTO events(id, date, time, studentId, fingerId, result, status, source) VALUES (?,?,?,?,?,?,?,?)", (eid, date, t, student_id, stu["fingerId"], "MATCH", st, "GT511C3"))
+        db.execute("INSERT INTO notifications VALUES (?,?,?,?,?,?)", (str(uuid.uuid4()), student_id, now_ist(), "PENDING", f"Attendance {st} at {t}", 0))
+        db.execute("INSERT INTO audit VALUES (?,?,?,?)", (str(uuid.uuid4()), now_ist(), "ATTENDANCE_RECORDED", f"{stu['name']} -> {st} {t}"))
+        db.commit()
+    except sqlite3.Error as e:
+        return jsonify({"error":f"DB_FAIL {e}"}), 500
+    return jsonify({"ok": True, "student": dict(stu), "date": date, "time": t, "status": st, "seq": int(event_cur.lastrowid)})
+
+@app.route("/api/scan/last")
+def scan_last():
+    """Latest real-scan event for the UI bridge poller (RECONCILE rows excluded)."""
+    try:
+        db = get_db()
+        row = db.execute(
+            "SELECT rowid AS seq, * FROM events WHERE source IS NOT NULL AND source != 'RECONCILE' "
+            "ORDER BY rowid DESC LIMIT 1"
+        ).fetchone()
+        if not row:
+            return jsonify({"seq": 0})
+        ev = dict(row)
+        stu = None
+        if ev.get("studentId"):
+            srow = db.execute("SELECT * FROM students WHERE id=?", (ev["studentId"],)).fetchone()
+            if srow:
+                stu = dict(srow)
+        return jsonify({"seq": ev["seq"], "result": ev.get("result"), "status": ev.get("status"),
+                        "date": ev.get("date"), "time": ev.get("time"),
+                        "fingerId": ev.get("fingerId"), "student": stu})
+    except sqlite3.Error as e:
+        return jsonify({"error": f"DB_FAIL {e}"}), 500
+
+@app.route("/api/reconcile", methods=["POST"])
+def reconcile():
+    try:
+        j = request.get_json(silent=True) or {}
+    except:
+        j = {}
+    date = j.get("date") or today_ist()
+    # Bad date edge
+    try:
+        datetime.date.fromisoformat(date)
+    except:
+        return jsonify({"error":"bad date"}), 400
+    s = get_settings()
+    # Edge: only after late cutoff — if today and now < lateCutoff, not yet
+    if date == today_ist():
+        tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+        now_t = datetime.datetime.now(tz).strftime("%H:%M:%S")
+        late = s.get("lateCutoff","08:30")
+        if len(late)==5: late+=":00"
+        if now_t < late:
+            return jsonify({"working": True, "marked": 0, "notScheduled": 0, "reason":"BEFORE_CUTOFF", "cutoff": late, "now": now_t})
+    try:
+        db = get_db()
+        rows = db.execute("SELECT * FROM students WHERE active=1").fetchall()
+        marked = 0
+        not_scheduled = 0
+        for r in rows:
+            stu = dict(r)
+            key = f"{date}|{r['id']}"
+            row = db.execute("SELECT status FROM daily WHERE key=?", (key,)).fetchone()
+            cur = row["status"] if row and row["status"] else None
+            scheduled = is_student_scheduled(date, stu, s)
+            if not scheduled:
+                # never mark absent when not scheduled
+                if not cur or cur in ("ABSENT", None):
+                    ensure_daily(date, r["id"], db)
+                    # avoid duplicate NOT_SCHEDULED events
+                    exists = db.execute("SELECT 1 FROM events WHERE date=? AND studentId=? AND status='NOT_SCHEDULED' LIMIT 1", (date, r["id"])).fetchone()
+                    if not exists:
+                        db.execute("UPDATE daily SET status='NOT_SCHEDULED', firstScan='--', lastScan='--' WHERE key=?", (key,))
+                        db.execute("INSERT INTO events(id, date, time, studentId, fingerId, result, status, source) VALUES (?,?,?,?,?,?,?,?)", (str(uuid.uuid4()), date, "00:00:00", r["id"], None, "NOT_SCHEDULED", "NOT_SCHEDULED", "RECONCILE"))
+                        not_scheduled += 1
+                    else:
+                        # ensure daily is NOT_SCHEDULED even if event exists
+                        db.execute("UPDATE daily SET status='NOT_SCHEDULED' WHERE key=?", (key,))
+                        not_scheduled += 1
+                continue
+            # scheduled but no record -> ABSENT
+            # also handle global holiday where no one scheduled: is_working_day false handled per student, but keep early return for all holiday?
+            if not cur:
+                ensure_daily(date, r["id"], db)
+                db.execute("UPDATE daily SET status='ABSENT' WHERE key=?", (key,))
+                db.execute("INSERT INTO events(id, date, time, studentId, fingerId, result, status, source) VALUES (?,?,?,?,?,?,?,?)", (str(uuid.uuid4()), date, "23:59:59", r["id"], None, "ABSENT", "ABSENT", "RECONCILE"))
+                db.execute("INSERT INTO notifications VALUES (?,?,?,?,?,?)", (str(uuid.uuid4()), r["id"], now_ist(), "PENDING", f"Absent {date}", 0))
+                marked += 1
+        if marked or not_scheduled:
+            db.execute("INSERT INTO audit VALUES (?,?,?,?)", (str(uuid.uuid4()), now_ist(), "ABSENCE_RECONCILIATION", f"{marked} absent {not_scheduled} not_scheduled {date}"))
+        db.commit()
+    except sqlite3.Error as e:
+        return jsonify({"error":f"DB_FAIL {e}"}), 500
+    # check if any scheduled at all for working flag
+    any_scheduled = any(is_student_scheduled(date, dict(r), s) for r in rows) if rows else is_working_day(date, s)
+    return jsonify({"working": bool(any_scheduled), "marked": marked, "notScheduled": not_scheduled, "date": date})
+
+@app.route("/api/attendance")
+def attendance():
+    date = request.args.get("date")
+    try:
+        db = get_db()
+        if date:
+            try:
+                datetime.date.fromisoformat(date)
+            except:
+                return jsonify({"error":"bad date"}), 400
+            rows = db.execute("SELECT * FROM events WHERE date=? ORDER BY time DESC", (date,)).fetchall()
+        else:
+            rows = db.execute("SELECT * FROM events ORDER BY date DESC, time DESC LIMIT 2000").fetchall()
+        return jsonify([dict(r) for r in rows])
+    except sqlite3.Error as e:
+        return jsonify({"error":f"DB_FAIL {e}"}), 500
+
+@app.route("/api/daily")
+def daily():
+    date = request.args.get("date")
+    try:
+        db = get_db()
+        if date:
+            try:
+                datetime.date.fromisoformat(date)
+            except:
+                return jsonify({"error":"bad date"}), 400
+            rows = db.execute("SELECT * FROM daily WHERE date=?", (date,)).fetchall()
+        else:
+            rows = db.execute("SELECT * FROM daily").fetchall()
+        return jsonify([dict(r) for r in rows])
+    except sqlite3.Error as e:
+        return jsonify({"error":f"DB_FAIL {e}"}), 500
+
+@app.route("/api/export")
+def export_all():
+    try:
+        db = get_db()
+        return jsonify({
+            "exportedAt": now_ist(),
+            "source": "sqlite",
+            "settings": get_settings(),
+            "students": [dict(r) for r in db.execute("SELECT * FROM students").fetchall()],
+            "events": [dict(r) for r in db.execute("SELECT * FROM events ORDER BY date DESC, time DESC LIMIT 5000").fetchall()],
+            "daily": [dict(r) for r in db.execute("SELECT * FROM daily").fetchall()],
+        })
+    except sqlite3.Error as e:
+        return jsonify({"error":f"DB_FAIL {e}"}), 500
+
+@app.route("/api/kpis")
+def kpis():
+    date = request.args.get("date") or today_ist()
+    cls = (request.args.get("class") or request.args.get("grade") or "").strip()
+    batch = (request.args.get("batch") or "").strip()
+    try:
+        datetime.date.fromisoformat(date)
+    except:
+        return jsonify({"error":"bad date"}), 400
+    try:
+        db = get_db()
+        s = get_settings()
+        # filter students by class/batch if requested
+        if cls or batch:
+            cond = " WHERE active=1"
+            params = []
+            if cls:
+                cond += " AND lower(grade)=lower(?)"
+                params.append(cls)
+            if batch:
+                cond += " AND lower(batch)=lower(?)"
+                params.append(batch)
+            rows = db.execute(f"SELECT * FROM students{cond}", params).fetchall()
+        else:
+            rows = db.execute("SELECT * FROM students WHERE active=1").fetchall()
+        total = len(rows)
+        scheduled = 0
+        not_scheduled = 0
+        present = late = absent = 0
+        for r in rows:
+            stu = dict(r)
+            if is_student_scheduled(date, stu, s):
+                scheduled += 1
+                key = f"{date}|{r['id']}"
+                drow = db.execute("SELECT status FROM daily WHERE key=?", (key,)).fetchone()
+                st = drow["status"] if drow and drow["status"] else None
+                if st == "PRESENT":
+                    present += 1
+                elif st == "LATE":
+                    late += 1
+                elif st == "ABSENT":
+                    absent += 1
+                elif st == "NOT_SCHEDULED":
+                    # should not happen for scheduled, but count as not_scheduled if mis-marked
+                    not_scheduled += 1
+                else:
+                    # no record yet -> treat as absent if scheduled and past cutoff? but for kpi just not counted
+                    pass
+            else:
+                not_scheduled += 1
+        # also count notScheduled that may have daily NOT_SCHEDULED but not in above loop? already counted
+        # ensure absent is scheduled - present - late
+        # if we want strict, absent should be scheduled - present - late, but we counted via daily
+        return jsonify({"total": total, "scheduled": scheduled, "present": present, "late": late, "absent": absent, "notScheduled": not_scheduled, "date": date})
+    except sqlite3.Error as e:
+        return jsonify({"error":f"DB_FAIL {e}"}), 500
+
+@app.route("/api/reports")
+def reports():
+    sid = request.args.get("studentId")
+    if not sid: return jsonify({"error":"studentId required"}), 400
+    try:
+        db = get_db()
+        stu = db.execute("SELECT * FROM students WHERE id=?", (sid,)).fetchone()
+        if not stu: return jsonify({"error":"not found"}), 404
+        s = get_settings()
+        start = datetime.date.fromisoformat(s["attendanceStartDate"])
+        end = datetime.date.fromisoformat(today_ist())
+        buckets = [{"attended":0,"total":0} for _ in range(11)]
+        not_scheduled_days = 0
+        d = start
+        while d <= end:
+            iso = d.isoformat()
+            if is_student_scheduled(iso, dict(stu), s):
+                if d.year == 2026:
+                    idx = d.month - 5 - 1
+                else:
+                    idx = d.month
+                if 0 <= idx < 11:
+                    buckets[idx]["total"] += 1
+                    row = db.execute("SELECT status FROM daily WHERE key=?", (f"{iso}|{sid}",)).fetchone()
+                    if row and row["status"] in ("PRESENT","LATE"):
+                        buckets[idx]["attended"] += 1
+            d += datetime.timedelta(days=1)
+        present = db.execute("SELECT COUNT(*) FROM daily WHERE studentId=? AND status='PRESENT'", (sid,)).fetchone()[0]
+        late = db.execute("SELECT COUNT(*) FROM daily WHERE studentId=? AND status='LATE'", (sid,)).fetchone()[0]
+        absent = db.execute("SELECT COUNT(*) FROM daily WHERE studentId=? AND status='ABSENT'", (sid,)).fetchone()[0]
+        eligible = sum(b["total"] for b in buckets)
+        attended = sum(b["attended"] for b in buckets)
+        rate = round(attended/eligible*100) if eligible else 0
+        return jsonify({"present": present, "late": late, "absent": absent, "eligible": eligible, "attended": attended, "rate": rate, "buckets": buckets})
+    except Exception as e:
+        return jsonify({"error":f"FAIL {e}"}), 500
+
+# --- Images ---
+@app.route("/api/images", methods=["GET", "DELETE"])
+def list_images():
+    try:
+        db = get_db()
+        if request.method == "DELETE":
+            db.execute("DELETE FROM images")
+            db.commit()
+            s = get_settings()
+            s["imageGallery"] = []
+            save_settings(s)
+            db.execute("INSERT INTO audit VALUES (?,?,?,?)", (str(uuid.uuid4()), now_ist(), "GALLERY_CLEARED", ""))
+            db.commit()
+            return jsonify({"ok": True})
+        rows = db.execute("SELECT * FROM images ORDER BY at DESC").fetchall()
+        s = get_settings()
+        gal = s.get("imageGallery", [])
+        combined = [dict(r) for r in rows] + gal
+        return jsonify(combined[:60])
+    except sqlite3.Error as e:
+        return jsonify({"error":f"DB_FAIL {e}"}), 500
+
+@app.route("/api/images/<iid>", methods=["DELETE"])
+def delete_image(iid):
+    try:
+        db = get_db()
+        row = db.execute("SELECT * FROM images WHERE id=?", (iid,)).fetchone()
+        if row:
+            db.execute("DELETE FROM images WHERE id=?", (iid,))
+            db.commit()
+            return jsonify({"ok": True, "id": iid})
+        s = get_settings()
+        gal = s.get("imageGallery") or []
+        next_gal = [x for x in gal if str(x.get("id")) != str(iid)]
+        if len(next_gal) == len(gal):
+            return jsonify({"error": "not found"}), 404
+        s["imageGallery"] = next_gal
+        save_settings(s)
+        return jsonify({"ok": True, "id": iid})
+    except sqlite3.Error as e:
+        return jsonify({"error":f"DB_FAIL {e}"}), 500
+
+@app.route("/api/notifications")
+def list_notifications():
+    try:
+        db = get_db()
+        rows = db.execute("SELECT * FROM notifications ORDER BY createdAt DESC LIMIT 50").fetchall()
+        return jsonify([dict(r) for r in rows])
+    except sqlite3.Error as e:
+        return jsonify({"error":f"DB_FAIL {e}"}), 500
+
+@app.route("/api/audit")
+def list_audit():
+    try:
+        db = get_db()
+        rows = db.execute("SELECT * FROM audit ORDER BY rowid DESC LIMIT 500").fetchall()
+        return jsonify([dict(r) for r in rows])
+    except sqlite3.Error as e:
+        return jsonify({"error":f"DB_FAIL {e}"}), 500
+
+@app.route("/api/images/upload", methods=["POST"])
+def upload_image():
+    try:
+        os.makedirs(IMAGES_DIR, exist_ok=True)
+        dev_mirror = str(ROOT / "assets" / "images" / "students")
+        os.makedirs(dev_mirror, exist_ok=True)
+        if "file" not in request.files:
+            return jsonify({"error":"no file"}), 400
+        f = request.files["file"]
+        name = f.filename or f"img_{int(time.time())}.png"
+        name = "".join(c for c in name if c.isalnum() or c in "._-")[:80] or "image.png"
+        # Check size via seek
+        f.seek(0, os.SEEK_END)
+        sz = f.tell()
+        f.seek(0)
+        if sz > 2*1024*1024:
+            return jsonify({"error":"max 2MB"}), 400
+        import pathlib as pl
+        dest = pl.Path(IMAGES_DIR) / name
+        f.save(str(dest))
+        try:
+            f.seek(0)
+            f.save(str(pl.Path(dev_mirror) / name))
+        except: pass
+        url = f"/assets/images/students/{name}" if os.name=="nt" else f"/api/images/file/{name}"
+        db = get_db()
+        iid = str(uuid.uuid4())
+        db.execute("INSERT INTO images VALUES (?,?,?,?,?)", (iid, url, name, "students", now_ist()))
+        db.commit()
+        return jsonify({"url": url, "name": name, "id": iid})
+    except sqlite3.Error as e:
+        return jsonify({"error":f"DB_FAIL {e}"}), 500
+    except Exception as e:
+        return jsonify({"error":f"FAIL {e}"}), 500
+
+@app.route("/api/images/file/<path:name>")
+def serve_image(name):
+    return send_from_directory(IMAGES_DIR, name)
+
+# --- Fallback ---
+@app.errorhandler(404)
+def not_found(e):
+    if request.path.startswith("/api/"):
+        return jsonify({"error":"not found"}), 404
+    if request.path.startswith("/assets/"):
+        return jsonify({"error":"not found"}), 404
+    return send_from_directory(str(ROOT), PROD_HTML)
+
+if __name__ == "__main__":
+    print(f"[ATL] DB: {DB_PATH}")
+    print(f"[ATL] Images: {IMAGES_DIR}")
+    print(f"[ATL] http://{HOST}:{PORT}  sensor={cfg.get('sensor')} uart={cfg.get('uart')}")
+    os.makedirs(IMAGES_DIR, exist_ok=True)
+    with app.app_context():
+        get_db()
+    # Sensor light always on while the service runs (real hardware only)
+    try:
+        _s = get_sensor()
+        if not _s.sim:
+            _s.keep_led_on = True
+            _ok = _s.set_led(True)
+            print(f"[ATL] Sensor LED always-on: {'ACK' if _ok else 'NO_ACK'}")
+        _s.close()
+    except Exception as _e:
+        print(f"[ATL] Sensor LED startup skipped: {_e}")
+    app.run(host=HOST, port=PORT, debug=False, threaded=True)

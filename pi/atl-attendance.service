@@ -1,0 +1,18 @@
+[Unit]
+Description=ATL Smart Attendance Backend
+After=network.target
+Wants=network.target
+
+[Service]
+User=lancer
+Group=lancer
+WorkingDirectory=/opt/atl-attendance
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/atl-attendance/venv/bin/python /opt/atl-attendance/backend/app.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

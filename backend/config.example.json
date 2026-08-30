@@ -1,0 +1,30 @@
+{
+  "schoolName": "ATL Model School",
+  "region": "Maharashtra",
+  "academicYear": "2026-27",
+  "schoolOpeningDate": "2026-06-15",
+  "attendanceStartDate": "2026-06-15",
+  "presentCutoff": "08:00",
+  "lateCutoff": "08:30",
+  "minPercent": 75,
+  "trajectoryLabels": "Jun,Jul,Aug,Sep,Oct,Nov,Dec,Jan,Feb,Mar,Apr",
+  "classes": [
+    "Grade 10-A",
+    "Grade 10-B",
+    "Grade 9-A",
+    "Grade 12-C"
+  ],
+  "batches": [],
+  "classSchedules": {},
+  "batchSchedules": {},
+  "schoolLogo": "assets/images/admin/logo.svg",
+  "planetImage": "assets/images/admin/planet.svg",
+  "heroImage": "",
+  "sensor": "sim",
+  "uart": "/dev/serial0",
+  "baud": 9600,
+  "db": "backend/attendance.db",
+  "imagesDir": "backend/uploads",
+  "host": "0.0.0.0",
+  "port": 5000
+}

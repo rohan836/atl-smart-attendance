@@ -1,0 +1,21 @@
+__pycache__/
+*.pyc
+*.pyo
+*.log
+*.bak
+backend/*.log
+backend/*.db
+backend/*.bak
+backend/attendance.db.pre_restore.bak
+backend/students*.json
+backend/enroll*.json
+backend/uploads/
+assets/images/students/*
+!assets/images/students/.gitkeep
+backend/.venv/
+venv/
+.env
+.DS_Store
+Thumbs.db
+# machine-specific Pi config — keep template, ignore live
+backend/config.json

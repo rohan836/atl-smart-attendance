@@ -1,0 +1,1198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ATL Smart Attendance Terminal — Complete School System</title>
+<style>
+:root{--bg:#FCFBF7;--bg-left:#FFFFFF;--ink:#0A0A0A;--ink-2:#6B6B6B;--ink-3:#A8A5A0;--line:#E9E6E0;--line-strong:#0A0A0A;--paper:#F6F4EF;--danger:#8A3A3A;--ok:#2F5D34;--mono:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;--sans:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;--serif:Newsreader,Times New Roman,Georgia,serif;--ease:cubic-bezier(0.16,1,0.3,1);--ease-2:cubic-bezier(0.45,0,0.55,1);}
+*{margin:0;padding:0;box-sizing:border-box;min-width:0} *::before,*::after{box-sizing:border-box}
+html{height:100%;width:100%;overflow:hidden;overscroll-behavior:none}
+body{height:100%;width:100%;overflow:hidden;background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased;font-family:var(--sans);user-select:none;overscroll-behavior:none}
+::selection{background:var(--ink);color:#fff}
+.terminal{display:flex;flex-direction:row;height:100vh;height:100dvh;width:100vw;overflow:hidden;background:var(--bg);contain:strict;isolation:isolate;position:relative}
+.left{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:32px;background:var(--bg);border:0;overflow:hidden;contain:layout style paint;z-index:3;pointer-events:none}
+.scanner-stage{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none}
+.prompt{font-size:11px;letter-spacing:0.22em;text-transform:uppercase;font-weight:600;color:var(--ink);text-align:center;line-height:1.7;max-width:22em;white-space:normal;overflow-wrap:anywhere;pointer-events:none}
+.left-bottom{position:absolute;bottom:28px;left:50%;transform:translateX(-50%);display:flex;justify-content:center;align-items:center;gap:12px;overflow:hidden;flex-shrink:0;z-index:4;pointer-events:auto}
+.admin-trigger{font-size:9px;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink-3);cursor:pointer;border:1px solid var(--line);padding:7px 10px;background:#fff;transition:all 180ms var(--ease);flex-shrink:0}
+.admin-trigger:hover{border-color:var(--ink);color:var(--ink)}
+.right{position:absolute;inset:0;display:flex;flex-direction:column;overflow:hidden;contain:layout style paint;z-index:2;pointer-events:none}
+.result-viewport{flex:1 1 0%;min-width:0;min-height:0;display:flex;align-items:center;justify-content:center;padding:0 64px;position:relative;overflow:hidden;contain:layout style paint}
+.idle-layer{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:0 32px;transition:opacity 420ms var(--ease),transform 420ms var(--ease);overflow:hidden;pointer-events:none}
+.idle-layer.hidden{opacity:0;pointer-events:none;transform:translateY(8px)}
+.reveal-box{overflow:hidden;contain:layout paint} .reveal-text{display:inline-block;transform:translateY(100%);opacity:0;clip-path:inset(0 0 100% 0)} .reveal-text.is-revealed{animation:typoReveal 720ms var(--ease) forwards}
+@keyframes typoReveal{0%{transform:translateY(18px);opacity:0;clip-path:inset(0 0 100% 0);letter-spacing:0.08em}100%{transform:translateY(0);opacity:1;clip-path:inset(0 0 0% 0);letter-spacing:0.22em}}
+@media (prefers-reduced-motion:reduce){.reveal-text{transform:none!important;opacity:1!important;clip-path:none!important;animation:none!important}}
+/* Identity card */
+.identity-layer{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:0 64px;opacity:0;pointer-events:none;transform:translateY(12px);transition:opacity 460ms var(--ease),transform 460ms var(--ease);overflow:hidden;contain:layout;background:var(--bg)}
+.identity-layer.visible{opacity:1;pointer-events:auto;transform:translateY(0)}
+.photo-wrap{width:384px;height:492px;flex-shrink:0;flex-grow:0;border:1px solid var(--line-strong);background:#fff;overflow:hidden;position:relative;isolation:isolate;contain:layout paint}
+.photo-wrap img{width:100%;height:100%;object-fit:cover;display:block;transform:scale(1.04);transition:transform 820ms var(--ease)}
+.identity-layer.visible .photo-wrap img{transform:scale(1)}
+.photo-fallback{width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:var(--paper);font-family:var(--serif);font-size:124px;font-weight:300;letter-spacing:-0.04em;color:var(--ink);text-transform:uppercase}
+.id-meta{margin-left:48px;min-width:0;flex:1 1 0%;overflow:hidden;display:flex;flex-direction:column;justify-content:center;max-width:520px}
+.id-name{font-family:var(--serif);font-size:clamp(28px,4.2vw,78px);font-weight:600;line-height:0.92;letter-spacing:-0.038em;text-transform:uppercase;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow-wrap:anywhere;word-break:break-word}
+.id-sub{margin-top:18px;display:flex;flex-wrap:wrap;gap:10px 18px;min-width:0}
+.id-sub-item{font-family:var(--mono);font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:20ch}
+.id-status{margin-top:26px;display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line-strong);padding:8px 12px;font-size:10px;letter-spacing:0.18em;text-transform:uppercase;font-weight:600;background:#fff;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.id-time{margin-top:18px;font-family:var(--mono);font-size:34px;font-weight:300;letter-spacing:-0.04em;line-height:0.9;font-variant-numeric:tabular-nums}
+.id-date{margin-top:6px;font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:var(--ink-2)}
+.id-confirm{margin-top:14px;font-size:10px;letter-spacing:0.16em;text-transform:uppercase;color:var(--ok);font-weight:600}
+.unknown-layer{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:0 64px;opacity:0;pointer-events:none;transform:translateY(12px);transition:opacity 460ms var(--ease),transform 460ms var(--ease);overflow:hidden;background:var(--bg)}
+.unknown-layer.visible{opacity:1;pointer-events:auto;transform:translateY(0)}
+.unknown-title{font-family:var(--serif);font-size:clamp(24px,3vw,42px);font-weight:500;text-transform:uppercase;letter-spacing:-0.02em}
+.unknown-sub{margin-top:12px;font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink-2);max-width:420px;line-height:1.5}
+/* Admin */
+.admin-layer{position:absolute;inset:0;background:var(--bg);z-index:20;display:flex;flex-direction:column;opacity:0;pointer-events:none;transform:translateY(8px);transition:opacity 320ms var(--ease),transform 320ms var(--ease);overflow:hidden;contain:layout style paint}
+.admin-layer.open{opacity:1;pointer-events:auto;transform:translateY(0)}
+.admin-top{height:64px;flex-shrink:0;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 24px;overflow:hidden}
+.admin-title{font-family:var(--serif);font-size:18px;text-transform:uppercase;letter-spacing:0.06em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.admin-close{font-size:10px;letter-spacing:0.14em;text-transform:uppercase;border:1px solid var(--line);padding:8px 12px;background:#fff;cursor:pointer;transition:all 180ms var(--ease);flex-shrink:0}
+.admin-close:hover{border-color:var(--ink)}
+.admin-nav{display:flex;gap:0;border-bottom:1px solid var(--line);flex-shrink:0;overflow-x:auto;scrollbar-width:none}
+.admin-nav::-webkit-scrollbar{display:none}
+.admin-nav button{flex:1 1 0%;min-width:0;height:42px;padding:0 12px;background:transparent;border:0;border-right:1px solid var(--line);font-size:10px;letter-spacing:0.16em;text-transform:uppercase;font-weight:600;color:var(--ink-2);cursor:pointer;transition:all 180ms var(--ease);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.admin-nav button:last-child{border-right:0}
+.admin-nav button.active{background:var(--ink);color:#fff}
+.admin-body{flex:1 1 0%;min-height:0;display:flex;flex-direction:row;overflow:hidden;contain:layout style paint}
+.admin-pane{flex:1 1 0%;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.admin-pane.hidden{display:none!important}
+.tab-toolbar{height:48px;flex-shrink:0;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;padding:0 16px;overflow:hidden;background:#fff;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+.tab-toolbar::-webkit-scrollbar{display:none}
+.tab-toolbar input,.tab-toolbar select{flex-shrink:0}
+.tab-toolbar .btn{flex-shrink:0;min-width:88px}
+.tab-toolbar input,.tab-toolbar select{height:30px;border:1px solid var(--line);background:#fff;padding:0 10px;font-size:11px;letter-spacing:0.04em;min-width:0;max-width:220px;outline:0;transition:border-color 180ms}
+.tab-toolbar input:focus,.tab-toolbar select:focus{border-color:var(--ink)}
+.btn{height:30px;padding:0 12px;border:1px solid var(--line);background:#fff;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;font-weight:600;cursor:pointer;transition:all 180ms var(--ease);white-space:nowrap;flex-shrink:0}
+.btn:hover{border-color:var(--ink)} .btn.primary{background:var(--ink);color:#fff;border-color:var(--ink)} .btn.danger{color:var(--danger);border-color:var(--line)} .btn.danger:hover{border-color:var(--danger)}
+.badge{font-size:9px;letter-spacing:0.12em;text-transform:uppercase;padding:3px 6px;border:1px solid var(--line);background:#fff;white-space:nowrap}
+.badge.present{color:var(--ok);border-color:var(--ok)} .badge.late{color:#8A6A2A;border-color:#C7B07A} .badge.absent{color:var(--danger);border-color:var(--danger)} .badge.not-scheduled{color:var(--ink-2);border-color:var(--line);background:var(--paper)}
+.list-pane{width:380px;min-width:320px;max-width:440px;flex-shrink:0;border-right:1px solid var(--line);display:flex;flex-direction:column;overflow:hidden;background:#fff;contain:layout paint}
+.list-scroll{flex:1 1 0%;min-height:0;overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable;contain:layout paint}
+.student-row{height:68px;display:flex;align-items:center;gap:12px;padding:0 14px;border-bottom:1px solid var(--line);cursor:pointer;transition:background 160ms var(--ease);overflow:hidden;contain:layout}
+.student-row:hover{background:var(--paper)} .student-row.active{background:var(--ink);color:#fff}
+.student-row.active .student-roll,.student-row.active .student-class{color:rgba(255,255,255,0.65)}
+.student-thumb{width:42px;height:54px;flex-shrink:0;border:1px solid var(--line);background:var(--paper);overflow:hidden;position:relative}
+.student-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.student-thumb-fallback{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-family:var(--serif);font-size:18px;font-weight:600;letter-spacing:-0.02em;text-transform:uppercase;background:var(--paper);color:var(--ink)}
+.student-info{flex:1 1 0%;min-width:0;overflow:hidden;display:flex;flex-direction:column;gap:2px}
+.student-name{font-family:var(--serif);font-size:15px;font-weight:600;line-height:1.1;letter-spacing:-0.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.student-meta{font-size:10px;letter-spacing:0.06em;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;gap:8px}
+.detail-pane{flex:1 1 0%;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;background:var(--bg);contain:layout style paint}
+.detail-scroll{flex:1 1 0%;min-height:0;overflow-y:auto;overflow-x:hidden;padding:24px;scrollbar-gutter:stable;contain:layout paint}
+.detail-card{background:#fff;border:1px solid var(--line);padding:22px;overflow:hidden;contain:layout paint}
+.detail-photo{width:260px;height:338px;flex-shrink:0;border:1px solid var(--line-strong);background:#fff;overflow:hidden;position:relative}
+.detail-photo img{width:100%;height:100%;object-fit:cover;display:block}
+.detail-photo-fallback{width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:var(--paper);font-family:var(--serif);font-size:86px;font-weight:300;text-transform:uppercase;color:var(--ink)}
+.detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:18px}
+.detail-field{min-width:0;overflow:hidden}
+.detail-field label{display:block;font-size:9px;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink-3);margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.detail-field span{display:block;font-size:11px;letter-spacing:0.04em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;overflow-wrap:anywhere}
+.table-wrap{margin-top:18px;border:1px solid var(--line);background:#fff;overflow:hidden;contain:layout paint}
+.table-scroll{max-height:48vh;overflow-y:auto;overflow-x:auto;scrollbar-gutter:stable;contain:layout paint}
+.table-scroll.large{max-height:62vh}
+table{width:100%;border-collapse:collapse;font-size:11px;min-width:640px}
+th{position:sticky;top:0;background:#fff;z-index:1;text-align:left;font-size:9px;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink-3);padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:18ch;font-variant-numeric:tabular-nums}
+tr:hover td{background:var(--paper)}
+.empty{padding:36px 18px;text-align:center;font-size:11px;letter-spacing:0.08em;color:var(--ink-3);line-height:1.6}
+.empty b{display:block;font-family:var(--serif);font-size:18px;font-weight:500;color:var(--ink);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px}
+.stats-row{display:flex;gap:12px;flex-wrap:wrap;margin-top:12px}
+.stat{border:1px solid var(--line);background:#fff;padding:12px 14px;min-width:110px;flex:1 1 0%}
+.stat b{display:block;font-family:var(--mono);font-size:20px;font-weight:500;letter-spacing:-0.04em}
+.stat label{display:block;font-size:9px;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink-3);margin-top:4px}
+/* Calendar */
+.calendar-grid{display:grid;grid-template-columns:repeat(7,1fr);border:1px solid var(--line);background:#fff;overflow:hidden}
+.calendar-cell{border-right:1px solid var(--line);border-bottom:1px solid var(--line);min-height:68px;padding:8px;position:relative;overflow:hidden}
+.calendar-cell:nth-child(7n){border-right:0}
+.calendar-cell.head{min-height:auto;background:var(--paper);font-size:9px;letter-spacing:0.14em;text-transform:uppercase;font-weight:600;color:var(--ink-3);padding:10px 8px}
+.calendar-cell .day{font-family:var(--mono);font-size:11px}
+.calendar-cell.working{background:#fff} .calendar-cell.holiday{background:#FFF8F6} .calendar-cell.vacation{background:#F6F8FF} .calendar-cell.override{outline:1px solid var(--ink);outline-offset:-1px}
+.calendar-cell.today{box-shadow:inset 0 0 0 1px var(--ink)}
+.calendar-cell .tag{position:absolute;bottom:6px;left:6px;right:6px;font-size:8px;letter-spacing:0.08em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink-2)}
+.weekly-table{border:1px solid var(--line);background:#fff;width:100%;border-collapse:collapse}
+.weekly-table th,.weekly-table td{padding:10px 12px;border-bottom:1px solid var(--line);font-size:11px;text-align:left}
+.weekly-table th{font-size:9px;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink-3);background:var(--paper)}
+.toggle{width:34px;height:18px;border:1px solid var(--line-strong);background:#fff;position:relative;cursor:pointer;transition:all 180ms var(--ease);flex-shrink:0}
+.toggle::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;background:var(--line);transition:all 180ms var(--ease)}
+.toggle.on{background:var(--ink);border-color:var(--ink)} .toggle.on::after{transform:translateX(16px);background:#fff}
+/* Modal */
+.modal{position:fixed;inset:0;background:rgba(252,251,247,0.92);backdrop-filter:blur(6px);z-index:40;display:flex;align-items:center;justify-content:center;padding:24px;opacity:0;pointer-events:none;transition:opacity 280ms var(--ease)}
+.modal.open{opacity:1;pointer-events:auto}
+.modal-card{width:100%;max-width:520px;max-height:90vh;overflow-y:auto;background:#fff;border:1px solid var(--line-strong);padding:24px;transform:translateY(12px);transition:transform 280ms var(--ease);scrollbar-gutter:stable}
+.modal.open .modal-card{transform:translateY(0)}
+.modal-card h3{font-family:var(--serif);font-size:22px;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px}
+.modal-card p{font-size:11px;color:var(--ink-2);line-height:1.5;margin-bottom:18px}
+.form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.form-field{display:flex;flex-direction:column;gap:6px;min-width:0}
+.form-field.full{grid-column:1 / -1}
+.form-field label{font-size:9px;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink-3)}
+.form-field input,.form-field select,.form-field textarea{height:36px;border:1px solid var(--line);background:#fff;padding:0 12px;font-size:11px;outline:0;transition:border-color 180ms;min-width:0}
+.form-field textarea{height:72px;padding:10px 12px;resize:vertical}
+.form-field input:focus,.form-field select:focus,.form-field textarea:focus{border-color:var(--ink)}
+.enroll-scan-box{border:1px solid var(--line);background:var(--paper);padding:18px;text-align:center}
+.enroll-scan-count{font-family:var(--mono);font-size:28px;font-weight:300}
+.enroll-scan-label{margin-top:8px;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-2)}
+.finger-visual{width:92px;height:122px;margin:16px auto 0;border:1px solid var(--line-strong);background:#fff;position:relative;overflow:hidden}
+.finger-line{position:absolute;left:-10px;right:-10px;height:1px;background:var(--ink);top:0;animation:scanSweep 0.92s var(--ease-2) infinite alternate}
+.lift-hint{margin-top:12px;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-3)}
+.inline-error{margin-top:12px;padding:10px 12px;border:1px solid var(--danger);background:#FFF6F5;color:var(--danger);font-size:11px;line-height:1.4}
+@media print{.terminal,.admin-layer,.modal{display:none!important} body{overflow:visible!important;height:auto!important} .print-root{display:block!important}}
+.print-root{display:none}
+</style>
+</head>
+<body>
+<div class="terminal" id="terminal">
+  <div class="left">
+    <div class="scanner-stage">
+      <div class="prompt" id="promptText">PLACE YOUR FINGER TO SCAN</div>
+    </div>
+    <div class="left-bottom"><button class="admin-trigger" id="openAdminBtn">Admin</button><button class="admin-trigger" id="openEnrollBtn">New Student Enrollment</button></div>
+  </div>
+  <div class="right">
+    <div class="result-viewport">
+      <div class="idle-layer" id="idleLayer"></div>
+      <div class="identity-layer" id="identityLayer">
+        <div class="photo-wrap" id="photoWrap"><div class="photo-fallback" id="photoFallback">--</div><img id="photoImg" alt="" style="display:none"></div>
+        <div class="id-meta">
+          <div class="id-name" id="idName">—</div>
+          <div class="id-sub" id="idSub"></div>
+          <div class="id-status" id="idStatus">Present</div>
+          <div class="id-time" id="idTime">--:--</div>
+          <div class="id-date" id="idDate">--</div>
+          <div class="id-confirm" id="idConfirm">✓ Attendance recorded</div>
+        </div>
+      </div>
+      <div class="unknown-layer" id="unknownLayer"><div><div class="unknown-title">Unknown fingerprint</div><div class="unknown-sub">Not recognized in this school. Please check enrollment or contact office.</div></div></div>
+    </div>
+  </div>
+  <div class="admin-layer" id="adminLayer">
+    <div class="admin-top"><div class="admin-title" id="adminTitle">Students</div><div style="display:flex;gap:8px;align-items:center"><span style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-3)">Esc to close</span><button class="admin-close" id="adminClose">Close</button></div></div>
+    <div class="admin-nav" id="adminNav">
+      <button data-tab="students" class="active">Students</button>
+      <button data-tab="today">Today</button>
+      <button data-tab="reports">Reports</button>
+      <button data-tab="calendar">Calendar</button>
+      <button data-tab="settings">Settings</button>
+      <button data-tab="backup">Backup</button>
+    </div>
+    <div class="admin-body">
+      <!-- Students -->
+      <div class="admin-pane" id="pane-students">
+        <div class="tab-toolbar">
+          <input id="searchInput" placeholder="Search name, roll, class, batch, phone, fingerprint" style="flex:1 1 0%">
+          <select id="classFilter"><option value="">All Classes</option></select>
+          <select id="batchFilter"><option value="">All Batches</option></select>
+          <select id="studentStatusFilter"><option value="active">Active only</option><option value="all">All</option><option value="inactive">Inactive only</option></select>
+          <button class="btn" id="importStudentsBtn">Import CSV</button>
+          <button class="btn" id="exportStudentsBtn">Export CSV</button>
+        </div>
+        <div style="flex:1 1 0%;min-height:0;display:flex;flex-direction:row;overflow:hidden">
+          <div class="list-pane"><div class="list-scroll" id="studentList"></div></div>
+          <div class="detail-pane"><div class="detail-scroll" id="detailScroll"><div class="empty"><b>No student selected</b>Choose a student to view profile, attendance summary, history, and fingerprint controls. Search supports name, roll, class, section, parent phone, fingerprint ID.</div></div></div>
+        </div>
+      </div>
+      <!-- Today -->
+      <div class="admin-pane hidden" id="pane-today">
+        <div class="tab-toolbar">
+          <div id="todayDateLabel" style="font-size:11px;letter-spacing:0.08em;flex:1 1 0%">Today — --</div>
+          <select id="todayClassFilter"><option value="">All Classes</option></select>
+          <select id="todayStatusFilter"><option value="">All Status</option><option value="Present">Present</option><option value="Late">Late</option><option value="Absent">Absent</option><option value="Not Scheduled">Not Scheduled</option><option value="Unknown">Unknown</option><option value="Duplicate">Duplicate</option></select>
+          <select id="todaySort"><option value="time_desc">Time ↓</option><option value="time_asc">Time ↑</option><option value="name_asc">Name A→Z</option><option value="roll_asc">Roll</option><option value="class_asc">Class</option><option value="status_asc">Status</option></select>
+          <button class="btn" id="todayRefreshBtn">Refresh</button>
+          <button class="btn" id="todayPrintBtn">Print</button>
+          <button class="btn" id="todayExportBtn">Export CSV</button>
+        </div>
+        <div class="detail-scroll">
+          <div class="stats-row" id="todayStats"></div>
+          <div class="table-wrap"><div class="table-scroll large"><table><thead><tr><th>Time</th><th>Student</th><th>Roll</th><th>Class</th><th>Status</th><th>Fingerprint</th></tr></thead><tbody id="todayTableBody"></tbody></table></div></div>
+          <div class="table-wrap" style="margin-top:12px"><div style="padding:10px 12px;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;border-bottom:1px solid var(--line)">Unknown attempts</div><div class="table-scroll"><table><thead><tr><th>Time</th><th>Fingerprint</th><th>Note</th></tr></thead><tbody id="todayUnknownBody"></tbody></table></div></div>
+        </div>
+      </div>
+      <!-- Reports -->
+      <div class="admin-pane hidden" id="pane-reports">
+        <div class="tab-toolbar" style="flex-wrap:wrap;height:auto;min-height:48px;padding:8px 16px">
+          <select id="reportScope"><option value="school">Entire school</option><option value="class">One class</option><option value="student">One student</option></select>
+          <select id="reportClass"><option value="">Select class</option></select>
+          <select id="reportStudent" style="display:none"><option value="">Select student</option></select>
+          <select id="reportTime"><option value="today">Today</option><option value="week">This week</option><option value="month">This month</option><option value="year">This year</option><option value="academic">Academic year 2026–27</option><option value="custom">Custom range</option></select>
+          <input type="date" id="reportFrom" style="display:none"><input type="date" id="reportTo" style="display:none">
+          <button class="btn primary" id="reportApplyBtn">Apply</button>
+          <button class="btn" id="reportPrintBtn">Print</button>
+          <button class="btn" id="reportCsvBtn">CSV</button>
+        </div>
+        <div class="detail-scroll">
+          <div class="stats-row" id="reportStats"></div>
+          <div class="table-wrap"><div class="table-scroll large"><table><thead><tr><th>Date</th><th>Time</th><th>Student</th><th>Roll</th><th>Class</th><th>Status</th><th>Working day?</th></tr></thead><tbody id="reportBody"></tbody></table></div></div>
+        </div>
+      </div>
+      <!-- Calendar -->
+      <div class="admin-pane hidden" id="pane-calendar">
+        <div class="detail-scroll">
+          <div class="detail-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px;flex-wrap:wrap"><div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:600">Weekly schedule — Administrator decides working days</div><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><select id="calClassSelect" style="height:30px;border:1px solid var(--line);background:#fff;padding:0 10px;font-size:11px"><option value="">All classes (global)</option></select><span style="font-size:10px;color:var(--ink-3);white-space:nowrap">per-class — UI preview</span><button class="btn" id="calResetWeekBtn">Reset week to Mon-Sat</button></div></div>
+            <table class="weekly-table" id="weeklyTable"><thead><tr><th>Day</th><th>Working?</th></tr></thead><tbody></tbody></table>
+            <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span class="badge working" style="font-size:8px">Working</span><span class="badge holiday" style="font-size:8px;background:#FFF8F6">Holiday</span><span class="badge" style="font-size:8px;background:#F6F8FF">Vacation</span><span class="badge" style="font-size:8px;border-color:var(--ink)">Override</span></div>
+            <div style="margin-top:8px;font-size:10px;color:var(--ink-2);line-height:1.5">Priority: Specific date override → Holiday/Vacation → Weekly schedule. Holiday = not counted as absent. Examples: Mon-Fri, Mon-Sat, Tue-Sat, Mon/Wed/Fri custom. School info (name, year, late rule) is now in Settings.</div>
+          </div>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px">
+            <div class="detail-card" style="flex:2 1 480px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:600">Holidays, vacations, exam days</div><button class="btn" id="addHolidayBtn">Add holiday</button></div>
+              <div class="table-wrap"><div class="table-scroll"><table><thead><tr><th>Name</th><th>Start</th><th>End</th><th>Category</th><th>Type</th><th>Action</th></tr></thead><tbody id="holidayBody"></tbody></table></div></div>
+              <div style="margin-top:10px;font-size:10px;color:var(--ink-2)">Allow range: 10 Oct → 15 Oct rather than 6 entries. Automatically affects attendance.</div>
+            </div>
+            <div class="detail-card" style="flex:1 1 320px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:600">Special date overrides</div><button class="btn" id="addOverrideBtn">Add override</button></div>
+              <div class="table-wrap"><div class="table-scroll"><table><thead><tr><th>Date</th><th>Becomes</th><th>Note</th><th>Action</th></tr></thead><tbody id="overrideBody"></tbody></table></div></div>
+              <div style="margin-top:10px;font-size:10px;color:var(--ink-2)">Normally Sat=working but 12 Sep=Holiday → non-working. Normally Sun=holiday but 19 Sep=Special Working → working.</div>
+            </div>
+          </div>
+          <div class="detail-card" style="margin-top:12px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:600">Month view — working / holiday / override</div><div style="display:flex;gap:8px;align-items:center"><button class="btn" id="calPrevBtn">‹ Prev</button><div id="calMonthLabel" style="font-size:11px;letter-spacing:0.08em;min-width:140px;text-align:center"></div><button class="btn" id="calNextBtn">Next ›</button><button class="btn" id="calTodayBtn">Today</button></div></div>
+            <div class="calendar-grid" id="calendarGrid"></div>
+          </div>
+        </div>
+      </div>
+      <!-- Settings -->
+      <div class="admin-pane hidden" id="pane-settings">
+        <div class="detail-scroll">
+          <div style="display:flex;gap:12px;flex-wrap:wrap">
+            <div class="detail-card" style="flex:1 1 360px">
+              <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:600;margin-bottom:12px">Classes</div>
+              <div class="table-wrap"><div class="table-scroll"><table><thead><tr><th>Class</th><th>Students</th><th>Action</th></tr></thead><tbody id="classBody"></tbody></table></div></div>
+              <div style="margin-top:12px;display:flex;gap:8px"><input id="newClassName" placeholder="New class e.g. Grade 11-A" style="height:30px;border:1px solid var(--line);padding:0 10px;font-size:11px;flex:1 1 0%"><button class="btn primary" id="addClassBtn">Add</button></div>
+              <div style="margin-top:8px;font-size:10px;color:var(--ink-2)">Classes are editable; adding a class here also creates it when enrolling a student.</div>
+            </div>
+            <div class="detail-card" style="flex:1 1 360px">
+              <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:600;margin-bottom:12px">School information & rules</div>
+              <div class="form-grid">
+                <div class="form-field full"><label>School name</label><input id="setSchoolName" value="ATL Public School"></div>
+                <div class="form-field full"><label>Address</label><input id="setSchoolAddress" value="Shikrapur, Pune, Maharashtra"></div>
+                <div class="form-field"><label>Late threshold</label><input type="time" id="setLateThreshold" value="08:30"></div>
+                <div class="form-field"><label>Academic year</label><select id="setAcademicYear"><option>2026–27</option><option>2027–28</option></select></div>
+                <div class="form-field full"><label>Attendance start date</label><input type="date" id="setAttendanceStart"></div>
+              </div>
+              <div style="margin-top:12px;display:flex;gap:8px"><button class="btn primary" id="settingsSaveBtn">Save settings</button><button class="btn" id="settingsExportBtn">Export school info CSV</button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- Backup -->
+      <div class="admin-pane hidden" id="pane-backup">
+        <div class="detail-scroll">
+          <div style="display:flex;gap:12px;flex-wrap:wrap">
+            <div class="detail-card" style="flex:1 1 360px">
+              <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:600;margin-bottom:12px">Backup & restore — local file</div>
+              <div style="font-size:11px;line-height:1.6;color:var(--ink-2);margin-bottom:12px">Full SQLite database backup. Includes students, attendance, calendar, holidays, overrides, settings, fingerprint mappings, classes, audit. Works offline. Restore validates SQLite header before replacing.</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="backupDownloadBtn">Download backup (DB)</button><label class="btn" style="cursor:pointer"><input type="file" id="backupFileInput" accept=".db,.sqlite,.sqlite3" style="display:none">Restore from file</label></div>
+              <div id="backupStatus" style="margin-top:12px;font-size:11px;color:var(--ink-2)"></div>
+              <div style="margin-top:18px"><div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;font-weight:600;margin-bottom:8px">What gets backed up</div><div style="font-size:11px;line-height:1.6">Students, Attendance, Calendar (weekly schedule per global, holidays, overrides), School settings, Classes, Fingerprint mappings, Audit history. Per-class preview is UI-only and not in backup yet.</div></div>
+            </div>
+            <div class="detail-card" style="flex:2 1 480px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:600">Audit history — attendance is administrative record</div><div style="display:flex;gap:8px"><button class="btn" id="auditExportBtn">Export CSV</button><button class="btn" id="auditClearBtn" title="Managed on backend" disabled style="opacity:0.5">Clear audit</button></div></div>
+              <div class="table-wrap"><div class="table-scroll large"><table><thead><tr><th>Time</th><th>Action</th><th>Details</th><th>By</th></tr></thead><tbody id="auditBody"></tbody></table></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modals -->
+<div class="modal" id="enrollModal"><div class="modal-card"><h3 id="enrollTitle">New student</h3><p id="enrollSub">Complete profile and fingerprint enrollment. Photo optional, max 2MB.</p><div id="enrollBody"></div></div></div>
+<div class="modal" id="holidayModal"><div class="modal-card"><h3 id="holidayModalTitle">Add holiday</h3><p>Holiday range affects attendance — student not marked absent on configured holiday.</p><div id="holidayModalBody"></div></div></div>
+<div class="modal" id="overrideModal"><div class="modal-card"><h3>Add special date override</h3><p>Specific date overrides weekly schedule. Priority: override → holiday → weekly.</p><div id="overrideModalBody"></div></div></div>
+<div class="modal" id="correctionModal"><div class="modal-card"><h3>Correct attendance</h3><p>Original status preserved in audit. Reason required.</p><div id="correctionModalBody"></div></div></div>
+<div class="print-root" id="printRoot"></div>
+
+<script>
+// ============================================================
+// ATL Smart Attendance — UI application script (DB-driven)
+// Source: backend/ui_app.js  (spliced into the single-file HTML)
+// LocalStorage is only an offline cache; SQLite /api is truth.
+// ============================================================
+const LS = {
+  students:"atl_students", attendance:"atl_attendance", holidays:"atl_holidays",
+  overrides:"atl_overrides", settings:"atl_settings", classes:"atl_classes",
+  audit:"atl_audit"
+};
+
+// ---- state (mirrors backend SQLite) ----
+let Students = [];      // mapped: id,name,roll,class,section,parent,phone,address,photo,fid,active,enroll
+let Attendance = [];    // mapped: id,studentId,date,time,status(UI),isDuplicate,fingerId
+let Unknowns = [];      // {time, finger, note}
+let Settings = {
+  schoolName:"ATL Model School", academicYear:"", startDate:"", endDate:"",
+  lateAfter:"08:30", address:"", workingDays:{0:false,1:true,2:true,3:true,4:true,5:true,6:true}
+};
+let Classes = [];
+let Holidays = [];      // backend "YYYY-MM-DD:Reason" -> {start}/{name}
+let Overrides = [];
+let Audit = [];         // mapped from backend audit
+let _enrollPoll = null; let _enrollAbort = false;
+
+// ---- helpers ----
+function $(id){ return document.getElementById(id); }
+function esc(s){ if(s==null) return ""; return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;"); }
+function todayISO(){ const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,'0')+"-"+String(d.getDate()).padStart(2,'0'); }
+function parseISO(s){ return new Date(s+"T00:00:00"); }
+function fmtDate(d){ if(!d) return ""; const dt=parseISO(d); return dt.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}); }
+function inRange(d,a,b){ return d>=a && d<=b; }
+async function api(path, opts){
+  opts = opts || {};
+  opts.headers = Object.assign({"Content-Type":"application/json"}, opts.headers||{});
+  opts.cache = "no-store";
+  const r = await fetch(path, opts);
+  let body = null;
+  try{ body = await r.json(); }catch(e){}
+  if(!r.ok){ const err = new Error((body&&(body.error||body.detail||body.reason))||("HTTP "+r.status)); err.status=r.status; err.body=body; throw err; }
+  return body;
+}
+function statusUI(backendStatus){
+  const m = {"PRESENT":"Present","LATE":"Late","ABSENT":"Absent","DUPLICATE":"Already recorded","UNKNOWN":"Unknown"};
+  return m[backendStatus] || backendStatus || "";
+}
+// ---- persisted cache (offline fallback) ----
+function cacheSave(){
+  try{
+    localStorage.setItem(LS.students, JSON.stringify(Students));
+    localStorage.setItem(LS.settings, JSON.stringify(Settings));
+    localStorage.setItem(LS.classes, JSON.stringify(Classes));
+    localStorage.setItem(LS.holidays, JSON.stringify(Holidays));
+    localStorage.setItem(LS.overrides, JSON.stringify(Overrides));
+    localStorage.setItem(LS.audit, JSON.stringify(Audit));
+    localStorage.setItem(LS.attendance, JSON.stringify(Attendance));
+  }catch(e){}
+}
+function cacheLoad(){
+  try{
+    const g=(k,f)=>{ const v=localStorage.getItem(k); if(v){ try{ return f(JSON.parse(v)); }catch(e){} } return null; };
+    g(LS.students, v=>Students=v);
+    g(LS.settings, v=>Settings=Object.assign(Settings,v));
+    g(LS.classes, v=>Classes=v);
+    g(LS.holidays, v=>Holidays=v);
+    g(LS.overrides, v=>Overrides=v);
+    g(LS.audit, v=>Audit=v);
+    g(LS.attendance, v=>Attendance=v);
+  }catch(e){}
+}
+
+// ---- backend -> UI mappings ----
+function mapStudent(b){
+  return {
+    id: b.id, name: b.name, roll: b.roll, class: b.grade||"", section: b.section||"",
+    parent: b.parent||b.parent_name||"", phone: b.phone||"", address: b.address||"",
+    photo: b.photo||"",
+    fid: (b.fingerId!==null&&b.fingerId!==undefined) ? "F-"+b.fingerId : "",
+    active: b.active!==0 && b.active!==false,
+    enroll: b.createdAt||b.enroll_date||""
+  };
+}
+function mapEvent(e){
+  return {
+    id: e.rowid||e.id||String(Math.random()), studentId: e.studentId,
+    date: e.date, time: e.time,
+    status: statusUI(e.status||e.result), isDuplicate: (e.status==="DUPLICATE"),
+    fingerId: e.fingerId
+  };
+}
+function mapHoliday(s){ // "YYYY-MM-DD:Reason"
+  const i=s.indexOf(":"); const date=s.slice(0,10); const name=(i>=0?s.slice(i+1):"Holiday");
+  return {name, start:date, end:date, category:"", type:"holiday"};
+}
+
+// ---- data load from backend ----
+async function loadClassesHolidaysSettings(){
+  try{
+    const st = await api("/api/settings", {method:"GET"});
+    Settings.schoolName = st.schoolName || Settings.schoolName;
+    Settings.academicYear = st.academicYear || Settings.academicYear;
+    Settings.startDate = st.attendanceStartDate || st.schoolOpeningDate || Settings.startDate;
+    Settings.endDate = st.endDate || st.academicYearEnd || Settings.endDate;
+    Settings.lateAfter = st.lateCutoff || st.presentCutoff || Settings.lateAfter;
+    Classes = (st.classes&&st.classes.length) ? st.classes.slice() : Classes;
+    if(Array.isArray(st.holidays)) Holidays = st.holidays.map(mapHoliday).filter(Boolean);
+    Settings.address = st.address || Settings.address;
+  }catch(e){ /* offline -> cache */ }
+}
+async function loadStudents(){
+  try{
+    const list = await api("/api/students", {method:"GET"});
+    if(Array.isArray(list)) Students = list.map(mapStudent);
+  }catch(e){ /* offline -> cache */ }
+}
+async function loadTodayAttendance(){
+  const t = todayISO();
+  try{
+    const ev = await api("/api/attendance?date="+t, {method:"GET"});
+    if(Array.isArray(ev)){
+      Attendance = ev.map(mapEvent).filter(a=>a.studentId||a.status==="Unknown");
+      Unknowns = ev.filter(e=>(e.result==="UNKNOWN"||e.status==="UNKNOWN")).map(e=>({time:e.time, finger:(e.fingerId!=null?"F-"+e.fingerId:"-"), note:"Unknown fingerprint"}));
+    }
+    try{
+      const au = await api("/api/audit", {method:"GET"});
+      if(Array.isArray(au)) Audit = au.map(a=>({time:a.at, action:a.action, details:a.details, by:"Admin"}));
+    }catch(e){}
+  }catch(e){ /* offline */ }
+}
+async function loadAll(){
+  await loadClassesHolidaysSettings();
+  await loadStudents();
+  await loadTodayAttendance();
+  cacheSave();
+  renderAll();
+}
+// ---- DOM ----
+const scannerFrame=$("scannerFrame"), promptText=$("promptText"), countdownEl=$("countdown"),
+  leftClock=$("leftClock"), stateDot=$("stateDot"), idleLayer=$("idleLayer"),
+  identityLayer=$("identityLayer"), unknownLayer=$("unknownLayer"),
+  photoImg=$("photoImg"), photoFallback=$("photoFallback"),
+  idName=$("idName"), idSub=$("idSub"), idStatus=$("idStatus"), idTime=$("idTime"),
+  idDate=$("idDate"), idConfirm=$("idConfirm"), idConfirmTxt=$("idConfirm"),
+  adminLayer=$("adminLayer"), adminNav=$("adminNav"),
+  studentListEl=$("studentList"), searchInput=$("searchInput"), classFilter=$("classFilter"), batchFilter=$("batchFilter"), studentStatusFilter=$("studentStatusFilter"),
+  detailScroll=$("detailScroll"),
+  todayDateLabel=$("todayDateLabel"), todayClassFilter=$("todayClassFilter"),
+  todayStatusFilter=$("todayStatusFilter"), todaySort=$("todaySort"),
+  todayStats=$("todayStats"), todayTableBody=$("todayTableBody"), todayUnknownBody=$("todayUnknownBody"),
+  reportScope=$("reportScope"), reportClass=$("reportClass"), reportStudent=$("reportStudent"),
+  reportTime=$("reportTime"), reportFrom=$("reportFrom"), reportTo=$("reportTo"),
+  reportStats=$("reportStats"), reportBody=$("reportBody"),
+  holidayBody=$("holidayBody"), overrideBody=$("overrideBody"),
+  calendarGrid=$("calendarGrid"), calMonthLabel=$("calMonthLabel"),
+  classBody=$("classBody"), auditBody=$("auditBody"),
+  enrollModal=$("enrollModal"), holidayModal=$("holidayModal"),
+  overrideModal=$("overrideModal"), correctionModal=$("correctionModal"),
+  enrollTitle=$("enrollTitle"), enrollSub=$("enrollSub"), enrollBody=$("enrollBody");
+
+const Timers={ _ids:{}, set(n,id){ this.clear(n); this._ids[n]=id; },
+  clear(n){ if(this._ids[n]){ clearTimeout(this._ids[n]); clearInterval(this._ids[n]); } delete this._ids[n]; },
+  clearAll(){ Object.keys(this._ids).forEach(k=>{ clearTimeout(this._ids[k]); clearInterval(this._ids[k]); }); this._ids={}; } };
+let currentTab="students", selectedStudentId=null, calendarMonth=new Date();
+
+function openModal(m){ m.classList.add("open"); }
+function closeModal(m){ m.classList.remove("open"); }
+
+// ---- terminal ----
+function setState(state){
+  if(!promptText) return;
+  if(state==="detecting") promptText.textContent="Finger detected";
+  else if(state==="scanning") promptText.textContent="Scanning";
+  else if(state==="ready") promptText.textContent="PLACE YOUR FINGER TO SCAN";
+}
+function showIdentity(student, status, time, dateStr){
+  idleLayer.classList.add("hidden");
+  unknownLayer.classList.remove("visible");
+  if(student.photo){ photoImg.src=student.photo; photoImg.style.display="block"; photoFallback.style.display="none"; }
+  else { photoImg.style.display="none"; photoFallback.style.display="flex"; photoFallback.textContent=student.name.trim().split(" ").map(w=>w[0]).slice(0,2).join("").toUpperCase(); }
+  idName.textContent=student.name;
+  idSub.innerHTML=`<span class="id-sub-item">Roll ${esc(student.roll)}</span><span class="id-sub-item">${esc(student.class)}</span><span class="id-sub-item">ID ${esc(String(student.id))}</span><span class="id-sub-item">${esc(student.phone)}</span>`;
+  idStatus.textContent=status; idStatus.className="id-status";
+  if(status==="Late") idStatus.style.borderColor="#C7B07A"; else idStatus.style.borderColor="var(--line-strong)";
+  idTime.textContent=(time||"").slice(0,5);
+  idDate.textContent=dateStr||new Date().toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'});
+  identityLayer.classList.add("visible");
+  Timers.set("hold", setTimeout(()=>{ identityLayer.classList.remove("visible"); idleLayer.classList.remove("hidden"); setState("ready"); }, 5000));
+}
+function showUnknown(){
+  idleLayer.classList.add("hidden");
+  identityLayer.classList.remove("visible");
+  unknownLayer.classList.add("visible");
+  Timers.set("hold", setTimeout(()=>{ unknownLayer.classList.remove("visible"); idleLayer.classList.remove("hidden"); setState("ready"); }, 4000));
+}
+function tickClock(){
+  if(!leftClock) return;
+  const n=new Date();
+  leftClock.textContent=n.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit'})+" · "+n.toLocaleDateString('en-GB',{day:'numeric',month:'short'});
+}
+if(leftClock){ Timers.set("clock", setInterval(tickClock,1000)); tickClock(); }
+
+// Real scan hook (called by injected backend bridge every 2s poll)
+window.handleRealScan = function(fid, info){
+  info = info || {};
+  if(fid && String(fid).indexOf("__unknown__")===0){ showUnknown(); return; }
+  const s = Students.find(x=>x.fid===fid);
+  if(!s){ showUnknown(); return; }
+  const status = info.status ? statusUI(info.status) : "Present";
+  const time = info.time || new Date().toTimeString().slice(0,8);
+  showIdentity(s, status, time, info.date ? fmtDate(info.date) : "");
+  // refresh today's list (source of truth = backend)
+  loadTodayAttendance().then(()=>{ if(currentTab==="today") renderToday(); });
+};
+// ---- render: Students ----
+function renderClassFilters(){
+  const opts=['<option value="">All Classes</option>'].concat(Classes.map(c=>`<option>${esc(c)}</option>`)).join("");
+  if(classFilter) classFilter.innerHTML=opts;
+  if(todayClassFilter) todayClassFilter.innerHTML=opts;
+  reportClass.innerHTML='<option value="">Select class</option>'+Classes.map(c=>`<option>${esc(c)}</option>`).join("");
+  if(typeof batchFilter!=="undefined" && batchFilter){
+    const batches=[...new Set(Students.map(s=>s.batch).filter(Boolean))].sort();
+    const cur=batchFilter.value;
+    batchFilter.innerHTML='<option value="">All Batches</option>'+batches.map(b=>`<option ${b===cur?'selected':''}>${esc(b)}</option>`).join("");
+    if(!batches.includes(cur)) batchFilter.value="";
+  }
+  const calSel=document.getElementById("calClassSelect");
+  if(calSel){
+    const cur=calSel.value;
+    calSel.innerHTML='<option value="">All classes (global)</option>'+Classes.map(c=>`<option ${c===cur?'selected':''}>${esc(c)}</option>`).join("");
+  }
+}
+function renderStudentList(){
+  const q=(searchInput.value||"").toLowerCase(), cf=classFilter?classFilter.value:"", bf=(typeof batchFilter!=="undefined"&&batchFilter)?batchFilter.value:"", sf=(typeof studentStatusFilter!=="undefined"&&studentStatusFilter)?studentStatusFilter.value:"active";
+  let list=Students.filter(s=>{
+    if(sf==="active" && !s.active) return false;
+    if(sf==="inactive" && s.active) return false;
+    if(cf && s.class!==cf) return false;
+    if(bf && (s.batch||"")!==bf) return false;
+    if(!q) return true;
+    return (s.name+" "+s.roll+" "+s.class+" "+(s.batch||"")+" "+s.phone+" "+s.fid+" "+s.id+" "+(s.section||"")+" "+(s.parent||"")).toLowerCase().includes(q);
+  });
+  list.sort((a,b)=> (b.active - a.active) || a.name.localeCompare(b.name));
+  if(!list.length){ studentListEl.innerHTML=`<div class="empty"><b>No students found</b>Try different search or add a new student.</div>`; return; }
+  studentListEl.innerHTML=list.map(s=>{
+    const initials=s.name.trim().split(" ").map(w=>w[0]).slice(0,2).join("").toUpperCase();
+    const thumb=s.photo?`<img src="${esc(s.photo)}" alt="">`:`<div class="student-thumb-fallback">${esc(initials)}</div>`;
+    const batchTxt=s.batch?` · ${esc(s.batch)}`:"";
+    const inactiveBadge = s.active ? "" : `<span class="badge" style="margin-left:6px">Inactive</span>`;
+    const rowStyle = s.active ? "" : ` style="opacity:0.6"`;
+    return `<div class="student-row ${selectedStudentId===s.id?"active":""}" data-id="${s.id}"${rowStyle}><div class="student-thumb">${thumb}</div><div class="student-info"><div class="student-name">${esc(s.name)}${inactiveBadge}</div><div class="student-meta"><span>${esc(s.roll)}</span><span>${esc(s.class)}${batchTxt}</span><span class="student-roll">${esc(s.fid||"no fp")}</span></div></div></div>`;
+  }).join("");
+}
+function studentStats(s){
+  const start=Settings.startDate||todayISO(), today=todayISO();
+  const rows=Attendance.filter(a=>a.studentId===s.id && a.date>=start && a.date<=today);
+  const present=rows.filter(a=>a.status==="Present").length;
+  const late=rows.filter(a=>a.status==="Late").length;
+  const dup=rows.filter(a=>a.isDuplicate).length;
+  const workdays=Math.max(1, 30); // backend-computed elsewhere; display today-recent
+  const pct=rows.length?Math.round(((present+late)/(present+late+(rows.filter(a=>a.status==="Absent").length||0)))*100):100;
+  return {present,late,absent:0,pct,working:workdays};
+}
+function renderStudentDetail(id){
+  const s=Students.find(x=>x.id===id);
+  if(!s){ detailScroll.innerHTML=`<div class="empty"><b>No student selected</b>Choose a student.</div>`; return; }
+  const initials=s.name.trim().split(" ").map(w=>w[0]).slice(0,2).join("").toUpperCase();
+  const photo=s.photo?`<img src="${esc(s.photo)}" alt="">`:`<div class="detail-photo-fallback">${esc(initials)}</div>`;
+  const history=Attendance.filter(a=>a.studentId===s.id).slice(-60).reverse();
+  const histRows=history.length?history.map(a=>`<tr><td>${esc(a.date)}</td><td>${esc(a.time)}</td><td><span class="badge ${a.status.toLowerCase().replace(" ","-")}">${esc(a.status)}</span></td><td>${esc(a.fingerId!=null?"F-"+a.fingerId:"")}</td></tr>`).join(""):`<tr><td colspan="4"><div class="empty"><b>No records</b>Scan results will appear here from the sensor.</div></td></tr>`;
+  detailScroll.innerHTML=`
+    <div class="detail-card">
+      <div style="display:flex;gap:18px;flex-wrap:wrap">
+        <div class="detail-photo">${photo}</div>
+        <div style="flex:1 1 280px;min-width:0">
+          <div style="font-family:var(--serif);font-size:30px;text-transform:uppercase;letter-spacing:-0.02em;line-height:0.95">${esc(s.name)}</div>
+          <div class="detail-grid">
+            <div class="detail-field"><label>Roll</label><span>${esc(s.roll)}</span></div>
+            <div class="detail-field"><label>Class</label><span>${esc(s.class)}</span></div>
+            <div class="detail-field"><label>Section</label><span>${esc(s.section)}</span></div>
+            <div class="detail-field"><label>Student ID</label><span>${esc(String(s.id))}</span></div>
+            <div class="detail-field"><label>Parent</label><span>${esc(s.parent)}</span></div>
+            <div class="detail-field"><label>Phone</label><span>${esc(s.phone)}</span></div>
+            <div class="detail-field"><label>Address</label><span>${esc(s.address)}</span></div>
+            <div class="detail-field"><label>Fingerprint</label><span>${esc(s.fid||"—")} · ${s.active?"Active":"Inactive"}</span></div>
+          </div>
+          <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn primary" data-action="edit" data-id="${s.id}">Edit information</button>
+            <button class="btn" data-action="reenroll" data-id="${s.id}">Re-enroll fingerprint</button>
+            <button class="btn danger" data-action="delete" data-id="${s.id}">Deactivate</button>
+            <button class="btn" data-action="print" data-id="${s.id}">Print profile</button>
+          </div>
+        </div>
+      </div>
+      <div class="table-wrap"><div style="padding:10px 12px;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;border-bottom:1px solid var(--line)"><span>Attendance history — recent scans</span></div><div class="table-scroll large"><table><thead><tr><th>Date</th><th>Time</th><th>Status</th><th>Fingerprint</th></tr></thead><tbody>${histRows}</tbody></table></div></div>
+    </div>`;
+}
+function selectStudent(id){ selectedStudentId=id; renderStudentList(); renderStudentDetail(id); }
+// ---- render: Today ----
+function renderToday(){
+  const t=todayISO(), cf=todayClassFilter.value, sf=todayStatusFilter.value, sort=todaySort.value;
+  let rows=Attendance.filter(a=>a.date===t && a.studentId).map(a=>{ const s=Students.find(x=>x.id===a.studentId); return s?{a,s}:null; }).filter(Boolean);
+  if(cf) rows=rows.filter(r=>r.s.class===cf);
+  if(sf){
+    if(sf==="Duplicate") rows=rows.filter(r=>r.a.isDuplicate);
+    else if(sf==="Unknown") rows=rows.filter(r=>false);
+    else rows=rows.filter(r=>r.a.status===sf);
+  }
+  rows.sort((x,y)=>{
+    if(sort==="time_desc") return y.a.time.localeCompare(x.a.time);
+    if(sort==="time_asc") return x.a.time.localeCompare(y.a.time);
+    if(sort==="name_asc") return x.s.name.localeCompare(y.s.name);
+    if(sort==="roll_asc") return x.s.roll.localeCompare(y.s.roll);
+    if(sort==="class_asc") return x.s.class.localeCompare(y.s.class);
+    return 0;
+  });
+  const total=Students.filter(s=>s.active).length;
+  const present=rows.filter(r=>r.a.status==="Present").length;
+  const late=rows.filter(r=>r.a.status==="Late").length;
+  const dup=rows.filter(r=>r.a.isDuplicate).length;
+  const absent=Math.max(0,total-present-late);
+  const pct=total?Math.round((present+late)/total*100):0;
+  todayDateLabel.textContent=`${fmtDate(t)} — Working day — ${total} total`;
+  todayStats.innerHTML=`
+    <div class="stat"><b>${t}</b><label>Date</label></div>
+    <div class="stat"><b>${total}</b><label>Total students</label></div>
+    <div class="stat"><b>${present}</b><label>Present</label></div>
+    <div class="stat"><b>${late}</b><label>Late</label></div>
+    <div class="stat"><b>${absent}</b><label>Absent</label></div>
+    <div class="stat"><b>${Unknowns.length}</b><label>Unknown scans</label></div>
+    <div class="stat"><b>${dup}</b><label>Duplicate scans</label></div>
+    <div class="stat"><b>${pct}%</b><label>Attendance %</label></div>`;
+  if(!rows.length){ todayTableBody.innerHTML=`<tr><td colspan="6"><div class="empty"><b>No attendance recorded today</b>Place a finger on the scanner — results appear here from the database.</div></td></tr>`; }
+  else todayTableBody.innerHTML=rows.map(r=>`<tr data-student="${r.s.id}"><td>${esc(r.a.time)}</td><td>${esc(r.s.name)}</td><td>${esc(r.s.roll)}</td><td>${esc(r.s.class)}</td><td><span class="badge ${r.a.status.toLowerCase().replace(" ","-")}">${esc(r.a.status)}</span>${r.a.isDuplicate?' <span class="badge">Duplicate</span>':''}</td><td>${esc(r.a.fingerId!=null?"F-"+r.a.fingerId:"")}</td></tr>`).join("");
+  todayUnknownBody.innerHTML=Unknowns.length?Unknowns.map(u=>`<tr><td>${esc(u.time)}</td><td>${esc(u.finger)}</td><td>${esc(u.note)}</td></tr>`).join(""):`<tr><td colspan="3"><div class="empty"><b>No unknown scans today</b></div></td></tr>`;
+}
+// ---- render: Reports (recent 500 events via API) ----
+async function renderReports(){
+  const scope=reportScope.value, cls=reportClass.value, time=reportTime.value;
+  let from,to; const today=todayISO();
+  if(time==="today"){from=today;to=today;}
+  else if(time==="week"){const d=new Date();d.setDate(d.getDate()-6);from=d.toISOString().slice(0,10);to=today;}
+  else if(time==="month"){const d=new Date();d.setDate(1);from=d.toISOString().slice(0,10);to=today;}
+  else if(time==="academic"){from=Settings.startDate||today;to=Settings.endDate||today;}
+  else if(time==="custom"){from=reportFrom.value||today;to=reportTo.value||today;}
+  else {from=Settings.startDate||today;to=today;}
+  let ev=[]; try{ ev=await api("/api/attendance",{method:"GET"}); }catch(e){ ev=Attendance; }
+  let list=ev.filter(a=>a.date>=from&&a.date<=to).map(mapEvent);
+  if(scope==="class"&&cls) list=list.filter(a=>{const s=Students.find(x=>x.id===a.studentId); return s&&s.class===cls;});
+  if(scope==="student"){const sid=parseInt(reportStudent.value); if(sid) list=list.filter(a=>a.studentId===sid);}
+  list.sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time)).reverse();
+  const present=list.filter(a=>a.status==="Present").length, late=list.filter(a=>a.status==="Late").length;
+  reportStats.innerHTML=`<div class="stat"><b>${list.length}</b><label>Records</label></div><div class="stat"><b>${present}</b><label>Present</label></div><div class="stat"><b>${late}</b><label>Late</label></div><div class="stat"><b>${from} → ${to}</b><label>Range</label></div>`;
+  if(!list.length){ reportBody.innerHTML=`<tr><td colspan="7"><div class="empty"><b>No records</b>Adjust scope or time range.</div></td></tr>`; return; }
+  reportBody.innerHTML=list.map(a=>{ const s=Students.find(x=>x.id===a.studentId); return `<tr><td>${esc(a.date)}</td><td>${esc(a.time)}</td><td>${esc(s?s.name:"Unknown")}</td><td>${esc(s?s.roll:"")}</td><td>${esc(s?s.class:"")}</td><td><span class="badge ${a.status.toLowerCase().replace(" ","-")}">${esc(a.status)}</span></td><td>${a.isDuplicate?"Duplicate":"—"}</td></tr>`; }).join("");
+}
+// ---- render: Calendar (holidays from backend settings) ----
+function isHoliday(d){ return Holidays.find(h=>inRange(d,h.start,h.end))||null; }
+function renderHolidays(){
+  if(!Holidays.length){ holidayBody.innerHTML=`<tr><td colspan="6"><div class="empty"><b>No holidays configured</b>Add via Settings → holidays.</div></td></tr>`; return; }
+  holidayBody.innerHTML=Holidays.map(h=>`<tr><td>${esc(h.name)}</td><td>${esc(h.start)}</td><td>${esc(h.end)}</td><td></td><td><span class="badge">${esc(h.type)}</span></td><td><button class="btn" data-edit-holiday="${esc(h.start)}">—</button></td></tr>`).join("");
+}
+function renderOverrides(){
+  if(!Overrides.length){ overrideBody.innerHTML=`<tr><td colspan="4"><div class="empty"><b>No date overrides</b></div></td></tr>`; return; }
+  overrideBody.innerHTML=Overrides.map(o=>`<tr><td>${esc(o.date)}</td><td>${o.isWorking?"Working":"Holiday"}</td><td>${esc(o.note)}</td><td></td></tr>`).join("");
+}
+function renderCalendarMonth(){
+  if(!calendarGrid) return;
+  const y=calendarMonth.getFullYear(), m=calendarMonth.getMonth();
+  calMonthLabel.textContent=calendarMonth.toLocaleDateString('en-GB',{month:'long',year:'numeric'});
+  const first=new Date(y,m,1).getDay(), last=new Date(y,m+1,0).getDate();
+  let html=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=>`<div class="calendar-cell head">${d}</div>`).join("");
+  for(let i=0;i<first;i++) html+=`<div class="calendar-cell"></div>`;
+  for(let d=1;d<=last;d++){
+    const iso=new Date(y,m,d).toISOString().slice(0,10);
+    const hol=isHoliday(iso), todayCls=iso===todayISO()?" today":"";
+    html+=`<div class="calendar-cell ${hol?(hol.type==="vacation"?"vacation":"holiday"):"working"}${todayCls}"><div class="day">${d}</div><div class="tag">${hol?esc(hol.name):"Working"}</div></div>`;
+  }
+  calendarGrid.innerHTML=html;
+}
+function renderClasses(){
+  if(!Classes.length){ classBody.innerHTML=`<tr><td colspan="3"><div class="empty"><b>No classes configured</b></div></td></tr>`; return; }
+  classBody.innerHTML=Classes.map(c=>{ const n=Students.filter(s=>s.class===c).length; return `<tr><td>${esc(c)}</td><td>${n}</td><td><span style="font-size:10px;color:var(--ink-3)">—</span></td></tr>`; }).join("");
+}
+function renderAudit(){
+  if(!Audit.length){ auditBody.innerHTML=`<tr><td colspan="4"><div class="empty"><b>No audit history</b></div></td></tr>`; return; }
+  auditBody.innerHTML=Audit.map(a=>`<tr><td>${esc(a.time)}</td><td>${esc(a.action)}</td><td>${esc(a.details)}</td><td>${esc(a.by)}</td></tr>`).join("");
+}
+function renderWeekly(){ /* weekly schedule lives backend-side; keep Mon-Sat toggles visual only for now */ }
+function renderAll(){
+  renderClassFilters();
+  renderStudentList();
+  renderHolidays();
+  renderOverrides();
+  renderCalendarMonth();
+  renderClasses();
+  renderAudit();
+  if(currentTab==="today") renderToday();
+  if(currentTab==="reports") renderReports();
+}
+// ---- ENROLL: information + real fingerprint scan ----
+async function pollEnrollProgress(stepEl, labelEl){
+  if(_enrollAbort) return;
+  try{
+    const p=await api("/api/sensor/progress",{method:"GET"});
+    if(p&&labelEl){
+      const st=p.state, step=p.step||0;
+      if(stepEl) stepEl.textContent=step+"/3";
+      if(st==="place") labelEl.textContent="Place your finger — press it flat on the glass";
+      else if(st==="hold") labelEl.textContent="Hold still — capturing";
+      else if(st==="capturing") labelEl.textContent="Scanning — keep still";
+      else if(st==="enroll_1") labelEl.textContent="First capture done — lift your finger";
+      else if(st==="enroll_2") labelEl.textContent="Second capture — place the same finger";
+      else if(st==="enroll_3") labelEl.textContent="Third capture — place the same finger";
+    }
+  }catch(e){}
+  if(!_enrollAbort) _enrollPoll=setTimeout(()=>pollEnrollProgress(stepEl,labelEl),700);
+}
+function fingerprintScanUI(title, subtitle, onStart, onSuccess){
+  setState("ready");
+  enrollTitle.textContent=title;
+  enrollSub.textContent=subtitle;
+  enrollBody.innerHTML=`
+    <div class="enroll-scan-box">
+      <div class="enroll-scan-count" id="scanCount">0 / 3</div>
+      <div class="enroll-scan-label" id="scanLabel">Place your finger on the sensor</div>
+      <div class="finger-visual"><div class="finger-line"></div></div>
+      <div class="lift-hint">Keep the same finger flat. The sensor light stays on.</div>
+      <div style="margin-top:12px;display:flex;gap:8px;justify-content:center"><button class="btn primary" id="scanStartBtn">Start scan</button><button class="btn" id="scanCancelBtn">Cancel</button></div>
+      <div class="inline-error" id="scanErr" style="display:none"></div>
+    </div>`;
+  openModal(enrollModal);
+  $("scanCancelBtn").onclick=()=>{ _enrollAbort=true; if(_enrollPoll) clearTimeout(_enrollPoll); closeModal(enrollModal); resumeSensorScan(); };
+  $("scanStartBtn").onclick=async()=>{
+    $("scanStartBtn").disabled=true;
+    _enrollAbort=false;
+    const stepEl=$("scanCount"), labelEl=$("scanLabel");
+    pollEnrollProgress(stepEl,labelEl);
+    try{
+      const res=await onStart();
+      _enrollAbort=true;
+      if(_enrollPoll) clearTimeout(_enrollPoll);
+      onSuccess(res);
+    }catch(err){
+      _enrollAbort=true;
+      if(_enrollPoll) clearTimeout(_enrollPoll);
+      const e=$("scanErr"); e.style.display="block";
+      e.textContent=err.message||"Scan failed. Check the sensor and try again.";
+      $("scanStartBtn").disabled=false;
+    }
+  };
+}
+function openNewStudent(){
+  enrollTitle.textContent="New student enrollment";
+  enrollSub.textContent="Enter the student information. Click Start scan once, then place and lift the same finger three times on the sensor.";
+  enrollBody.innerHTML=`
+    <div class="form-grid">
+      <div class="form-field"><label>Full name *</label><input id="nsName" placeholder="Aarav Sharma"></div>
+      <div class="form-field"><label>Roll number *</label><input id="nsRoll" placeholder="10A-08"></div>
+      <div class="form-field"><label>Class *</label><select id="nsGrade">${Classes.map(c=>`<option>${esc(c)}</option>`).join("")||'<option>Grade 10-A</option>'}</select></div>
+      <div class="form-field"><label>Batch / Group (optional)</label><input id="nsBatch" placeholder="Batch A"></div>
+      <div class="form-field"><label>Section</label><input id="nsSection" placeholder="A"></div>
+      <div class="form-field"><label>Parent / Guardian</label><input id="nsParent" placeholder="Parent name"></div>
+      <div class="form-field"><label>Parent phone</label><input id="nsPhone" placeholder="9876543210"></div>
+      <div class="form-field full"><label>Address</label><input id="nsAddress" placeholder="Shikrapur, Pune"></div>
+      <div class="form-field full"><label>Photo (optional, max 2MB)</label><input type="file" id="nsPhoto" accept="image/*"></div>
+      <div class="inline-error" id="nsErr" style="display:none"></div>
+      <div class="form-field full" style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="nsCancel">Cancel</button><button class="btn primary" id="nsSave">Continue to fingerprint scan</button></div>
+    </div>`;
+  openModal(enrollModal);
+  $("nsCancel").onclick=()=>{ if(_enrollPoll) clearTimeout(_enrollPoll); closeModal(enrollModal); resumeSensorScan(); };
+  $("nsSave").onclick=()=>{
+    const name=$("nsName").value.trim(), roll=$("nsRoll").value.trim(),
+          grade=$("nsGrade").value.trim(), batch=$("nsBatch").value.trim(),
+          section=$("nsSection").value.trim(), parent=$("nsParent").value.trim(),
+          phone=$("nsPhone").value.trim(), address=$("nsAddress").value.trim();
+    const err=$("nsErr");
+    if(!name||!roll||!grade){ err.textContent="Name, roll and class are required."; err.style.display="block"; return; }
+    err.style.display="none";
+    const file=$("nsPhoto").files[0];
+    const finish=(photo)=>{
+      const form={name,roll,grade,phone,address,photo:photo||""};
+      const localMeta={batch,section,parent};
+      closeModal(enrollModal);
+      fingerprintScanUI("Enroll fingerprint — "+name, "Click Start scan once. Then place and lift the same finger three times; do not click between captures.",
+        ()=>apiEnrollStudent(form),
+        (res)=>{
+          const stu=Students.find(s=>s.id===res.id);
+          if(stu){ Object.assign(stu, localMeta); try{localStorage.setItem("atl_students",JSON.stringify(Students));}catch(e){} }
+          else { Students.push({id:res.id, name, roll, class:grade, batch, section, parent, phone, address, photo:photo||"", fid:"F-"+res.fingerId, active:1, enroll:todayISO()}); try{localStorage.setItem("atl_students",JSON.stringify(Students));}catch(e){} }
+          alert("Enrolled — "+name+" (fingerprint F-"+res.fingerId+")"); loadAll().then(()=>{
+            const after=Students.find(s=>s.id===res.id); if(after) Object.assign(after, localMeta);
+            try{localStorage.setItem("atl_students",JSON.stringify(Students));}catch(e){} openAdmin(); selectStudent(res.id);
+          });
+        });
+    };
+    if(file){
+      if(file.size>2*1024*1024){ err.textContent="Photo max 2MB."; err.style.display="block"; return; }
+      const r=new FileReader(); r.onload=e=>finish(e.target.result); r.readAsDataURL(file);
+    } else finish("");
+  };
+}
+function openEditStudent(id){
+  const s=Students.find(x=>x.id===id); if(!s) return;
+  enrollTitle.textContent="Edit student information";
+  enrollSub.textContent="Changes are saved to the database (SQLite). Batch/Section/Parent are UI-only preview until backend integration.";
+  enrollBody.innerHTML=`
+    <div class="form-grid">
+      <div class="form-field"><label>Full name</label><input id="edName" value="${esc(s.name)}"></div>
+      <div class="form-field"><label>Roll</label><input id="edRoll" value="${esc(s.roll)}"></div>
+      <div class="form-field"><label>Class *</label><select id="edGrade">${Classes.map(c=>`<option ${c===s.class?"selected":""}>${esc(c)}</option>`).join("")}</select></div>
+      <div class="form-field"><label>Batch / Group</label><input id="edBatch" value="${esc(s.batch||'')}"></div>
+      <div class="form-field"><label>Section</label><input id="edSection" value="${esc(s.section||'')}"></div>
+      <div class="form-field"><label>Parent / Guardian</label><input id="edParent" value="${esc(s.parent||'')}"></div>
+      <div class="form-field"><label>Phone</label><input id="edPhone" value="${esc(s.phone)}"></div>
+      <div class="form-field full"><label>Address</label><input id="edAddress" value="${esc(s.address)}"></div>
+      <div class="form-field"><label>Photo (max 2MB)</label><input type="file" id="edPhoto" accept="image/*"></div>
+      <div class="form-field"><label>Status</label><select id="edActive"><option value="1" ${s.active?"selected":""}>Active</option><option value="0" ${!s.active?"selected":""}>Inactive</option></select></div>
+      <div class="form-field full" id="edPhotoPreview" style="${s.photo ? '' : 'display:none'}"><img src="${esc(s.photo)}" style="width:92px;height:92px;object-fit:cover;border:1px solid var(--line);display:block"><div style="font-size:10px;color:var(--ink-3);margin-top:6px">Current photo</div></div>
+      <div class="form-field full" style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="edCancel">Cancel</button><button class="btn primary" id="edSave">Save changes</button></div>
+      <div class="inline-error" id="edErr" style="display:none"></div>
+    </div>`;
+  openModal(enrollModal);
+  $("edCancel").onclick=()=>closeModal(enrollModal);
+  const edPhotoEl=$("edPhoto");
+  if(edPhotoEl) edPhotoEl.onchange=(e)=>{
+    const f=e.target.files&&e.target.files[0];
+    if(!f) return;
+    if(f.size>2*1024*1024){ const er=$("edErr"); er.textContent="Photo max 2MB."; er.style.display="block"; e.target.value=""; return; }
+    const r=new FileReader(); r.onload=ev=>{
+      const prev=$("edPhotoPreview"); if(prev){ prev.style.display="block"; const img=prev.querySelector("img"); if(img) img.src=ev.target.result; }
+    }; r.readAsDataURL(f);
+  };
+  $("edSave").onclick=async()=>{
+    const err=$("edErr");
+    const name=$("edName").value.trim(), roll=$("edRoll").value.trim(), grade=$("edGrade").value.trim(),
+          batch=$("edBatch").value.trim(), section=$("edSection").value.trim(), parentEl=$("edParent").value.trim(),
+          phone=$("edPhone").value.trim(), address=$("edAddress").value.trim(), active=$("edActive").value==="1";
+    const file=$("edPhoto").files&&$("edPhoto").files[0];
+    const doSave=async(photoData)=>{
+      try{
+        const payload={name,roll,grade,phone,address,active};
+        if(photoData!==null) payload.photo=photoData;
+        await api("/api/students/"+id,{method:"PATCH",body:JSON.stringify(payload)});
+        const localMeta={batch,section,parent:parentEl};
+        const stu=Students.find(x=>x.id===id);
+        if(stu) Object.assign(stu, localMeta);
+        try{localStorage.setItem("atl_students",JSON.stringify(Students));}catch(e){}
+        closeModal(enrollModal); await loadAll();
+        const after=Students.find(x=>x.id===id); if(after) Object.assign(after, localMeta);
+        try{localStorage.setItem("atl_students",JSON.stringify(Students));}catch(e){} selectStudent(id);
+        alert("Saved.");
+      }catch(e){ err.style.display="block"; err.textContent=e.message; }
+    };
+    if(file){
+      if(file.size>2*1024*1024){ err.textContent="Photo max 2MB."; err.style.display="block"; return; }
+      const r=new FileReader(); r.onload=e=>doSave(e.target.result); r.readAsDataURL(file);
+    } else {
+      doSave(null);
+    }
+  };
+}
+function openReEnroll(id){
+  const s=Students.find(x=>x.id===id); if(!s) return;
+  fingerprintScanUI("Re-enroll fingerprint — "+s.name, "Click Start scan once. Then place and lift the same finger three times; do not click between captures.",
+    ()=>api("/api/students/"+id+"/reenroll",{method:"POST",body:"{}"}),
+    async()=>{ alert("Fingerprint re-enrolled for "+s.name+"."); await loadAll(); selectStudent(id); });
+}
+async function deleteStudent(id){
+  const s=Students.find(x=>x.id===id); if(!s) return;
+  if(!confirm("Deactivate "+s.name+"? Their fingerprint slot is freed and roll is released. History is kept.")) return;
+  try{ await api("/api/students/"+id,{method:"DELETE"}); await loadAll(); renderStudentDetail(-1); }catch(e){ alert("Failed: "+e.message); }
+}
+function apiEnrollStudent(form){
+  return api("/api/enroll",{method:"POST",body:JSON.stringify(form)});
+}
+// ---- print / CSV ----
+function downloadFile(content, filename, type){
+  const blob=new Blob([content],{type:type||'text/plain'});
+  const url=URL.createObjectURL(blob), a=document.createElement('a');
+  a.href=url; a.download=filename; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(()=>{ try{URL.revokeObjectURL(url);}catch(e){} },1500);
+}
+function exportCSV(rows, filename){
+  const csv=rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  downloadFile(csv, filename, 'text/csv');
+}
+function printHTML(htmlContent){
+  const w=window.open('','_blank'); if(!w) return;
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Report</title><style>
+    body{font-family:Georgia,serif;color:#0A0A0A;padding:32px;max-width:800px;margin:auto}
+    h1{font-size:22px;text-transform:uppercase;letter-spacing:0.06em} table{width:100%;border-collapse:collapse;font-size:11px;margin:12px 0}
+    th{font-size:9px;text-transform:uppercase;letter-spacing:0.12em;color:#6B6B6B;text-align:left;padding:8px;border-bottom:1px solid #E9E6E0}
+    td{padding:7px 8px;border-bottom:1px solid #E9E6E0}
+  </style></head><body>${htmlContent}<script>window.onload=()=>window.print()<\/script></body></html>`);
+  w.document.close();
+}
+
+// ---- events ----
+function openAdmin(){ adminLayer.classList.add("open"); renderAll(); }
+function updateTabs(){
+  document.querySelectorAll(".admin-pane").forEach(p=>p.classList.add("hidden"));
+  const pane=document.getElementById("pane-"+currentTab); if(pane) pane.classList.remove("hidden");
+  if(currentTab==="today") renderToday();
+  if(currentTab==="reports") renderReports();
+  if(currentTab==="calendar"){ renderHolidays(); renderOverrides(); renderCalendarMonth(); }
+  if(currentTab==="settings") renderClasses();
+  if(currentTab==="backup") renderAudit();
+}
+document.getElementById("openAdminBtn").onclick=openAdmin;
+document.getElementById("openEnrollBtn").onclick=openNewStudent;
+document.getElementById("adminClose").onclick=()=>adminLayer.classList.remove("open");
+adminNav.onclick=(e)=>{
+  if(e.target.tagName!=="BUTTON") return;
+  [...adminNav.children].forEach(b=>b.classList.remove("active")); e.target.classList.add("active");
+  currentTab=e.target.dataset.tab; updateTabs();
+};
+$("exportStudentsBtn").onclick=()=>{
+  const rows=[["ID","Name","Roll","Class","Phone","Fingerprint","Active"]].concat(Students.filter(s=>s.active).map(s=>[s.id,s.name,s.roll,s.class,s.phone,s.fid||"",s.active]));
+  exportCSV(rows,"students.csv");
+};
+$("todayRefreshBtn").onclick=async()=>{ await loadTodayAttendance(); renderToday(); };
+$("todayPrintBtn").onclick=()=>printHTML(`<h1>Today's Attendance — ${todayISO()}</h1>${document.querySelector('#pane-today .table-wrap').innerHTML}`);
+$("todayExportBtn").onclick=()=>{
+  const t=todayISO();
+  const rows=[["Time","Student","Roll","Class","Status","Fingerprint"]].concat(Attendance.filter(a=>a.date===t&&a.studentId).map(a=>{ const s=Students.find(x=>x.id===a.studentId); return [a.time,s?s.name:"",s?s.roll:"",s?s.class:"",a.status,a.fingerId!=null?"F-"+a.fingerId:""]; }));
+  exportCSV(rows,"today-"+t+".csv");
+};
+$("reportApplyBtn").onclick=renderReports;
+$("reportPrintBtn").onclick=()=>printHTML(`<h1>Attendance Report</h1>${document.querySelector('#pane-reports .table-wrap').innerHTML}`);
+$("reportCsvBtn").onclick=()=>{
+  const rows=[["Date","Time","Student","Status"]].concat([...reportBody.querySelectorAll("tr")].map(tr=>[...tr.querySelectorAll("td")].map(td=>td.textContent)).filter(r=>r.length>1));
+  exportCSV(rows,"report-"+todayISO()+".csv");
+};
+$("calPrevBtn").onclick=()=>{ calendarMonth.setMonth(calendarMonth.getMonth()-1); renderCalendarMonth(); };
+$("calNextBtn").onclick=()=>{ calendarMonth.setMonth(calendarMonth.getMonth()+1); renderCalendarMonth(); };
+$("addClassBtn").onclick=()=>{ alert("Classes are managed in backend settings."); };
+$("settingsSaveBtn").onclick=async()=>{
+  try{
+    await api("/api/settings",{method:"POST",body:JSON.stringify({schoolName:$("setSchoolName").value.trim(), lateCutoff:$("setLateThreshold").value||"08:30", academicYear:$("setAcademicYear").value})});
+    alert("Settings saved to database.");
+    loadClassesHolidaysSettings();
+  }catch(e){ alert("Failed: "+e.message); }
+};
+$("backupDownloadBtn").onclick=()=>{
+  fetch("/api/backup",{cache:"no-store"}).then(r=>{ if(!r.ok) throw 0; return r.blob(); }).then(b=>{
+    const url=URL.createObjectURL(b), a=document.createElement('a'); a.href=url; a.download="atl-backup-"+todayISO()+".db"; a.click();
+  }).catch(()=>alert("Backup failed"));
+};
+$("auditClearBtn").onclick=()=>alert("Clear audit is managed on the backend.");
+if($("calSaveBtn")) $("calSaveBtn").onclick=async()=>{
+  try{
+    const el=(id)=>$(id);
+    await api("/api/settings",{method:"POST",body:JSON.stringify({
+      schoolName:el("calSchoolName")?el("calSchoolName").value.trim():Settings.schoolName,
+      academicYear:el("calAcademicYear")?el("calAcademicYear").value:Settings.academicYear,
+      schoolOpeningDate:el("calStart")?el("calStart").value:Settings.startDate,
+      attendanceStartDate:el("calStart")?el("calStart").value:Settings.startDate,
+      lateCutoff:el("calLateAfter")?(el("calLateAfter").value||"08:30"):Settings.lateAfter
+    })}); await loadClassesHolidaysSettings(); renderAll(); alert("Saved.");
+  }catch(e){ alert("Failed: "+e.message); }
+};
+detailScroll.addEventListener("click",(e)=>{
+  const btn=e.target.closest("button"); if(!btn) return;
+  const action=btn.dataset.action, id=parseInt(btn.dataset.id||selectedStudentId);
+  if(action==="edit") openEditStudent(id);
+  else if(action==="reenroll") openReEnroll(id);
+  else if(action==="delete") deleteStudent(id);
+  else if(action==="print"){ const s=Students.find(x=>x.id===id); if(s) printHTML(`<h1>${esc(s.name)} — ${esc(s.roll)}</h1><div class="meta">${esc(s.class)}</div>`); }
+});
+studentListEl.addEventListener("click",(e)=>{ const row=e.target.closest(".student-row"); if(!row) return; const id=parseInt(row.dataset.id); if(id) selectStudent(id); });
+searchInput.addEventListener("input",()=>{ Timers.clear("search"); Timers.set("search", setTimeout(renderStudentList,260)); });
+classFilter.addEventListener("change",renderStudentList);
+todayClassFilter.addEventListener("change",renderToday);
+todayStatusFilter.addEventListener("change",renderToday);
+todaySort.addEventListener("change",renderToday);
+reportScope.addEventListener("change",()=>{
+  const sc=reportScope.value;
+  reportClass.style.display=(sc==="class")?"":"none";
+  reportStudent.style.display=sc==="student"?"":"none";
+  if(sc==="student") reportStudent.innerHTML='<option value="">Select</option>'+Students.filter(s=>s.active).map(s=>`<option value="${s.id}">${esc(s.name)} — ${esc(s.roll)}</option>`).join("");
+});
+reportTime.addEventListener("change",()=>{ const show=reportTime.value==="custom"; reportFrom.style.display=show?"":"none"; reportTo.style.display=show?"":"none"; });
+todayTableBody.addEventListener("click",(e)=>{
+  const tr=e.target.closest("tr"); if(!tr) return; const sid=parseInt(tr.dataset.student);
+  if(sid){ adminNav.querySelector('[data-tab="students"]').click(); setTimeout(()=>selectStudent(sid),120); }
+});
+document.addEventListener("keydown",(e)=>{
+  if(e.key==="Escape"){
+    if(enrollModal.classList.contains("open")) closeModal(enrollModal);
+    else if(holidayModal.classList.contains("open")) closeModal(holidayModal);
+    else if(overrideModal.classList.contains("open")) closeModal(overrideModal);
+    else if(correctionModal.classList.contains("open")) closeModal(correctionModal);
+    else if(adminLayer.classList.contains("open")) adminLayer.classList.remove("open");
+  }
+});
+// ---- compatibility patch: real sensor loop and complete button wiring ----
+let _atlLastScanSeq=0, _atlScanActive=true, _atlScanInFlight=false, _atlScanTimer=null;
+function pauseSensorScan(){ _atlScanActive=false; if(_atlScanTimer) clearTimeout(_atlScanTimer); }
+function resumeSensorScan(){
+  if(_atlScanActive) return;
+  _atlScanActive=true;
+  sensorScanLoop();
+}
+window.handleRealScan=function(fid, info){
+  info=info||{};
+  const seq=Number(info.seq||0);
+  if(seq && seq<=_atlLastScanSeq) return;
+  if(seq) _atlLastScanSeq=seq;
+  if(fid && String(fid).indexOf("__unknown__")===0){ showUnknown(); return; }
+  const s=Students.find(x=>x.fid===fid);
+  if(!s){ showUnknown(); return; }
+  showIdentity(s, info.status ? statusUI(info.status) : "Present",
+    info.time||new Date().toTimeString().slice(0,8), info.date ? fmtDate(info.date) : "");
+  loadTodayAttendance().then(()=>{ if(currentTab==="today") renderToday(); });
+};
+async function sensorScanLoop(){
+  if(!_atlScanActive || _atlScanInFlight || location.protocol==="file:") return;
+  if(adminLayer && adminLayer.classList.contains("open")){
+    _atlScanTimer=setTimeout(sensorScanLoop,500);
+    return;
+  }
+  _atlScanInFlight=true;
+  let delay=150;
+  setState("scanning");
+  try{
+    const res=await api("/api/scan",{method:"POST",body:JSON.stringify({waitSec:2})});
+    if(res && res.seq){
+      if(res.student && res.student.fingerId!==null && res.student.fingerId!==undefined){
+        const mapped=mapStudent(res.student), i=Students.findIndex(x=>x.id===mapped.id);
+        if(i>=0) Students[i]=mapped; else Students.push(mapped);
+        cacheSave();
+        window.handleRealScan("F-"+res.student.fingerId,{status:res.status,time:res.time,date:res.date,seq:res.seq});
+      }else if(res.reason==="UNKNOWN"){
+        window.handleRealScan("__unknown__"+res.seq,{seq:res.seq});
+      }
+    }
+  }catch(err){
+    const reason=err.body&&err.body.reason;
+    if(reason!=="NO_FINGER") delay=2000;
+    if(reason!=="NO_FINGER" && reason!=="SENSOR_BUSY" && reason!=="SENSOR_DISCONNECT") console.warn("Sensor scan:",err.message);
+  }finally{
+    _atlScanInFlight=false;
+    if(_atlScanActive) { setState("ready"); _atlScanTimer=setTimeout(sensorScanLoop,delay); }
+  }
+}
+function atlHolidayPayload(){
+  return Holidays.map(h=>{
+    const span=h.start===h.end?h.start:(h.start+".."+h.end);
+    return span+":"+(h.type||"holiday")+":"+(h.name||"Holiday");
+  });
+}
+function atlOverridePayload(){ return Overrides.map(o=>o.date+(o.isWorking?":1":":0")+":"+o.note); }
+async function atlPersistCalendar(){
+  try{
+    await api("/api/settings",{method:"POST",body:JSON.stringify({
+      holidays:atlHolidayPayload(), overrides:atlOverridePayload(), workingDays:Settings.workingDays
+    })});
+    cacheSave();
+    return true;
+  }catch(e){ alert("Failed to save calendar: "+e.message); return false; }
+}
+function atlGetOverride(d){ return Overrides.find(o=>o.date===d)||null; }
+function atlIsWorkingDay(d){
+  const ov=atlGetOverride(d);
+  if(ov) return ov.isWorking;
+  if(isHoliday(d)) return false;
+  return !!Settings.workingDays[new Date(d+"T00:00:00").getDay()];
+}
+renderHolidays=function(){
+  if(!Holidays.length){ holidayBody.innerHTML='<tr><td colspan="6"><div class="empty"><b>No holidays configured</b>Add via Settings.</div></td></tr>'; return; }
+  holidayBody.innerHTML=Holidays.map(h=>'<tr><td>'+esc(h.name)+'</td><td>'+esc(h.start)+'</td><td>'+esc(h.end)+'</td><td></td><td><span class="badge">'+esc(h.type)+'</span></td><td><button class="btn danger" data-atl-del-holiday="'+esc(h.start)+'">Remove</button></td></tr>').join("");
+};
+renderOverrides=function(){
+  if(!Overrides.length){ overrideBody.innerHTML='<tr><td colspan="4"><div class="empty"><b>No date overrides</b></div></td></tr>'; return; }
+  overrideBody.innerHTML=Overrides.map(o=>'<tr><td>'+esc(o.date)+'</td><td>'+(o.isWorking?"Working":"Holiday")+'</td><td>'+esc(o.note)+'</td><td><button class="btn danger" data-atl-del-override="'+esc(o.date)+'">Remove</button></td></tr>').join("");
+};
+renderWeekly=function(){
+  const tbody=document.querySelector("#weeklyTable tbody"); if(!tbody) return;
+  const days=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+  tbody.innerHTML=days.map((name,i)=>'<tr><td>'+name+'</td><td><div class="toggle '+(Settings.workingDays[i]?"on":"")+'" data-atl-day="'+i+'"></div></td></tr>').join("");
+};
+renderCalendarMonth=function(){
+  if(!calendarGrid) return;
+  const y=calendarMonth.getFullYear(), m=calendarMonth.getMonth(), first=new Date(y,m,1).getDay(), last=new Date(y,m+1,0).getDate();
+  calMonthLabel.textContent=calendarMonth.toLocaleDateString('en-GB',{month:'long',year:'numeric'});
+  let html=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d=>'<div class="calendar-cell head">'+d+'</div>').join("");
+  for(let i=0;i<first;i++) html+='<div class="calendar-cell"></div>';
+  for(let d=1;d<=last;d++){
+    const iso=new Date(y,m,d).toISOString().slice(0,10), hol=isHoliday(iso), ov=atlGetOverride(iso), working=atlIsWorkingDay(iso);
+    const cls=ov?"override":(hol?(hol.type==="vacation"?"vacation":"holiday"):(working?"working":"holiday"));
+    const tag=ov?esc(ov.note):hol?esc(hol.name):(working?"Working":"Non-working");
+    html+='<div class="calendar-cell '+cls+(iso===todayISO()?" today":"")+'"><div class="day">'+d+'</div><div class="tag">'+tag+'</div></div>';
+  }
+  calendarGrid.innerHTML=html;
+};
+const _atlRenderAll=renderAll;
+renderAll=function(){ _atlRenderAll(); renderWeekly(); };
+document.getElementById("openAdminBtn").onclick=function(){ pauseSensorScan(); adminLayer.classList.add("open"); renderAll(); };
+document.getElementById("openEnrollBtn").onclick=openNewStudent;
+document.getElementById("adminClose").onclick=function(){ adminLayer.classList.remove("open"); resumeSensorScan(); };
+const _atlOpenNewStudent=openNewStudent;
+openNewStudent=function(){ pauseSensorScan(); return _atlOpenNewStudent(); };
+const _atlOpenReEnroll=openReEnroll;
+openReEnroll=function(id){ pauseSensorScan(); return _atlOpenReEnroll(id); };
+$("addHolidayBtn").onclick=function(){
+  $("holidayModalBody").innerHTML='<div class="form-grid"><div class="form-field full"><label>Name</label><input id="holidayName" placeholder="Diwali vacation"></div><div class="form-field"><label>Start date</label><input type="date" id="holidayStart"></div><div class="form-field"><label>End date</label><input type="date" id="holidayEnd"></div><div class="form-field"><label>Type</label><select id="holidayType"><option value="holiday">Holiday</option><option value="vacation">Vacation</option><option value="exam">Exam day (working)</option></select></div><div class="form-field full"><button class="btn" id="holidayCancel">Cancel</button><button class="btn primary" id="holidaySave">Save holiday</button></div><div class="inline-error" id="holidayErr" style="display:none"></div></div>';
+  openModal(holidayModal);
+  $("holidayCancel").onclick=()=>closeModal(holidayModal);
+  $("holidaySave").onclick=async()=>{
+    const name=$("holidayName").value.trim(), start=$("holidayStart").value, end=$("holidayEnd").value||start, err=$("holidayErr");
+    if(!name||!start||!end||start>end){ err.textContent="Name and a valid date range are required."; err.style.display="block"; return; }
+    Holidays.push({name,start,end,category:"",type:$("holidayType").value});
+    if(await atlPersistCalendar()){ closeModal(holidayModal); renderHolidays(); renderCalendarMonth(); }
+  };
+};
+$("addOverrideBtn").onclick=function(){
+  $("overrideModalBody").innerHTML='<div class="form-grid"><div class="form-field"><label>Date</label><input type="date" id="overrideDate"></div><div class="form-field"><label>Becomes</label><select id="overrideWorking"><option value="1">Working day</option><option value="0">Holiday</option></select></div><div class="form-field full"><label>Note</label><input id="overrideNote" placeholder="Special working Saturday"></div><div class="form-field full"><button class="btn" id="overrideCancel">Cancel</button><button class="btn primary" id="overrideSave">Save override</button></div><div class="inline-error" id="overrideErr" style="display:none"></div></div>';
+  openModal(overrideModal);
+  $("overrideCancel").onclick=()=>closeModal(overrideModal);
+  $("overrideSave").onclick=async()=>{
+    const date=$("overrideDate").value, err=$("overrideErr");
+    if(!date){ err.textContent="A date is required."; err.style.display="block"; return; }
+    Overrides=Overrides.filter(o=>o.date!==date);
+    Overrides.push({date,isWorking:$("overrideWorking").value==="1",note:$("overrideNote").value.trim()});
+    if(await atlPersistCalendar()){ closeModal(overrideModal); renderOverrides(); renderCalendarMonth(); }
+  };
+};
+$("weeklyTable").addEventListener("click",async e=>{
+  const toggle=e.target.closest("[data-atl-day]"); if(!toggle) return;
+  Settings.workingDays[String(toggle.dataset.atlDay)]=!Settings.workingDays[String(toggle.dataset.atlDay)];
+  if(await atlPersistCalendar()){ renderWeekly(); renderCalendarMonth(); }
+});
+$("calResetWeekBtn").onclick=async()=>{
+  Settings.workingDays={0:false,1:true,2:true,3:true,4:true,5:true,6:true};
+  if(await atlPersistCalendar()){ renderWeekly(); renderCalendarMonth(); }
+};
+$("holidayBody").addEventListener("click",async e=>{
+  const b=e.target.closest("[data-atl-del-holiday]"); if(!b) return;
+  Holidays=Holidays.filter(h=>h.start!==b.dataset.atlDelHoliday);
+  if(await atlPersistCalendar()){ renderHolidays(); renderCalendarMonth(); }
+});
+$("overrideBody").addEventListener("click",async e=>{
+  const b=e.target.closest("[data-atl-del-override]"); if(!b) return;
+  Overrides=Overrides.filter(o=>o.date!==b.dataset.atlDelOverride);
+  if(await atlPersistCalendar()){ renderOverrides(); renderCalendarMonth(); }
+});
+$("addClassBtn").onclick=async()=>{
+  const input=$("newClassName"), name=input.value.trim(); if(!name) return;
+  if(Classes.some(c=>c.toLowerCase()===name.toLowerCase())){ alert("That class already exists."); return; }
+  try{ await api("/api/settings",{method:"POST",body:JSON.stringify({classes:Classes.concat(name)})}); input.value=""; await loadClassesHolidaysSettings(); renderAll(); }
+  catch(e){ alert("Failed to add class: "+e.message); }
+};
+$("settingsSaveBtn").onclick=async()=>{
+  try{ await api("/api/settings",{method:"POST",body:JSON.stringify({schoolName:$("setSchoolName").value.trim(),address:$("setSchoolAddress").value.trim(),lateCutoff:$("setLateThreshold").value||"08:30",academicYear:$("setAcademicYear").value})}); alert("Settings saved to database."); await loadClassesHolidaysSettings(); }
+  catch(e){ alert("Failed: "+e.message); }
+};
+$("settingsExportBtn").onclick=()=>exportCSV([["Field","Value"],["School name",$("setSchoolName").value],["Address",$("setSchoolAddress").value],["Late threshold",$("setLateThreshold").value],["Academic year",$("setAcademicYear").value]],"school-settings.csv");
+$("backupFileInput").onchange=async e=>{
+  const file=e.target.files&&e.target.files[0]; if(!file) return;
+  try{ const form=new FormData(); form.append("file",file); const r=await fetch("/api/restore",{method:"POST",body:form,cache:"no-store"}); const body=await r.json(); if(!r.ok) throw new Error(body.error||("HTTP "+r.status)); $("backupStatus").textContent="Restore complete."; await loadAll(); }
+  catch(err){ $("backupStatus").textContent="Restore failed: "+err.message; }
+  e.target.value="";
+};
+if($("calSaveBtn")) $("calSaveBtn").onclick=async()=>{
+  try{
+    const el=(id)=>$(id);
+    await api("/api/settings",{method:"POST",body:JSON.stringify({
+      schoolName:el("calSchoolName")?el("calSchoolName").value.trim():Settings.schoolName,
+      academicYear:el("calAcademicYear")?el("calAcademicYear").value:Settings.academicYear,
+      schoolOpeningDate:el("calStart")?el("calStart").value:Settings.startDate,
+      attendanceStartDate:el("calStart")?el("calStart").value:Settings.startDate,
+      endDate:el("calEnd")?el("calEnd").value:Settings.endDate,
+      lateCutoff:el("calLateAfter")?(el("calLateAfter").value||"08:30"):Settings.lateAfter
+    })}); await loadClassesHolidaysSettings(); renderAll(); alert("Saved.");
+  }catch(e){ alert("Failed: "+e.message); }
+};
+if(location.protocol!=="file:") setTimeout(sensorScanLoop,300);
+// ---- init ----
+cacheLoad();
+renderAll();
+setState("ready");
+loadAll();
+setInterval(()=>{ loadTodayAttendance().then(()=>{ if(currentTab==="today") renderToday(); }); }, 15000);
+// alias used by the injected backend bridge
+function saveStorage(){ return cacheSave(); }
+</script>
+</body>
+</html>
