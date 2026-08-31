@@ -110,8 +110,8 @@ def _migrate_db(db):
             if col not in cols:
                 try:
                     db.execute(f"ALTER TABLE students ADD COLUMN {col} TEXT")
-                except Exception:
-                    pass
+                except Exception as e:
+                    app.logger.warning("DB migration: add column %s failed: %s", col, e)
         global _INDEXES_READY
         if not _INDEXES_READY:
             for sql in (
@@ -125,12 +125,13 @@ def _migrate_db(db):
             ):
                 try:
                     db.execute(sql)
-                except Exception:
-                    pass
+                except Exception as e:
+                    app.logger.warning("DB migration: create index failed (%s): %s", sql, e)
             _INDEXES_READY = True
         db.commit()
-    except Exception:
-        pass
+    except Exception as e:
+        app.logger.error("DB migration failed: %s", e, exc_info=True)
+        raise
 
 def get_db():
     if "db" not in g:
@@ -163,7 +164,11 @@ def get_settings():
         db = get_db()
         row = db.execute("SELECT value FROM settings WHERE key='config'").fetchone()
         if row:
-            j = json.loads(row["value"])
+            try:
+                j = json.loads(row["value"])
+            except Exception as e:
+                app.logger.error("Failed to parse persisted settings JSON: %s", e, exc_info=True)
+                return cfg
             # migrations - keep additive, preserve existing data
             if "trajectoryLabels" not in j: j["trajectoryLabels"] = cfg.get("trajectoryLabels", "Jun,Jul,Aug,Sep,Oct,Nov,Dec,Jan,Feb,Mar,Apr")
             if "classes" not in j: j["classes"] = cfg.get("classes", [])
@@ -183,9 +188,11 @@ def get_settings():
             if not isinstance(j.get("batchSchedules"), dict): j["batchSchedules"] = {}
             if not isinstance(j.get("batches"), list): j["batches"] = []
             return j
-    except Exception:
-        pass
-    return cfg
+        app.logger.warning("Settings row missing in DB, falling back to config.json defaults")
+        return cfg
+    except Exception as e:
+        app.logger.error("Failed to load persisted settings from SQLite: %s", e, exc_info=True)
+        return cfg
 
 def save_settings(new_cfg):
     db = get_db()

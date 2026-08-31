@@ -567,5 +567,81 @@ class ApiTest(unittest.TestCase):
         s._cmd = lambda *a, **k: (False, "TIMEOUT")
         self.assertIsNone(s.is_press_finger())
 
+    def test_migration_failure_is_logged_and_not_hidden(self):
+        # _migrate_db must not hide a real DB failure with except: pass
+        import logging
+        class FakeDB:
+            def execute(self, *a, **k):
+                raise RuntimeError("migration boom")
+            def commit(self):
+                pass
+        # inner column/index failures are logged as warning, outer PRAGMA failure is logged as error and raised
+        with self.assertLogs(atl.app.logger, level="ERROR") as cm:
+            with self.assertRaises(RuntimeError):
+                atl._migrate_db(FakeDB())
+        self.assertTrue(any("DB migration failed" in m for m in cm.output))
+        # also verify index creation warnings do not hide as silent pass
+        class FakeDBIndex:
+            def __init__(self):
+                self.calls = 0
+                self._indexes_ready_before = atl._INDEXES_READY
+                atl._INDEXES_READY = False
+            def execute(self, sql, *a, **k):
+                if "PRAGMA table_info" in sql:
+                    class R:
+                        def fetchall(self): return []
+                    return R()
+                if "CREATE INDEX" in sql:
+                    raise RuntimeError("index boom")
+                if "ALTER TABLE" in sql:
+                    return None
+                return None
+            def commit(self):
+                pass
+            def cleanup(self):
+                atl._INDEXES_READY = self._indexes_ready_before
+        fake = FakeDBIndex()
+        try:
+            with self.assertLogs(atl.app.logger, level="WARNING") as cm2:
+                atl._migrate_db(fake)
+            self.assertTrue(any("create index failed" in m.lower() for m in cm2.output))
+        finally:
+            fake.cleanup()
+
+    def test_settings_failure_is_logged_and_returns_fallback(self):
+        # get_settings must log a clear error and not silently replace SQLite truth with config.json
+        import logging
+        original_get_db = atl.get_db
+        def boom_get_db():
+            raise RuntimeError("settings DB boom")
+        atl.get_db = boom_get_db
+        try:
+            with self.assertLogs(atl.app.logger, level="ERROR") as cm:
+                result = atl.get_settings()
+            self.assertTrue(any("Failed to load persisted settings" in m for m in cm.output))
+            # safe fallback is config template, but error is not hidden
+            self.assertEqual(result.get("sensor"), atl.cfg.get("sensor"))
+        finally:
+            atl.get_db = original_get_db
+        # also test corrupt JSON in settings row
+        ctx = atl.app.app_context()
+        ctx.push()
+        try:
+            db = atl.get_db()
+            db.execute("UPDATE settings SET value=? WHERE key='config'", ('{not valid json',))
+            db.commit()
+            with self.assertLogs(atl.app.logger, level="ERROR") as cm2:
+                result2 = atl.get_settings()
+            self.assertTrue(any("Failed to parse persisted settings JSON" in m for m in cm2.output))
+            self.assertEqual(result2.get("sensor"), atl.cfg.get("sensor"))
+        finally:
+            # restore valid settings for following tests
+            try:
+                db.execute("UPDATE settings SET value=? WHERE key='config'", (json.dumps(atl.cfg),))
+                db.commit()
+            except Exception:
+                pass
+            ctx.pop()
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
