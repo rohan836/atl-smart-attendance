@@ -1200,7 +1200,8 @@ adminNav.onclick=(e)=>{
       // try backend import via file upload first
       try{
         const form=new FormData(); form.append('file', file);
-        const r=await fetch('/api/import/csv',{method:'POST',body:form,cache:'no-store'});
+        const pinHeaders={}; try{ const pin=sessionStorage.getItem("atl_admin_pin")||""; if(pin) pinHeaders["X-Admin-Pin"]=pin; }catch(e){}
+        const r=await fetch('/api/import/csv',{method:'POST',body:form,cache:'no-store', headers:pinHeaders});
         const body=await r.json().catch(()=>({}));
         if(!r.ok) throw new Error(body.error||('HTTP '+r.status));
         alert(`Imported ${body.added||0} students, skipped ${body.skipped||0}` + (body.errors&&body.errors.length ? `\n${body.errors.slice(0,3).join('\n')}` : ''));

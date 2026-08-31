@@ -17,6 +17,7 @@ if command -v rsync >/dev/null 2>&1; then
     --exclude '.git' --exclude '__pycache__' --exclude '*.db' --exclude 'uploads' \
     --exclude 'venv' --exclude '.venv' --exclude 'backend/venv' \
     --exclude 'backend/config.json' --exclude '*.log' \
+    --exclude '*.bak' --exclude '*.pre_restore*' --exclude '*.incoming' --exclude '*.backup.html' \
     ./ "$USER@$HOST:$REMOTE/"
 else
   echo "Using scp (rsync not found)..."

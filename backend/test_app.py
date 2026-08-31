@@ -643,5 +643,65 @@ class ApiTest(unittest.TestCase):
                 pass
             ctx.pop()
 
+    def test_students_post_requires_pin_when_set(self):
+        old_pin = atl.cfg.get("adminPin", "")
+        atl.cfg["adminPin"] = "9999"
+        try:
+            r = self.client.post("/api/students", json={"name": "Pin Block", "roll": "PIN-BLK-01", "grade": "Grade 10-A", "phone": "9000000000"})
+            self.assertEqual(r.status_code, 401)
+            r2 = self.client.post("/api/students", json={"name": "Pin Block2", "roll": "PIN-BLK-02", "grade": "Grade 10-A", "phone": "9000000000"}, headers={"X-Admin-Pin": "bad"})
+            self.assertEqual(r2.status_code, 401)
+            r3 = self.client.post("/api/students", json={"name": "Pin Ok", "roll": "PIN-OK-01", "grade": "Grade 10-A", "phone": "9000000000"}, headers={"X-Admin-Pin": "9999"})
+            self.assertIn(r3.status_code, (200, 201))
+            # GET remains open
+            r4 = self.client.get("/api/students")
+            self.assertEqual(r4.status_code, 200)
+        finally:
+            atl.cfg["adminPin"] = old_pin
+
+    def test_import_csv_requires_pin_when_set(self):
+        import io
+        old_pin = atl.cfg.get("adminPin", "")
+        atl.cfg["adminPin"] = "9999"
+        try:
+            csv_text = "name,roll,class\nCSV Pin,CSV-PIN-01,Grade 10-A\n"
+            data = {"file": (io.BytesIO(csv_text.encode()), "a.csv")}
+            r = self.client.post("/api/import/csv", data=data, content_type="multipart/form-data")
+            self.assertEqual(r.status_code, 401)
+            data2 = {"file": (io.BytesIO(csv_text.encode()), "a.csv")}
+            r2 = self.client.post("/api/import/csv", data=data2, content_type="multipart/form-data", headers={"X-Admin-Pin": "9999"})
+            self.assertEqual(r2.status_code, 200)
+        finally:
+            atl.cfg["adminPin"] = old_pin
+
+    def test_images_upload_requires_pin_when_set(self):
+        import io
+        old_pin = atl.cfg.get("adminPin", "")
+        atl.cfg["adminPin"] = "9999"
+        try:
+            r = self.client.post("/api/images/upload", data={"file": (io.BytesIO(b"x"*1024), "a.png")}, content_type="multipart/form-data")
+            self.assertEqual(r.status_code, 401)
+            r2 = self.client.post("/api/images/upload", data={"file": (io.BytesIO(b"x"*1024), "a.png")}, content_type="multipart/form-data", headers={"X-Admin-Pin": "9999"})
+            self.assertEqual(r2.status_code, 200)
+        finally:
+            atl.cfg["adminPin"] = old_pin
+
+    def test_images_upload_no_overwrite(self):
+        import io, uuid as _uuid
+        old_pin = atl.cfg.get("adminPin", "")
+        atl.cfg["adminPin"] = "9999"
+        try:
+            uniq = _uuid.uuid4().hex[:6]
+            name = f"dup-{uniq}.png"
+            r1 = self.client.post("/api/images/upload", data={"file": (io.BytesIO(b"img1"), name)}, content_type="multipart/form-data", headers={"X-Admin-Pin": "9999"})
+            self.assertEqual(r1.status_code, 200)
+            n1 = r1.get_json()["name"]
+            r2 = self.client.post("/api/images/upload", data={"file": (io.BytesIO(b"img2"), name)}, content_type="multipart/form-data", headers={"X-Admin-Pin": "9999"})
+            self.assertEqual(r2.status_code, 200)
+            n2 = r2.get_json()["name"]
+            self.assertNotEqual(n1, n2)
+        finally:
+            atl.cfg["adminPin"] = old_pin
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

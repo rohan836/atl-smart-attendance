@@ -867,6 +867,12 @@ def list_students():
                     d["address"] = ""
                 out.append(d)
             return jsonify(out)
+        # Admin PIN gate for POST only (GET remains open for roster load)
+        pin = _admin_pin()
+        if pin:
+            got = (request.headers.get("X-Admin-Pin") or request.args.get("pin") or "").strip()
+            if got != pin:
+                return jsonify({"error":"admin pin required"}), 401
         try:
             j = request.get_json(force=True)
         except Exception:
@@ -1350,6 +1356,7 @@ def export_csv():
         return jsonify({"error": f"FAIL {e}"}), 500
 
 @app.route("/api/import/csv", methods=["POST"])
+@require_admin
 def import_csv():
     try:
         # accept file upload or json with csv text
@@ -2238,6 +2245,7 @@ def list_audit():
         return jsonify({"error":f"DB_FAIL {e}"}), 500
 
 @app.route("/api/images/upload", methods=["POST"])
+@require_admin
 def upload_image():
     try:
         os.makedirs(IMAGES_DIR, exist_ok=True)
@@ -2256,6 +2264,12 @@ def upload_image():
             return jsonify({"error":"max 2MB"}), 400
         import pathlib as pl
         dest = pl.Path(IMAGES_DIR) / name
+        if dest.exists():
+            stem = dest.stem
+            suffix = dest.suffix or ".png"
+            stem = stem[: max(0, 80 - len(suffix) - 9)]
+            name = f"{stem}_{uuid.uuid4().hex[:8]}{suffix}"
+            dest = pl.Path(IMAGES_DIR) / name
         f.save(str(dest))
         try:
             f.seek(0)
