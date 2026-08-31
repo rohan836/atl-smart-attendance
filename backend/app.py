@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """ATL Smart Attendance — Flask backend (GT-511C3 UART + SQLite). Offline-first."""
-import os, json, sqlite3, time, uuid, pathlib, datetime, re, threading
+import os, json, sqlite3, time, uuid, pathlib, datetime, re, threading, base64
 from flask import Flask, request, jsonify, send_from_directory, g, Response
 from flask_cors import CORS
 
@@ -20,7 +20,7 @@ PORT = int(cfg.get("port", 5000))
 HOST = cfg.get("host", "0.0.0.0")
 
 app = Flask(__name__, static_folder=None)
-CORS(app)
+CORS(app, resources={r"/api/*": {"origins": []}})
 # --- Auto cache-bust: never cache HTML/CSS/JS so deploys show instantly ---
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 @app.after_request
@@ -55,12 +55,46 @@ def _clean_wd(wd, defaults=None):
 
 def _photo_ok(photo):
     photo = str(photo or "")
+    if not photo:
+        return True, ""
     if len(photo) > PHOTO_MAX:
         return False, "photo too large (max 2MB)"
+    allowed = ("data:image/png;base64,", "data:image/jpeg;base64,", "data:image/jpg;base64,", "data:image/webp;base64,")
+    if not photo.startswith(allowed):
+        return False, "photo must be data:image/*;base64,"
+    try:
+        b64 = photo.split(",", 1)[1] if "," in photo else ""
+        if not b64:
+            return False, "photo must be data:image/*;base64,"
+        decoded = base64.b64decode(b64, validate=True)
+        if len(decoded) > 2 * 1024 * 1024:
+            return False, "photo too large (max 2MB)"
+    except Exception:
+        return False, "photo must be data:image/*;base64,"
     return True, photo
 
 SENSOR_LOCK = threading.Lock()
 _UART_PING = {"t": 0.0, "ok": True, "msg": "ready", "name": "ready"}
+
+def _admin_pin():
+    # opt-in: empty means open (zero regression for existing Pi)
+    pin = cfg.get("adminPin")
+    if pin is None:
+        pin = os.environ.get("ATL_ADMIN_PIN", "")
+    return str(pin or "").strip()
+
+def require_admin(fn):
+    from functools import wraps
+    @wraps(fn)
+    def _wrapped(*a, **kw):
+        pin = _admin_pin()
+        if not pin:
+            return fn(*a, **kw)
+        got = (request.headers.get("X-Admin-Pin") or request.args.get("pin") or "").strip()
+        if got != pin:
+            return jsonify({"error": "admin pin required"}), 401
+        return fn(*a, **kw)
+    return _wrapped
 SENSOR_PROGRESS = {
     "mode": "idle", "step": 0, "steps_total": 3, "state": "idle",
     "title": "", "detail": "", "timeout_sec": 0, "deadline": 0,
@@ -168,6 +202,9 @@ def get_settings():
                 j = json.loads(row["value"])
             except Exception as e:
                 app.logger.error("Failed to parse persisted settings JSON: %s", e, exc_info=True)
+                try:
+                    g.settings_load_error = str(e)
+                except: pass
                 return cfg
             # migrations - keep additive, preserve existing data
             if "trajectoryLabels" not in j: j["trajectoryLabels"] = cfg.get("trajectoryLabels", "Jun,Jul,Aug,Sep,Oct,Nov,Dec,Jan,Feb,Mar,Apr")
@@ -192,6 +229,9 @@ def get_settings():
         return cfg
     except Exception as e:
         app.logger.error("Failed to load persisted settings from SQLite: %s", e, exc_info=True)
+        try:
+            g.settings_load_error = str(e)
+        except: pass
         return cfg
 
 def save_settings(new_cfg):
@@ -226,38 +266,33 @@ def validate_clock():
     except Exception as e:
         return False, f"CLOCK_ERR {e}"
 
-def is_working_day(date_iso, s):
-    """Apply override -> holiday/vacation -> weekly calendar precedence."""
+def _parse_holiday(value):
+    """Shared holiday parser: returns (start, end, kind) where kind in holiday/vacation/exam."""
+    if isinstance(value, dict):
+        start = value.get("start") or value.get("date")
+        end = value.get("end") or start
+        kind = str(value.get("type") or "holiday").lower()
+        return start, end, kind if kind in ("holiday", "vacation", "exam") else "holiday"
+    raw = str(value or "").strip()
+    if not raw:
+        return None, None, "holiday"
+    head = raw.split(":", 1)[0].strip()
+    if ".." in head:
+        start, end = [x.strip() for x in head.split("..", 1)]
+    else:
+        start = end = head
+    rest = raw[len(head):].lstrip(":")
+    parts = rest.split(":", 1)
+    kind = parts[0].strip().lower() if len(parts) == 2 else "holiday"
+    return start, end, kind if kind in ("holiday", "vacation", "exam") else "holiday"
+
+def _holiday_contains(day, start, end):
     try:
-        day = datetime.date.fromisoformat(str(date_iso))
+        return datetime.date.fromisoformat(start) <= day <= datetime.date.fromisoformat(end)
     except (TypeError, ValueError):
         return False
 
-    def holiday_range(value):
-        if isinstance(value, dict):
-            start = value.get("start") or value.get("date")
-            end = value.get("end") or start
-            kind = str(value.get("type") or "holiday").lower()
-            return start, end, kind
-        raw = str(value or "").strip()
-        if not raw:
-            return None, None, "holiday"
-        head = raw.split(":", 1)[0].strip()
-        if ".." in head:
-            start, end = [x.strip() for x in head.split("..", 1)]
-        else:
-            start = end = head
-        rest = raw[len(head):].lstrip(":")
-        parts = rest.split(":", 1)
-        kind = parts[0].strip().lower() if len(parts) == 2 else "holiday"
-        return start, end, kind if kind in ("holiday", "vacation", "exam") else "holiday"
-
-    def contains(start, end):
-        try:
-            return datetime.date.fromisoformat(start) <= day <= datetime.date.fromisoformat(end)
-        except (TypeError, ValueError):
-            return False
-
+def _override_result(date_iso, s):
     for override in (s.get("overrides") or []):
         if isinstance(override, dict):
             raw_date = override.get("date")
@@ -268,14 +303,28 @@ def is_working_day(date_iso, s):
             value = len(parts) > 1 and parts[1].strip().lower() in ("1", "true", "yes", "on")
         if raw_date == str(date_iso):
             return bool(value)
+    return None
 
+def _holiday_result(day, s):
     for holiday in (s.get("holidays") or []):
-        start, end, kind = holiday_range(holiday)
-        if contains(start, end):
+        start, end, kind = _parse_holiday(holiday)
+        if _holiday_contains(day, start, end):
             return kind == "exam"
+    return None
 
+def is_working_day(date_iso, s):
+    """Apply override -> holiday/vacation -> weekly calendar precedence."""
+    try:
+        day = datetime.date.fromisoformat(str(date_iso))
+    except (TypeError, ValueError):
+        return False
+    ov = _override_result(date_iso, s)
+    if ov is not None:
+        return ov
+    hol = _holiday_result(day, s)
+    if hol is not None:
+        return hol
     weekly = s.get("workingDays") or DEFAULT_WORKING_DAYS
-    # UI/JSON convention is Sunday=0, Monday=1, ..., Saturday=6.
     weekday_key = (day.weekday() + 1) % 7
     value = weekly.get(str(weekday_key), weekly.get(weekday_key, False))
     if isinstance(value, str):
@@ -315,48 +364,16 @@ def _get_working_days_for_student(student, s):
 
 def is_student_scheduled(date_iso, student, s):
     """Canonical: Is this student scheduled/eligible on this date? Precedence: override → holiday/vacation/exam → class/batch → global."""
-    # Reuse holiday/override logic from is_working_day but with student-specific weekly
     try:
         day = datetime.date.fromisoformat(str(date_iso))
     except (TypeError, ValueError):
         return False
-    def holiday_range(value):
-        if isinstance(value, dict):
-            start = value.get("start") or value.get("date")
-            end = value.get("end") or start
-            kind = str(value.get("type") or "holiday").lower()
-            return start, end, kind
-        raw = str(value or "").strip()
-        if not raw:
-            return None, None, "holiday"
-        head = raw.split(":", 1)[0].strip()
-        if ".." in head:
-            start, end = [x.strip() for x in head.split("..", 1)]
-        else:
-            start = end = head
-        rest = raw[len(head):].lstrip(":")
-        parts = rest.split(":", 1)
-        kind = parts[0].strip().lower() if len(parts) == 2 else "holiday"
-        return start, end, kind if kind in ("holiday", "vacation", "exam") else "holiday"
-    def contains(start, end):
-        try:
-            return datetime.date.fromisoformat(start) <= day <= datetime.date.fromisoformat(end)
-        except (TypeError, ValueError):
-            return False
-    for override in (s.get("overrides") or []):
-        if isinstance(override, dict):
-            raw_date = override.get("date")
-            value = override.get("isWorking", override.get("working", False))
-        else:
-            parts = str(override).split(":", 2)
-            raw_date = parts[0].strip() if parts else ""
-            value = len(parts) > 1 and parts[1].strip().lower() in ("1", "true", "yes", "on")
-        if raw_date == str(date_iso):
-            return bool(value)
-    for holiday in (s.get("holidays") or []):
-        start, end, kind = holiday_range(holiday)
-        if contains(start, end):
-            return kind == "exam"
+    ov = _override_result(date_iso, s)
+    if ov is not None:
+        return ov
+    hol = _holiday_result(day, s)
+    if hol is not None:
+        return hol
     weekly = _get_working_days_for_student(student, s)
     weekday_key = (day.weekday() + 1) % 7
     value = weekly.get(str(weekday_key), weekly.get(weekday_key, False))
@@ -365,14 +382,16 @@ def is_student_scheduled(date_iso, student, s):
     return bool(value)
 
 def classify(time_str, s):
+    """Classify scan time. Never returns ABSENT/HALF_DAY — those are reconcile-derived.
+    PRESENT if time <= presentCutoff, else LATE (even after lateCutoff).
+    ABSENT is written only by POST /api/reconcile after lateCutoff has passed.
+    halfDayCutoff is reserved and currently not classified."""
     try:
-        # Validate HH:MM:SS
         datetime.datetime.strptime(time_str, "%H:%M:%S")
     except:
         return "LATE"
     p = s.get("presentCutoff","08:00")
     l = s.get("lateCutoff","08:30")
-    # normalize to HH:MM:SS for compare
     def norm(t):
         if len(t)==5: t+=":00"
         return t
@@ -532,7 +551,17 @@ def health():
         uart_msg = "busy enroll/scan"
         sensor_name = "busy"
         status = "ok" if (clk_ok and db_ok) else "degraded"
-        return jsonify({
+        # surface settings load fallback if any
+        try:
+            _settings = public_settings()
+            _settings_error = getattr(g, "settings_load_error", None)
+        except:
+            _settings = public_settings()
+            _settings_error = None
+        try:
+            _db_size = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
+        except: _db_size = 0
+        payload = {
             "ok": status == "ok",
             "status": status,
             "sensor": sensor_name,
@@ -540,10 +569,14 @@ def health():
             "clock": clk_msg,
             "db": db_msg,
             "db_ok": db_ok,
+            "db_size": _db_size,
             "imagesDir": IMAGES_DIR,
             "sensor_mode": cfg.get("sensor", "sim"),
-            "settings": public_settings()
-        })
+            "settings": _settings,
+        }
+        if _settings_error:
+            payload["settings_error"] = str(_settings_error)
+        return jsonify(payload)
     try:
         if cfg.get("sensor") == "sim":
             sensor_name = "sim"
@@ -570,7 +603,16 @@ def health():
     finally:
         SENSOR_LOCK.release()
     status = "ok" if (clk_ok and db_ok and (cfg.get("sensor")=="sim" or uart_ok)) else "degraded"
-    return jsonify({
+    try:
+        _settings = public_settings()
+        _settings_error = getattr(g, "settings_load_error", None)
+    except:
+        _settings = public_settings()
+        _settings_error = None
+    try:
+        _db_size = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
+    except: _db_size = 0
+    payload = {
         "ok": status=="ok",
         "status": status,
         "sensor": sensor_name,
@@ -578,16 +620,26 @@ def health():
         "clock": clk_msg,
         "db": db_msg,
         "db_ok": db_ok,
+        "db_size": _db_size,
         "imagesDir": IMAGES_DIR,
         "sensor_mode": cfg.get("sensor", "sim"),
-        "settings": public_settings()
-    })
+        "settings": _settings,
+    }
+    if _settings_error:
+        payload["settings_error"] = str(_settings_error)
+    return jsonify(payload)
 
 # --- Settings ---
 @app.route("/api/settings", methods=["GET","POST"])
 def settings():
     if request.method == "GET":
         return jsonify(public_settings())
+    # admin PIN gate for writes (opt-in, empty pin = open)
+    pin = _admin_pin()
+    if pin:
+        got = (request.headers.get("X-Admin-Pin") or request.args.get("pin") or "").strip()
+        if got != pin:
+            return jsonify({"error": "admin pin required"}), 401
     try:
         j = request.get_json(force=True)
     except Exception:
@@ -898,6 +950,7 @@ def get_student(sid):
         return jsonify({"error":f"DB_FAIL {e}"}), 500
 
 @app.route("/api/students/<int:sid>", methods=["PATCH"])
+@require_admin
 def patch_student(sid):
     try:
         j = request.get_json(force=True) or {}
@@ -1020,6 +1073,7 @@ def patch_student(sid):
         return jsonify({"error":f"DB_FAIL {e}"}), 500
 
 @app.route("/api/students/<int:sid>", methods=["DELETE"])
+@require_admin
 def delete_student(sid):
     try:
         db = get_db()
@@ -1064,6 +1118,7 @@ def delete_student(sid):
         return jsonify({"error":f"DB_FAIL {e}"}), 500
 
 @app.route("/api/students/<int:sid>/reenroll", methods=["POST"])
+@require_admin
 def reenroll_student(sid):
     try:
         db = get_db()
@@ -1135,6 +1190,7 @@ def backup_db():
         return jsonify({"error": f"FAIL {e}"}), 500
 
 @app.route("/api/restore", methods=["POST"])
+@require_admin
 def restore_db():
     try:
         if "file" not in request.files:
@@ -1151,33 +1207,67 @@ def restore_db():
         # validate sqlite header
         if not tmp.startswith(b"SQLite format 3\x00"):
             return jsonify({"error":"invalid SQLite file"}), 400
+        # write to temp incoming for validation before replacing live DB
+        incoming = DB_PATH + ".incoming"
+        os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
+        try:
+            with open(incoming, "wb") as out:
+                out.write(tmp)
+        except Exception as e:
+            return jsonify({"error": f"write failed {e}"}), 500
+        # verify incoming is valid SQLite with required schema (allow triggers)
+        try:
+            test = sqlite3.connect(incoming)
+            row = test.execute("PRAGMA integrity_check").fetchone()
+            if not row or row[0] != "ok":
+                test.close()
+                try: os.remove(incoming)
+                except: pass
+                return jsonify({"error": "invalid SQLite file (integrity check failed)"}), 400
+            names = {r[0] for r in test.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+            required = {"students", "events", "daily", "settings"}
+            if not required.issubset(names):
+                test.close()
+                try: os.remove(incoming)
+                except: pass
+                return jsonify({"error": "invalid backup: missing required tables"}), 400
+            # also verify basic queries
+            test.execute("SELECT 1 FROM students LIMIT 1")
+            test.execute("SELECT 1 FROM settings LIMIT 1")
+            # events/daily may be empty but must be queryable
+            test.execute("SELECT 1 FROM events LIMIT 1")
+            test.execute("SELECT 1 FROM daily LIMIT 1")
+            test.close()
+        except Exception as e:
+            try:
+                test.close()
+            except: pass
+            try: os.remove(incoming)
+            except: pass
+            return jsonify({"error": f"restore verify failed {e}"}), 400
         # close existing connections
         try:
-            # force close g.db if open
             db = g.pop("db", None)
             if db:
                 try: db.close()
                 except: pass
         except:
             pass
-        # backup current
+        # backup current with rotation .bak -> .bak.1
         try:
             import shutil
             if os.path.exists(DB_PATH):
+                if os.path.exists(DB_PATH + ".pre_restore.bak"):
+                    try: shutil.copy2(DB_PATH + ".pre_restore.bak", DB_PATH + ".pre_restore.bak.1")
+                    except: pass
                 shutil.copy2(DB_PATH, DB_PATH + ".pre_restore.bak")
         except:
             pass
-        # write new
-        os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
-        with open(DB_PATH, "wb") as out:
-            out.write(tmp)
-        # verify
+        # replace live DB atomically
         try:
-            test = sqlite3.connect(DB_PATH)
-            test.execute("SELECT 1 FROM students LIMIT 1")
-            test.close()
+            os.replace(incoming, DB_PATH)
         except Exception as e:
-            return jsonify({"error": f"restore verify failed {e}"}), 500
+            return jsonify({"error": f"restore replace failed {e}"}), 500
         return jsonify({"ok": True, "restored": len(tmp)})
     except Exception as e:
         return jsonify({"error": f"FAIL {e}"}), 500
@@ -1365,6 +1455,7 @@ def import_csv():
         return jsonify({"error": f"FAIL {e}"}), 500
 
 @app.route("/api/correction", methods=["POST"])
+@require_admin
 def correction():
     """Attendance correction with audit trail. Requires date, studentId, status, reason. Preserves original."""
     try:
@@ -1422,8 +1513,61 @@ def enroll_hint(msg):
 def enroll_progress():
     return jsonify(sensor_progress_view())
 
+@app.route("/api/sensor/audit", methods=["GET"])
+@require_admin
+def sensor_audit():
+    """Read-only orphan diagnostics: compares SQLite fingerId set vs sensor enroll count.
+    Does not delete or enroll. Holds SENSOR_LOCK briefly. On sim or hardware_unusable returns 200 with sim flag.
+    Returns {db_count, sensor_count, db_ids, sensor_ids (empty if not enumerated), orphans_estimate, note}."""
+    try:
+        db = get_db()
+        db_ids = [r[0] for r in db.execute("SELECT fingerId FROM students WHERE active=1 AND fingerId IS NOT NULL ORDER BY fingerId").fetchall()]
+        db_count = len(db_ids)
+    except Exception as e:
+        return jsonify({"error": f"DB_FAIL {e}"}), 500
+    if not SENSOR_LOCK.acquire(timeout=5):
+        return jsonify({"error": "sensor busy"}), 503
+    try:
+        sensor = get_sensor()
+        if sensor.sim or hardware_unusable(sensor):
+            try: sensor.close()
+            except: pass
+            return jsonify({
+                "sim": True,
+                "db_count": db_count,
+                "db_ids": db_ids,
+                "sensor_count": None,
+                "sensor_ids": [],
+                "orphans_estimate": None,
+                "note": "sim mode or hardware offline — sensor not probed"
+            })
+        # real hardware: get enroll count
+        try:
+            ok, val = sensor._cmd(0x20, 0, timeout=1.0)  # CMD_GET_ENROLL_COUNT
+            sensor_count = int(val) if ok else None
+        except Exception as e:
+            sensor_count = None
+        try: sensor.close()
+        except: pass
+        orphans_estimate = None
+        if sensor_count is not None:
+            orphans_estimate = max(0, sensor_count - db_count)
+        return jsonify({
+            "sim": False,
+            "db_count": db_count,
+            "db_ids": db_ids,
+            "sensor_count": sensor_count,
+            "sensor_ids": [],
+            "orphans_estimate": orphans_estimate,
+            "note": "sensor_ids not enumerated (non-destructive); use led_test.py or manual verify if needed"
+        })
+    finally:
+        try: SENSOR_LOCK.release()
+        except: pass
+
 # --- Enroll (REAL) ---
 @app.route("/api/enroll", methods=["POST"])
+@require_admin
 def enroll():
     try:
         j = request.get_json(force=True)
@@ -1850,6 +1994,17 @@ def reconcile():
 @app.route("/api/attendance")
 def attendance():
     date = request.args.get("date")
+    # pagination guard: limit clamped to 2000, offset >=0
+    def _clamp_limit(default=2000, maxv=2000):
+        try:
+            v = int(request.args.get("limit", default))
+        except: v = default
+        return max(1, min(v, maxv))
+    def _clamp_offset():
+        try:
+            v = int(request.args.get("offset", 0))
+        except: v = 0
+        return max(0, v)
     try:
         db = get_db()
         if date:
@@ -1857,9 +2012,17 @@ def attendance():
                 datetime.date.fromisoformat(date)
             except:
                 return jsonify({"error":"bad date"}), 400
-            rows = db.execute("SELECT * FROM events WHERE date=? ORDER BY time DESC", (date,)).fetchall()
+            # optional limit for large date queries
+            if "limit" in request.args:
+                lim = _clamp_limit()
+                off = _clamp_offset()
+                rows = db.execute("SELECT * FROM events WHERE date=? ORDER BY time DESC LIMIT ? OFFSET ?", (date, lim, off)).fetchall()
+            else:
+                rows = db.execute("SELECT * FROM events WHERE date=? ORDER BY time DESC", (date,)).fetchall()
         else:
-            rows = db.execute("SELECT * FROM events ORDER BY date DESC, time DESC LIMIT 2000").fetchall()
+            lim = _clamp_limit()
+            off = _clamp_offset()
+            rows = db.execute("SELECT * FROM events ORDER BY date DESC, time DESC LIMIT ? OFFSET ?", (lim, off)).fetchall()
         return jsonify([dict(r) for r in rows])
     except sqlite3.Error as e:
         return jsonify({"error":f"DB_FAIL {e}"}), 500
@@ -1867,6 +2030,16 @@ def attendance():
 @app.route("/api/daily")
 def daily():
     date = request.args.get("date")
+    def _clamp_limit(default=5000, maxv=5000):
+        try:
+            v = int(request.args.get("limit", default))
+        except: v = default
+        return max(1, min(v, maxv))
+    def _clamp_offset():
+        try:
+            v = int(request.args.get("offset", 0))
+        except: v = 0
+        return max(0, v)
     try:
         db = get_db()
         if date:
@@ -1874,9 +2047,16 @@ def daily():
                 datetime.date.fromisoformat(date)
             except:
                 return jsonify({"error":"bad date"}), 400
-            rows = db.execute("SELECT * FROM daily WHERE date=?", (date,)).fetchall()
+            if "limit" in request.args:
+                lim = _clamp_limit()
+                off = _clamp_offset()
+                rows = db.execute("SELECT * FROM daily WHERE date=? LIMIT ? OFFSET ?", (date, lim, off)).fetchall()
+            else:
+                rows = db.execute("SELECT * FROM daily WHERE date=?", (date,)).fetchall()
         else:
-            rows = db.execute("SELECT * FROM daily").fetchall()
+            lim = _clamp_limit()
+            off = _clamp_offset()
+            rows = db.execute("SELECT * FROM daily LIMIT ? OFFSET ?", (lim, off)).fetchall()
         return jsonify([dict(r) for r in rows])
     except sqlite3.Error as e:
         return jsonify({"error":f"DB_FAIL {e}"}), 500
@@ -1993,6 +2173,12 @@ def reports():
 # --- Images ---
 @app.route("/api/images", methods=["GET", "DELETE"])
 def list_images():
+    if request.method == "DELETE":
+        pin = _admin_pin()
+        if pin:
+            got = (request.headers.get("X-Admin-Pin") or request.args.get("pin") or "").strip()
+            if got != pin:
+                return jsonify({"error": "admin pin required"}), 401
     try:
         db = get_db()
         if request.method == "DELETE":
@@ -2013,6 +2199,7 @@ def list_images():
         return jsonify({"error":f"DB_FAIL {e}"}), 500
 
 @app.route("/api/images/<iid>", methods=["DELETE"])
+@require_admin
 def delete_image(iid):
     try:
         db = get_db()

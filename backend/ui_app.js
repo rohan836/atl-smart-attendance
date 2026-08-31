@@ -42,10 +42,29 @@ function inRange(d,a,b){ return d>=a && d<=b; }
 async function api(path, opts){
   opts = opts || {};
   opts.headers = Object.assign({"Content-Type":"application/json"}, opts.headers||{});
+  try{
+    const pin = sessionStorage.getItem("atl_admin_pin") || "";
+    if(pin) opts.headers["X-Admin-Pin"] = pin;
+  }catch(e){}
   opts.cache = "no-store";
-  const r = await fetch(path, opts);
+  let r = await fetch(path, opts);
   let body = null;
   try{ body = await r.json(); }catch(e){}
+  if(!r.ok && r.status===401 && !opts._pinRetry){
+    const msg = (body&&(body.error||""))||"";
+    if(msg.toLowerCase().includes("admin pin")){
+      let pin = null;
+      try{ pin = prompt("Admin PIN required"); }catch(e){}
+      if(pin){
+        try{ sessionStorage.setItem("atl_admin_pin", pin); }catch(e){}
+        opts.headers = Object.assign({}, opts.headers, {"X-Admin-Pin": pin});
+        opts._pinRetry = true;
+        r = await fetch(path, opts);
+        try{ body = await r.json(); }catch(e){ body=null; }
+        if(r.ok) return body;
+      }
+    }
+  }
   if(!r.ok){ const err = new Error((body&&(body.error||body.detail||body.reason))||("HTTP "+r.status)); err.status=r.status; err.body=body; throw err; }
   return body;
 }

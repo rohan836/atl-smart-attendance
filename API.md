@@ -45,7 +45,7 @@ Base: `http://192.168.1.8:5000` (Pi) or `http://127.0.0.1:5000` (local). Server:
 | GET | `/api/audit` | Last 500 `ORDER BY rowid DESC`. |
 
 ## Status / Data Conventions
-* Backend uppercase `PRESENT/LATE/ABSENT` + `DUPLICATE/UNKNOWN/NOT_SCHEDULED/NON_WORKING_DAY`. UI `Present/Late/...`. `classify()` `app.py:322`: `time≤presentCutoff(08:00)→PRESENT`, `time≤lateCutoff(08:30)→LATE`, `else LATE`; same-day re-scan not `ABSENT/NOT_SCHEDULED` → `DUPLICATE`.
+* Backend uppercase `PRESENT/LATE/ABSENT` + `DUPLICATE/UNKNOWN/NOT_SCHEDULED/NON_WORKING_DAY`. UI `Present/Late/...`. `classify()` `app.py:407`: `time≤presentCutoff(08:00)→PRESENT`, `else LATE` (even after `lateCutoff`); `ABSENT` only via `POST /api/reconcile` after `lateCutoff`; `halfDayCutoff` reserved, not classified. Same-day re-scan not `ABSENT/NOT_SCHEDULED` → `DUPLICATE`.
 * `fingerId` integer (`1..199`) ↔ UI `fid "F-<n>"`. Bridge maps `fingerId→fid`, syncs `class←grade` into `atl_students`, calls `handleRealScan(fid,{status,time,date,seq})`; unknown → `__unknown__<seq>`. SQLite truth, LocalStorage display copy. `sensor/uart/baud/db/host/port/imagesDir` read-only via API.
 * Live terminal `POST /api/scan {waitSec:2}` when Admin closed; never fabricates on `NO_FINGER`. Enrollment: one Start → 3 lifts.
 

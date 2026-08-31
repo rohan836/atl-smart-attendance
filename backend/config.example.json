@@ -23,6 +23,7 @@
   "sensor": "sim",
   "uart": "/dev/serial0",
   "baud": 9600,
+  "adminPin": "",
   "db": "backend/attendance.db",
   "imagesDir": "backend/uploads",
   "host": "0.0.0.0",
