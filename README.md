@@ -23,7 +23,7 @@ Deploy: `powershell -File tools/deploy.ps1` — never copies `attendance.db` or 
 
 ## UI architecture
 
-`ATL-Smart-Attendance-Production.html` = shell/markup/CSS · `backend/ui_app.js` = behavior · `backend/app.py` = serves HTML with JS injected · `backend/gt511c3.py` = driver. Redesign: HTML/CSS in the HTML file, behavior in `ui_app.js`; keep `ATL-Smart-Attendance-Production.backup.html` as snapshot.
+`ATL-Smart-Attendance-Production.html` = shell/markup/CSS · `backend/ui_app.js` = behavior · `backend/app.py` = serves HTML with JS injected · `backend/gt511c3.py` = driver. Redesign: HTML/CSS in the HTML file, behavior in `ui_app.js`; rollback via Git tag `v1.0.0` (see `docs/VERSIONS.md`).
 
 ## Docs
 
