@@ -8,7 +8,7 @@ The target hardware is `lancer@192.168.1.8` (Pi 3 Model B, Debian 13). The same 
 
 ## What it does
 
-The front page is a biometric terminal, not a dashboard. Idle shows centered `PLACE YOUR FINGER` (11px, 0.22em) and a single `Admin` trigger bottom-middle. A finger on the sensor triggers identify, classify, record, and display. On success the UI shows a frameless result — photo, name, roll, class, section/batch, student ID, status and time — for about four seconds, then fades back to idle. Unknown fingerprints show `NOT RECOGNIZED` for under three seconds.
+The front page is a biometric terminal, not a dashboard — markup and CSS/layout live in `ATL-Smart-Attendance-Production.html`, behavior lives in `backend/ui_app.js`. Idle shows centered `PLACE YOUR FINGER` (11px, 0.22em) and a single `Admin` trigger bottom-middle. A finger on the sensor triggers identify, classify, record, and display. On success the UI shows a frameless result — photo, name, roll, class, section/batch, student ID, status and time — for about four seconds, then fades back to idle. Unknown fingerprints show `NOT RECOGNIZED` for under three seconds.
 
 Admin is gated behind the terminal. Six tabs — Students, Today, Reports, Calendar, Settings, Backup — manage the school day without leaving the device. Students holds roster and enrollments; Today shows today's attendance; Reports aggregates ranges; Calendar owns schedules; Settings owns school identity and classes; Backup owns export and restore.
 

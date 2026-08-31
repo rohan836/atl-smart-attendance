@@ -21,6 +21,10 @@ Pi: `http://192.168.1.8:5000/` · `sudo systemctl status atl-attendance` · `jou
 
 Deploy: `powershell -File tools/deploy.ps1` — never copies `attendance.db` or `config.json`.
 
+## UI architecture
+
+`ATL-Smart-Attendance-Production.html` = shell/markup/CSS · `backend/ui_app.js` = behavior · `backend/app.py` = serves HTML with JS injected · `backend/gt511c3.py` = driver. Redesign: HTML/CSS in the HTML file, behavior in `ui_app.js`; keep `ATL-Smart-Attendance-Production.backup.html` as snapshot.
+
 ## Docs
 
 - Agent rules: `AGENTS.md`

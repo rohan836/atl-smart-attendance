@@ -2,7 +2,14 @@
 
 ## System overview
 
-The system is a kiosk: sensor → driver → server → database → UI shell. The GT-511C3 communicates over UART `/dev/serial0` at 9600 baud. `backend/gt511c3.py` implements the packet protocol (Open, Close, CMOS LED, IsPressFinger, Capture, EnrollStart/1/2/3, Identify, DeleteID). `backend/app.py` is Flask 3.x on `0.0.0.0:5000` exposing `/api/*` and serving the single-page UI. `SQLite` at `/var/lib/atl/attendance.db` on the Pi (fallback `backend/attendance.db` on Windows) is the source of truth alongside the sensor's 200-slot flash store. The UI shell `ATL-Smart-Attendance-Production.html` holds CSS and markup; its `<script>` block is a splice point only.
+The system is a kiosk: sensor → driver → server → database → UI shell. The GT-511C3 communicates over UART `/dev/serial0` at 9600 baud. `backend/gt511c3.py` is the fingerprint hardware driver (packet protocol: Open, Close, CMOS LED, IsPressFinger, Capture, EnrollStart/1/2/3, Identify, DeleteID). `backend/app.py` is Flask 3.x on `0.0.0.0:5000` exposing `/api/*` and serving the single-page UI. `SQLite` at `/var/lib/atl/attendance.db` on the Pi (fallback `backend/attendance.db` on Windows) is the source of truth alongside the sensor's 200-slot flash store.
+
+UI layering:
+- `ATL-Smart-Attendance-Production.html` = shell/markup/CSS — edit for visual redesign
+- `backend/ui_app.js` = behavior/state/events/API — edit for behavior
+- `backend/app.py` = Flask API; serves HTML with `ui_app.js` injected
+- `backend/gt511c3.py` = driver (UART only)
+`ATL-Smart-Attendance-Production.backup.html` is a snapshot — not served or deployed.
 
 ```
 [GT-511C3 UART] ↔ [gt511c3.py] ↔ [app.py Flask :5000] ↔ [SQLite]
@@ -22,8 +29,8 @@ Scanning is DB-driven. `sensorScanLoop()` (`ui_app.js:481`) posts `POST /api/sca
 
 ## UI and state
 
-The theme is light editorial: `bg #FCFBF7 panel #FFFFFF ink #0A0A0A ink-2 #6B6B6B ink-3 #A8A5A0 line #E9E6E0 paper #F6F4EF ok #2F5D34 danger #8A3A3A`, fonts Inter / Newsreader / ui-monospace. The maintained logic is `ui_app.js`; editing the HTML splice stub is unsupported. Data load is `cacheLoad() → loadClassesHolidaysSettings() → loadStudents() → loadHistory() → loadTodayAttendance() → cacheSave()` and repeats every 15 seconds while visible. LocalStorage is photos-stripped; all writes go through the API.
+Theme is light editorial: `bg #FCFBF7 panel #FFFFFF ink #0A0A0A ink-2 #6B6B6B ink-3 #A8A5A0 line #E9E6E0 paper #F6F4EF ok #2F5D34 danger #8A3A3A`, Inter/Newsreader/monospace. The maintained logic is `ui_app.js`; the HTML stub is replaced at serve time and not edited. Redesign: HTML/CSS in the Production.html, behavior in `ui_app.js`; do not create `css/`/`js/`/`templates/`/components unless proven need. Data load is `cacheLoad() → loadClassesHolidaysSettings() → loadStudents() → loadHistory() → loadTodayAttendance() → cacheSave()` every 15s while visible. LocalStorage omits photos; all writes via API.
 
 ## File map
 
-`ATL-Smart-Attendance-Production.html` UI shell. `backend/app.py` API and serve logic. `backend/gt511c3.py` sensor driver. `backend/schema.sql` schema and indexes. `backend/ui_app.js` UI application. `backend/config.example.json` template. `pi/setup.sh` and `pi/atl-attendance.service` provisioning. `tools/deploy.ps1`/`deploy.sh` and `tools/led_test.py`. See `API.md` for endpoint contracts and `DATA_MODEL.md` for tables and scheduling. See `OPERATIONS.md` for hardware, service, and deployment.
+`ATL-Smart-Attendance-Production.html` UI shell, markup, CSS/layout (visual redesign here). `ATL-Smart-Attendance-Production.backup.html` snapshot — not served, not deployed. `backend/ui_app.js` UI behavior/state/events/API. `backend/app.py` Flask API and serve logic (injects `ui_app.js` into HTML). `backend/gt511c3.py` fingerprint driver. `backend/schema.sql` schema and indexes. `backend/config.example.json` template. `pi/setup.sh` and `pi/atl-attendance.service` provisioning. `tools/deploy.ps1`/`deploy.sh` and `tools/led_test.py`. See `API.md` for endpoint contracts and `DATA_MODEL.md` for tables and scheduling. See `OPERATIONS.md` for hardware, service, and deployment.

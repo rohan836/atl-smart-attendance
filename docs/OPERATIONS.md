@@ -33,7 +33,7 @@ powershell -File tools/deploy.ps1
 bash tools/deploy.sh
 ```
 
-They copy `ATL-Smart-Attendance-Production.html`, `backend/app.py`, `gt511c3.py`, `schema.sql`, `ui_app.js`, `assets/`, and `pi/atl-attendance.service` to `lancer@192.168.1.8:/opt/atl-attendance/`, then restart the service and check `curl http://127.0.0.1:5000/` title and `curl /api/health`. They never copy `attendance.db` or `config.json`, and they exclude `.git/__pycache__/*.db/uploads/venv`. `deploy.sh` does not use `rsync --delete` because that would remove the Pi venv.
+They copy `ATL-Smart-Attendance-Production.html`, `backend/app.py`, `gt511c3.py`, `schema.sql`, `ui_app.js`, `assets/`, and `pi/atl-attendance.service` to `lancer@192.168.1.8:/opt/atl-attendance/`, then restart the service and check `curl http://127.0.0.1:5000/` title and `curl /api/health`. They never copy `attendance.db`, `config.json`, or `*.backup.html` (`ATL-Smart-Attendance-Production.backup.html` stays local as a snapshot, never used at runtime or deployed), and they exclude `.git/__pycache__/*.db/uploads/venv`. `deploy.sh` does not use `rsync --delete` because that would remove the Pi venv.
 
 ## Backup, restore, recovery
 
