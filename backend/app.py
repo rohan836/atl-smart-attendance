@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""
-ATL Smart Attendance — Pi Backend (REAL)
-Replaces simulated timer flows with actual GT-511C3 UART, SQLite persistence,
-and full edge-case handling. Offline-first: no internet required.
-"""
+"""ATL Smart Attendance — Flask backend (GT-511C3 UART + SQLite). Offline-first."""
 import os, json, sqlite3, time, uuid, pathlib, datetime, re, threading
 from flask import Flask, request, jsonify, send_from_directory, g, Response
 from flask_cors import CORS
@@ -23,7 +19,7 @@ if os.name == "nt" and IMAGES_DIR.startswith("/var"):
 PORT = int(cfg.get("port", 5000))
 HOST = cfg.get("host", "0.0.0.0")
 
-app = Flask(__name__, static_folder=str(ROOT), static_url_path="")
+app = Flask(__name__, static_folder=None)
 CORS(app)
 # --- Auto cache-bust: never cache HTML/CSS/JS so deploys show instantly ---
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
@@ -498,21 +494,9 @@ def _serve_production():
                 source = ui_source.read_text(encoding="utf-8")
                 html = html[:start] + "<script>\n" + source + "\n</script>" + html[end + len("</script>"):]
         if "window.handleRealScan" in html and "__ATL_BRIDGE__" not in html:
-            # Insert before the LAST </body> (document end). The UI's printHTML()
-            # template contains an earlier "</body>" inside a JS string — injecting
-            # there would terminate the main <script> block early and break the UI.
             idx = html.rfind("</body>")
             if idx != -1:
                 html = html[:idx] + SCAN_BRIDGE_SCRIPT + html[idx:]
-        # Dev-only live reload (watcher): only when ?dev=1, inject SSE client that reloads on watcher deploy (auto-reconnect after Flask restart)
-        if request.args.get("dev") is not None:
-            try:
-                dev_script = """<script>(function(){function connect(){try{var es=new EventSource('http://127.0.0.1:35729/__dev_reload');es.onmessage=function(e){if(e.data==='reload')location.reload();};es.onerror=function(){try{es.close();}catch(e){} setTimeout(connect,1200);};}catch(e){setTimeout(connect,1200);}}connect();})();</script>"""
-                idx2 = html.rfind("</body>")
-                if idx2 != -1:
-                    html = html[:idx2] + dev_script + html[idx2:]
-            except Exception:
-                pass
         return Response(html, mimetype="text/html", headers={
             "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
             "Pragma": "no-cache",
@@ -1635,7 +1619,7 @@ def scan():
     ok_clk, clk_msg = validate_clock()
     if not ok_clk:
         return jsonify({"ok":False, "reason":"INVALID_CLOCK", "detail":clk_msg}), 500
-    # Support two modes: legacy UI sends studentId, real hardware sends no id → we identify
+    # Real hardware: omit studentId → identify. Tests/sim may send studentId.
     student_id = j.get("studentId")
     is_unknown = bool(j.get("isUnknown"))
     # If no studentId and not explicit unknown, try real identify
@@ -1672,8 +1656,6 @@ def scan():
                     # fall through to unknown handling
                     is_unknown = True
                 elif sensor.sim:
-                    # sim without hardware — require studentId from UI choice (legacy fallback)
-                    # If frontend is old UI that expects to pick student, allow it: return need studentId
                     return jsonify({"ok":False, "reason":"NEED_STUDENT_ID", "detail":"sim mode: send studentId"}), 400
                 else:
                     is_unknown = True
@@ -2103,11 +2085,10 @@ def serve_image(name):
 # --- Fallback ---
 @app.errorhandler(404)
 def not_found(e):
-    if request.path.startswith("/api/"):
+    p = request.path
+    if p.startswith(("/api/", "/assets/", "/backend/", "/tools/", "/pi/", "/.git")):
         return jsonify({"error":"not found"}), 404
-    if request.path.startswith("/assets/"):
-        return jsonify({"error":"not found"}), 404
-    return send_from_directory(str(ROOT), PROD_HTML)
+    return _serve_production()
 
 if __name__ == "__main__":
     print(f"[ATL] DB: {DB_PATH}")

@@ -15,7 +15,7 @@ echo "=== 1. System update ==="
 sudo apt update && sudo apt upgrade -y
 
 echo "=== 2. Install deps ==="
-sudo apt install -y python3 python3-pip python3-venv sqlite3 git nginx
+sudo apt install -y python3 python3-pip python3-venv sqlite3 git
 
 echo "=== 3. Enable UART for GT-511C3 ==="
 # GT-511C3 on /dev/serial0 (GPIO14/15), 9600 baud, disable console
@@ -39,8 +39,7 @@ python3 -m venv $APP_DIR/venv
 $APP_DIR/venv/bin/pip install --upgrade pip
 $APP_DIR/venv/bin/pip install Flask Flask-Cors pyserial
 
-echo "=== 7. Copy project (if running from D:\\ssh copy) ==="
-# If this script is run from the copied project dir, copy backend/assets
+echo "=== 7. Copy project (if run from the repo) ==="
 if [ -d "./backend" ]; then
   sudo cp -r ./backend $APP_DIR/
   sudo cp -r ./assets $APP_DIR/ 2>/dev/null || sudo mkdir -p $APP_DIR/assets/images
@@ -76,11 +75,7 @@ sudo systemctl enable atl-attendance.service
 sudo systemctl restart atl-attendance.service
 sudo systemctl status atl-attendance.service --no-pager -l | head -n 30
 
-echo "=== 9. Nginx (optional, serve HTML on :80) ==="
-# Simple static serving — app itself also serves HTML on :5000. Nginx optional.
-# sudo cp ./pi/nginx.conf /etc/nginx/sites-available/atl && sudo ln -sf ../sites-available/atl /etc/nginx/sites-enabled/ && sudo nginx -t && sudo systemctl reload nginx || true
-
-echo "=== 10. Verify ==="
+echo "=== 9. Verify ==="
 sleep 3
 curl -s http://127.0.0.1:5000/api/health | head -c 500; echo
 ls -l $DATA_DIR $IMAGES_DIR

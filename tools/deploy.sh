@@ -10,11 +10,13 @@ KEY="C:/Users/LaNcer/.ssh/id_ed25519"
 echo "=== Deploy to $USER@$HOST:$REMOTE ==="
 
 # Never deploy: .git, artifacts (*.db, uploads, __pycache__, venv), config.json
+# Never --delete: that would wipe /opt/atl-attendance/venv and Pi-only files.
 if command -v rsync >/dev/null 2>&1; then
   echo "Using rsync..."
-  rsync -avz --delete -e "ssh -i $KEY -o StrictHostKeyChecking=accept-new" \
+  rsync -avz -e "ssh -i $KEY -o StrictHostKeyChecking=accept-new" \
     --exclude '.git' --exclude '__pycache__' --exclude '*.db' --exclude 'uploads' \
-    --exclude 'backend/venv' --exclude 'backend/config.json' \
+    --exclude 'venv' --exclude '.venv' --exclude 'backend/venv' \
+    --exclude 'backend/config.json' --exclude '*.log' \
     ./ "$USER@$HOST:$REMOTE/"
 else
   echo "Using scp (rsync not found)..."

@@ -1,7 +1,7 @@
 # Pi Setup — lancer@192.168.1.8
 
 **Target:** `lancer@192.168.1.8` · Raspberry Pi 3 Model B Rev 1.2 · Debian 13 trixie · wlan0 `192.168.1.8`
-**UI:** `http://192.168.1.8:5000/` serves `ATL-Smart-Attendance-Production.html` via `backend/app.py: _serve_production()` + `Cache-Control: no-store`.
+**UI:** `http://192.168.1.8:5000/` serves the HTML shell with `backend/ui_app.js` spliced in (`Cache-Control: no-store`).
 **User:** `lancer` (uid 1001) — use `lancer`, `pi` fails. Key `C:\Users\LaNcer\.ssh\id_ed25519` · hostkey `SHA256:jmqvz4JHHhyxlTlHeTw8Y20fzyZ7RUAJhbhDg1HpYm0`. `sudo` may be restricted; deploy works without, restart via `pkill -f "python.*app.py"` (`Restart=always`).
 
 **Stack:** Python 3.13 venv · Flask 3.x · Flask-Cors · pyserial · `backend/config.json` (`sensor real`, `uart /dev/serial0`, `baud 9600`, `host 0.0.0.0:5000`, `db /var/lib/atl/attendance.db`, template `backend/config.example.json`). Never scp `attendance.db` or `config.json` over Pi copies.
@@ -19,7 +19,7 @@ Baud `9600` (`backend/config.json:baud`). Diagram `assets/images/diagrams/archit
 ## OS provisioning (one-time)
 ```bash
 sudo bash pi/setup.sh
-# apt python3/venv/sqlite3/nginx, enable_uart=1 in /boot/firmware/config.txt,
+# apt python3/venv/sqlite3, enable_uart=1 in /boot/firmware/config.txt,
 # serial console off, lancer into dialout+gpio, /opt/atl-attendance + /var/lib/atl,
 # venv + pip Flask Flask-Cors pyserial, systemd service install
 sudo reboot   # required for UART
@@ -57,10 +57,7 @@ ssh -i C:\Users\LaNcer\.ssh\id_ed25519 lancer@192.168.1.8 "whoami; hostname"
 ssh -i C:\Users\LaNcer\.ssh\id_ed25519 lancer@192.168.1.8 "curl -s http://127.0.0.1:5000/api/health"
 ```
 
-## Nginx (optional, port 80)
-```bash
-sudo cp pi/nginx.conf /etc/nginx/sites-available/atl && sudo ln -sf ../sites-available/atl /etc/nginx/sites-enabled/ && sudo nginx -t && sudo systemctl reload nginx
-```
+Flask listens on port 5000. No reverse proxy is required.
 
 ## Troubleshooting
 - `serial0` not found → `ls /dev/serial*`; check `enable_uart=1` in `/boot/firmware/config.txt`, then `sudo reboot`.
@@ -69,4 +66,4 @@ sudo cp pi/nginx.conf /etc/nginx/sites-available/atl && sudo ln -sf ../sites-ava
 - UI not updating after deploy → `Ctrl+F5`; confirm `curl -s http://127.0.0.1:5000/ | grep -o "ATL Smart Attendance Terminal"`.
 - Health `sensor: offline` → expected while `sensor:real` and GT-511C3 not connected/answering; check wiring + `journalctl`.
 
-*Aligned 2026-08-30 with `ATL-Smart-Attendance-Production.html` + `backend/app.py:2056` + `backend/ui_app.js:1421`.*
+*Aligned 2026-08-31 with the production HTML shell + `backend/app.py` + `backend/ui_app.js`.*

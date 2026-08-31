@@ -227,12 +227,14 @@ async function loadAll(){
   renderAll();
 }
 // ---- DOM ----
-const scannerFrame=$("scannerFrame"), promptText=$("promptText"), countdownEl=$("countdown"),
-  leftClock=$("leftClock"), stateDot=$("stateDot"), idleLayer=$("idleLayer"),
+const promptText=$("promptText"),
+  leftClock=$("leftClock"), idleLayer=$("idleLayer"),
   identityLayer=$("identityLayer"), unknownLayer=$("unknownLayer"),
   photoImg=$("photoImg"), photoFallback=$("photoFallback"),
   idName=$("idName"), idSub=$("idSub"), idStatus=$("idStatus"), idTime=$("idTime"),
   idDate=$("idDate"), idConfirm=$("idConfirm"), idConfirmTxt=$("idConfirm"),
+  idRoll=$("idRoll"), idClass=$("idClass"), idGroup=$("idGroup"), idSid=$("idSid"),
+  unknownTitleEl=$("unknownTitle"),
   adminLayer=$("adminLayer"), adminNav=$("adminNav"), adminTitle=$("adminTitle"),
   studentListEl=$("studentList"), searchInput=$("searchInput"), classFilter=$("classFilter"), batchFilter=$("batchFilter"), studentStatusFilter=$("studentStatusFilter"),
   detailScroll=$("detailScroll"),
@@ -267,130 +269,92 @@ function closeModal(m){ m.classList.remove("open"); }
 });
 
 // ---- terminal ----
-(function injectScanStateStyles(){
-  try{
-    if(document.getElementById("atl-scan-state-styles")) return;
-    const s=document.createElement("style");
-    s.id="atl-scan-state-styles";
-    s.textContent=`
-      .prompt{transition:color 220ms var(--ease),opacity 220ms var(--ease),transform 220ms var(--ease)}
-      .prompt.scanning,.prompt.detecting,.prompt.identifying{color:var(--ink)}
-      .prompt.scanning::before,.prompt.detecting::before,.prompt.identifying::before{content:"";display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--ink);vertical-align:middle;margin-right:8px;animation:atlScanDot 0.92s ease-in-out infinite}
-      .prompt.identifying::before{background:var(--ink-2);animation-duration:0.62s}
-      @keyframes atlScanDot{0%,100%{opacity:0.28;transform:scale(0.85)}50%{opacity:1;transform:scale(1)}}
-      .prompt.detecting::after{content:"";display:block;width:28px;height:1px;background:var(--line-strong);margin:7px auto 0;animation:atlScanLine 1.1s cubic-bezier(0.45,0,0.55,1) infinite}
-      .prompt.identifying::after{content:"";display:block;width:22px;height:1px;background:var(--ink-2);margin:7px auto 0;opacity:0.5}
-      @keyframes atlScanLine{0%{transform:scaleX(0.22);opacity:0.35}50%{transform:scaleX(1);opacity:1}100%{transform:scaleX(0.22);opacity:0.35}}
-      .unknown-sub{display:none!important}
-      .identity-layer,.unknown-layer{will-change:opacity,transform}
-      .id-confirm{opacity:0;transform:translateY(4px);transition:opacity 360ms var(--ease) 100ms,transform 360ms var(--ease) 100ms}
-      .identity-layer.visible .id-confirm.atl-show{opacity:1;transform:translateY(0)}
-      @media (prefers-reduced-motion:reduce){.prompt.scanning::before,.prompt.detecting::before,.prompt.identifying::before,.prompt.detecting::after{animation:none!important}.identity-layer,.unknown-layer,.id-confirm{transition:none!important}}
-    `;
-    document.head.appendChild(s);
-  }catch(e){}
-})();
 let _resultHold=false;
-function setState(state){
+function setResultVisible(on){
+  const t=$("terminal");
+  if(t) t.classList.toggle("has-result", !!on);
+}
+function hidePrompt(){
   if(!promptText) return;
   promptText.classList.remove("scanning","identifying","detecting");
+  promptText.classList.add("is-hidden");
   promptText.style.opacity="";
   promptText.style.transform="";
-  if(state==="detecting"){
-    promptText.textContent="FINGER DETECTED";
-    promptText.classList.add("detecting");
-  } else if(state==="identifying"){
+}
+function groupLabel(student){
+  const parts=[];
+  if(student && student.section) parts.push(student.section);
+  if(student && student.batch) parts.push(student.batch);
+  return parts.length ? parts.join(" · ") : "—";
+}
+function setState(state){
+  if(!promptText) return;
+  promptText.classList.remove("scanning","identifying","detecting","is-hidden");
+  promptText.style.opacity="";
+  promptText.style.transform="";
+  if(state==="identifying" || state==="detecting" || state==="scanning"){
     promptText.textContent="IDENTIFYING\u2026";
     promptText.classList.add("identifying");
-  } else if(state==="scanning"){
-    promptText.textContent="FINGER DETECTED";
-    promptText.classList.add("detecting");
   } else {
-    promptText.textContent="PLACE YOUR FINGER TO SCAN";
+    promptText.textContent="PLACE YOUR FINGER";
   }
 }
 function showIdentity(student, status, time, dateStr){
-  if(promptText){
-    promptText.classList.remove("scanning","identifying","detecting");
-    promptText.style.opacity="0";
-    promptText.style.transform="translateY(-6px)";
-  }
+  hidePrompt();
+  setResultVisible(true);
   _resultHold=true;
   if(_scanLoopTimer){ clearTimeout(_scanLoopTimer); _scanLoopTimer=null; }
   Timers.clear("hold");
-  idleLayer.classList.add("hidden");
-  unknownLayer.classList.remove("visible");
+  if(idleLayer) idleLayer.classList.add("hidden");
+  if(unknownLayer) unknownLayer.classList.remove("visible");
   if(student.photo){ photoImg.src=student.photo; photoImg.style.display="block"; photoFallback.style.display="none"; }
-  else { photoImg.style.display="none"; photoFallback.style.display="flex"; photoFallback.textContent=student.name.trim().split(" ").map(w=>w[0]).slice(0,2).join("").toUpperCase(); }
-  idName.textContent=student.name;
-  idSub.innerHTML=`<span class="id-sub-item">${esc(student.class)}</span><span class="id-sub-item">${esc(student.roll)}</span>`;
+  else { photoImg.style.display="none"; photoFallback.style.display="flex"; photoFallback.textContent=(student.name||"").trim().split(" ").map(w=>w[0]).filter(Boolean).slice(0,2).join("").toUpperCase()||"—"; }
+  if(idName) idName.textContent=student.name||"—";
+  if(idRoll) idRoll.textContent=student.roll||"—";
+  if(idClass) idClass.textContent=student.class||student.grade||"—";
+  if(idGroup) idGroup.textContent=groupLabel(student);
+  if(idSid) idSid.textContent=student.id!=null?String(student.id):"—";
   const norm = String(status||"").trim().toLowerCase();
   let displayStatus = status;
-  let footer = "";
-  let footerColor = "";
-  let holdMs = 2200;
+  let footer = "ATTENDANCE RECORDED";
+  let muted = false;
+  let holdMs = 4000;
   if(norm==="present"){
     displayStatus="Present";
     footer="ATTENDANCE RECORDED";
-    footerColor="var(--ok)";
-    holdMs=2200;
   } else if(norm==="late"){
     displayStatus="Late";
     footer="ATTENDANCE RECORDED";
-    footerColor="var(--ok)";
-    holdMs=2200;
   } else if(norm==="already recorded" || norm==="duplicate"){
     displayStatus="Already recorded";
     footer="ALREADY RECORDED";
-    footerColor="var(--ink-2)";
-    holdMs=2000;
+    muted=true;
+    holdMs=3200;
   } else if(norm==="not scheduled" || norm==="not_scheduled"){
     displayStatus="Not Scheduled";
     footer="NOT SCHEDULED";
-    footerColor="var(--ink-2)";
-    holdMs=2000;
+    muted=true;
+    holdMs=3200;
   } else {
-    displayStatus=status;
-    footer="";
+    displayStatus=status||"—";
   }
-  idStatus.textContent=displayStatus; idStatus.className="id-status";
-  if(norm==="not scheduled" || norm==="not_scheduled"){
-    idStatus.style.borderColor="var(--line)";
-    idStatus.style.color="var(--ink-2)";
-    idStatus.style.background="var(--paper)";
-  } else if(norm==="already recorded" || norm==="duplicate"){
-    idStatus.style.borderColor="var(--line)";
-    idStatus.style.color="var(--ink-2)";
-    idStatus.style.background="#fff";
-  } else if(displayStatus==="Late"){
-    idStatus.style.borderColor="#C7B07A";
-    idStatus.style.color="var(--ink)";
-    idStatus.style.background="#fff";
-  } else {
-    idStatus.style.borderColor="var(--line-strong)";
-    idStatus.style.color="var(--ink)";
-    idStatus.style.background="#fff";
+  if(idStatus){
+    idStatus.textContent=displayStatus;
+    idStatus.style.color = muted ? "var(--ink-2)" : "var(--ink)";
   }
-  idTime.textContent=(time||"").slice(0,5);
-  idDate.textContent=dateStr||new Date().toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'});
+  if(idTime) idTime.textContent=(time||"").slice(0,5)||"—";
+  if(idDate) idDate.textContent=dateStr||"";
   if(idConfirm){
-    if(footer){
-      idConfirm.textContent=footer;
-      idConfirm.style.color=footerColor;
-      idConfirm.style.display="block";
-      idConfirm.classList.remove("atl-show");
-      void idConfirm.offsetWidth;
-      idConfirm.classList.add("atl-show");
-    } else {
-      idConfirm.style.display="none";
-      idConfirm.classList.remove("atl-show");
-    }
+    idConfirm.textContent=footer;
+    idConfirm.classList.toggle("is-muted", muted);
+    idConfirm.style.color="";
+    idConfirm.style.display="";
   }
   identityLayer.classList.add("visible");
   Timers.set("hold", setTimeout(()=>{
     identityLayer.classList.remove("visible");
-    idleLayer.classList.remove("hidden");
-    if(idConfirm) idConfirm.classList.remove("atl-show");
+    if(idleLayer) idleLayer.classList.remove("hidden");
+    setResultVisible(false);
     setState("ready");
     _resultHold=false;
     if(_scanLoopActive && adminLayer && !adminLayer.classList.contains("open") && enrollModal && !enrollModal.classList.contains("open")){
@@ -399,31 +363,26 @@ function showIdentity(student, status, time, dateStr){
   }, holdMs));
 }
 function showUnknown(){
-  if(promptText){
-    promptText.classList.remove("scanning","identifying","detecting");
-    promptText.style.opacity="0";
-    promptText.style.transform="translateY(-6px)";
-  }
+  hidePrompt();
+  setResultVisible(true);
   _resultHold=true;
   if(_scanLoopTimer){ clearTimeout(_scanLoopTimer); _scanLoopTimer=null; }
   Timers.clear("hold");
-  idleLayer.classList.add("hidden");
+  if(idleLayer) idleLayer.classList.add("hidden");
   identityLayer.classList.remove("visible");
-  if(idConfirm) idConfirm.classList.remove("atl-show");
-  const _ut = unknownLayer.querySelector(".unknown-title");
+  const _ut = unknownTitleEl || (unknownLayer && unknownLayer.querySelector(".unknown-title"));
   if(_ut) _ut.textContent="NOT RECOGNIZED";
-  const _us = unknownLayer.querySelector(".unknown-sub");
-  if(_us) _us.style.display="none";
   unknownLayer.classList.add("visible");
   Timers.set("hold", setTimeout(()=>{
     unknownLayer.classList.remove("visible");
-    idleLayer.classList.remove("hidden");
+    if(idleLayer) idleLayer.classList.remove("hidden");
+    setResultVisible(false);
     setState("ready");
     _resultHold=false;
     if(_scanLoopActive && adminLayer && !adminLayer.classList.contains("open") && enrollModal && !enrollModal.classList.contains("open")){
       _scanLoopTimer=setTimeout(sensorScanLoop, 180);
     }
-  }, 2000));
+  }, 2800));
 }
 function tickClock(){
   if(!leftClock) return;
@@ -434,79 +393,90 @@ if(leftClock){ Timers.set("clock", setInterval(tickClock,1000)); tickClock(); }
 
 // Real scan hook (called by the sensor loop and the injected backend bridge)
 let _lastHandledScanSeq=0;
+function upsertStudent(raw){
+  if(!raw || raw.id==null) return null;
+  const mapped=mapStudent(raw);
+  const idx=Students.findIndex(x=>x.id===mapped.id);
+  if(idx>=0){
+    const merged=Object.assign({}, Students[idx]);
+    Object.keys(mapped).forEach(k=>{
+      if(mapped[k]!==undefined && mapped[k]!==null) merged[k]=mapped[k];
+    });
+    if(!merged.fid && Students[idx].fid) merged.fid=Students[idx].fid;
+    if(!merged.photo && Students[idx].photo) merged.photo=Students[idx].photo;
+    Students[idx]=merged;
+  } else Students.push(mapped);
+  return Students.find(x=>x.id===mapped.id);
+}
+function studentByFid(fid){
+  const n=String(fid||"").replace(/^F-/i,"");
+  if(!n) return null;
+  return Students.find(x=>String(x.fid||"").replace(/^F-/i,"")===n) || null;
+}
 window.handleRealScan = async function(fid, info){
   info = info || {};
   const seq=Number(info.seq||0);
   if(seq && seq<=_lastHandledScanSeq) return;
   if(seq) _lastHandledScanSeq=seq;
   if(fid && String(fid).indexOf("__unknown__")===0){
-    setState("detecting");
-    await new Promise(r=>setTimeout(r, 120));
-    if(seq && seq < _lastHandledScanSeq) return;
     setState("identifying");
-    // subtle scan tick driven by real API, not fake timing for success
-    await new Promise(r=>setTimeout(r, 120));
+    await new Promise(r=>setTimeout(r, 180));
     if(seq && seq < _lastHandledScanSeq) return;
     showUnknown();
     loadTodayAttendance().then(()=>{ if(currentTab==="today") renderToday(); });
     return;
   }
-  let s = Students.find(x=>x.fid===fid);
+  let s = info.student ? upsertStudent(info.student) : null;
+  if(!s) s = studentByFid(fid);
   if(!s){
-    // startup race: Students not yet loaded from backend (loadAll async) — try to use info.student or fetch
-    if(info.student && info.student.id){
-      s = mapStudent(info.student);
-      Students.push(s);
-      cacheSave();
-    } else {
-      try{
-        // fetch students once if empty (offline fallback already in cacheLoad)
-        if(!Students.length){
-          await loadStudents();
-        }
-        s = Students.find(x=>x.fid===fid);
-        if(!s && fid){
-          // try to fetch specific student via scan/last student info if available
-          const last = await api("/api/scan/last",{method:"GET"}).catch(()=>null);
-          if(last && last.student && ("F-"+last.fingerId)===fid){
-            s = mapStudent(last.student);
-            Students.push(s);
-            cacheSave();
-          }
-        }
-      }catch(e){}
-    }
-    if(!s){
-      setState("detecting");
-      await new Promise(r=>setTimeout(r, 120));
-      if(seq && seq < _lastHandledScanSeq) return;
-      setState("identifying");
-      await new Promise(r=>setTimeout(r, 120));
-      if(seq && seq < _lastHandledScanSeq) return;
-      showUnknown();
-      loadTodayAttendance().then(()=>{ if(currentTab==="today") renderToday(); });
-      return;
-    }
+    try{
+      if(!Students.length) await loadStudents();
+      s = studentByFid(fid);
+      if(!s && fid){
+        const last = await api("/api/scan/last",{method:"GET"}).catch(()=>null);
+        if(last && last.student) s = upsertStudent(last.student);
+      }
+    }catch(e){}
   }
-  setState("detecting");
-  await new Promise(r=>setTimeout(r, 120));
-  if(seq && seq < _lastHandledScanSeq) return;
+  if(!s){
+    setState("identifying");
+    await new Promise(r=>setTimeout(r, 180));
+    if(seq && seq < _lastHandledScanSeq) return;
+    showUnknown();
+    loadTodayAttendance().then(()=>{ if(currentTab==="today") renderToday(); });
+    return;
+  }
   setState("identifying");
-  await new Promise(r=>setTimeout(r, 120));
+  await new Promise(r=>setTimeout(r, 180));
   if(seq && seq < _lastHandledScanSeq) return;
   const status = info.status ? statusUI(info.status) : "Present";
   const time = info.time || new Date().toTimeString().slice(0,8);
   showIdentity(s, status, time, info.date ? fmtDate(info.date) : "");
-  // refresh today's list (source of truth = backend)
   loadTodayAttendance().then(()=>{ if(currentTab==="today") renderToday(); });
 };
 let _scanLoopActive=true, _scanRequestInFlight=false, _scanLoopTimer=null;
-function pauseSensorScan(){ _scanLoopActive=false; if(_scanLoopTimer){ clearTimeout(_scanLoopTimer); _scanLoopTimer=null; } if(promptText){ promptText.classList.remove("scanning","identifying","detecting"); } }
+function pauseSensorScan(){ _scanLoopActive=false; if(_scanLoopTimer){ clearTimeout(_scanLoopTimer); _scanLoopTimer=null; } if(promptText){ promptText.classList.remove("scanning","identifying","detecting","is-hidden"); } }
 function resumeSensorScan(){
-  if(_scanLoopActive) return;
   _scanLoopActive=true;
   if(!_resultHold) setState("ready");
+  if(_scanRequestInFlight){
+    if(!_scanLoopTimer) _scanLoopTimer=setTimeout(sensorScanLoop, 400);
+    return;
+  }
+  if(_scanLoopTimer){ clearTimeout(_scanLoopTimer); _scanLoopTimer=null; }
   sensorScanLoop();
+}
+function finishEnrollUi(){
+  _enrollAbort=true;
+  if(_enrollPoll){ clearTimeout(_enrollPoll); _enrollPoll=null; }
+  if(enrollModal) closeModal(enrollModal);
+}
+function returnToFrontPage(rawStudent){
+  finishEnrollUi();
+  if(rawStudent) upsertStudent(rawStudent);
+  try{ cacheSave(); }catch(e){}
+  if(adminLayer) adminLayer.classList.remove("open");
+  resumeSensorScan();
 }
 async function sensorScanLoop(){
   if(!_scanLoopActive || _scanRequestInFlight) return;
@@ -518,12 +488,13 @@ async function sensorScanLoop(){
   try{
     const res=await api("/api/scan",{method:"POST",body:JSON.stringify({waitSec:2})});
     if(res && res.seq !== undefined && res.seq !== null){
-      if(res.student && res.student.fingerId!==null && res.student.fingerId!==undefined){
-        const mapped=mapStudent(res.student), existing=Students.findIndex(x=>x.id===mapped.id);
-        if(existing>=0) Students[existing]=mapped; else Students.push(mapped);
+      if(res.student){
+        upsertStudent(res.student);
         cacheSave();
-        await window.handleRealScan("F-"+res.student.fingerId,{status:res.status,time:res.time,date:res.date,seq:res.seq,student:res.student});
-      } else if(res.reason==="UNKNOWN"){
+        const fidNum = (res.student.fingerId!=null && res.student.fingerId!==undefined) ? res.student.fingerId : res.fingerId;
+        const fid = (fidNum!=null && fidNum!==undefined) ? "F-"+fidNum : ("__stu__"+res.student.id);
+        await window.handleRealScan(fid,{status:res.status||res.reason,time:res.time,date:res.date,seq:res.seq,student:res.student});
+      } else if(res.reason==="UNKNOWN" || res.status==="UNKNOWN"){
         await window.handleRealScan("__unknown__"+res.seq,{seq:res.seq});
       }
     }
@@ -535,7 +506,7 @@ async function sensorScanLoop(){
     _scanRequestInFlight=false;
     if(_scanLoopActive){
       if(_resultHold){
-        // hold active — result card visible, do not overwrite prompt or schedule duplicate
+        // hold active — result visible, do not overwrite prompt or schedule duplicate
       } else {
         setState("ready");
         _scanLoopTimer=setTimeout(sensorScanLoop,nextDelay);
@@ -965,7 +936,7 @@ function fingerprintScanUI(title, subtitle, onStart, onSuccess){
       <div class="inline-error" id="scanErr" style="display:none"></div>
     </div>`;
   openModal(enrollModal);
-  $("scanCancelBtn").onclick=()=>{ _enrollAbort=true; if(_enrollPoll) clearTimeout(_enrollPoll); closeModal(enrollModal); resumeSensorScan(); };
+  $("scanCancelBtn").onclick=()=>{ finishEnrollUi(); resumeSensorScan(); };
   $("scanStartBtn").onclick=async()=>{
     $("scanStartBtn").disabled=true;
     _enrollAbort=false;
@@ -973,9 +944,8 @@ function fingerprintScanUI(title, subtitle, onStart, onSuccess){
     pollEnrollProgress(stepEl,labelEl);
     try{
       const res=await onStart();
-      _enrollAbort=true;
-      if(_enrollPoll) clearTimeout(_enrollPoll);
-      onSuccess(res);
+      try{ onSuccess(res); }catch(e){}
+      returnToFrontPage();
     }catch(err){
       _enrollAbort=true;
       if(_enrollPoll) clearTimeout(_enrollPoll);
@@ -1020,8 +990,15 @@ function openNewStudent(){
   fingerprintScanUI("Enroll fingerprint — "+name, "Click Start scan once. Then place and lift the same finger three times; do not click between captures.",
         ()=>apiEnrollStudent(form),
         (res)=>{
-          alert("Enrolled — "+name+" (fingerprint F-"+res.fingerId+")");
-          loadAll().then(()=>{ openAdmin(); selectStudent(res.id); });
+          if(res && res.id){
+            upsertStudent({
+              id:res.id, name:name, roll:roll, grade:grade, batch:batch, section:section,
+              parent:parent, phone:phone, address:address, photo:form.photo||"",
+              fingerId:res.fingerId, active:1
+            });
+            cacheSave();
+          }
+          loadAll();
         });
     };
     if(file){
@@ -1095,7 +1072,16 @@ function openReEnroll(id){
   pauseSensorScan();
   fingerprintScanUI("Re-enroll fingerprint — "+s.name, "Click Start scan once. Then place and lift the same finger three times; do not click between captures.",
     ()=>api("/api/students/"+id+"/reenroll",{method:"POST",body:"{}"}),
-    async()=>{ alert("Fingerprint re-enrolled for "+s.name+"."); await loadAll(); selectStudent(id); });
+    (res)=>{
+      const fid = res && res.fingerId!=null ? res.fingerId : null;
+      upsertStudent({
+        id:s.id, name:s.name, roll:s.roll, grade:s.class||s.grade, batch:s.batch, section:s.section,
+        parent:s.parent, phone:s.phone, address:s.address, photo:s.photo||"",
+        fingerId:fid, active:1
+      });
+      cacheSave();
+      loadAll();
+    });
 }
 async function deleteStudent(id){
   const s=Students.find(x=>x.id===id); if(!s) return;
@@ -1156,7 +1142,11 @@ function updateTabs(){
 document.getElementById("openAdminBtn").onclick=openAdmin;
 const _frontEnrollBtn=document.getElementById("openEnrollBtn"); if(_frontEnrollBtn) _frontEnrollBtn.onclick=openNewStudent;
 const _newToolbarBtn=document.getElementById("newStudentToolbarBtn"); if(_newToolbarBtn) _newToolbarBtn.onclick=openNewStudent;
-document.getElementById("adminClose").onclick=()=>{ adminLayer.classList.remove("open"); resumeSensorScan(); };
+document.getElementById("adminClose").onclick=()=>{
+  finishEnrollUi();
+  adminLayer.classList.remove("open");
+  resumeSensorScan();
+};
 adminNav.onclick=(e)=>{
   if(e.target.tagName!=="BUTTON") return;
   [...adminNav.children].forEach(b=>b.classList.remove("active")); e.target.classList.add("active");
@@ -1596,13 +1586,18 @@ detailScroll.addEventListener("click",(e)=>{
 document.addEventListener("keydown",(e)=>{
   if(e.key==="Escape"){
     if(enrollModal && enrollModal.classList.contains("open")){
-      _enrollAbort=true; if(_enrollPoll) clearTimeout(_enrollPoll);
-      closeModal(enrollModal); resumeSensorScan();
+      finishEnrollUi();
+      if(adminLayer && adminLayer.classList.contains("open")) return;
+      resumeSensorScan();
     }
     else if(holidayModal && holidayModal.classList.contains("open")) closeModal(holidayModal);
     else if(overrideModal && overrideModal.classList.contains("open")) closeModal(overrideModal);
     else if(correctionModal && correctionModal.classList.contains("open")) closeModal(correctionModal);
-    else if(adminLayer && adminLayer.classList.contains("open")){ adminLayer.classList.remove("open"); resumeSensorScan(); }
+    else if(adminLayer && adminLayer.classList.contains("open")){
+      finishEnrollUi();
+      adminLayer.classList.remove("open");
+      resumeSensorScan();
+    }
   }
 });
 // ---- init ----

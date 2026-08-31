@@ -14,24 +14,25 @@ Fingerprint terminal for school daily attendance. Student finger → GT-511C3 id
                                                         ↕
                                               [LocalStorage atl_* cache] ↔ [Admin UI]
 ```
-* UI shell: `ATL-Smart-Attendance-Production.html` (inline CSS+JS fallback). At serve `_serve_production()` `backend/app.py:439` replaces first `<script>` with `backend/ui_app.js` and injects `SCAN_BRIDGE_SCRIPT` before last `</body>` — HTML file untouched.
-* Active scan loop `backend/ui_app.js:334` `POST /api/scan {waitSec:2}` when Admin closed; bridge poller `backend/app.py:391` `GET /api/scan/last` 2s covers fallback/external scans. Both map `fingerId→fid "F-<n>"` → `window.handleRealScan(fid,{status,time,date,seq})`.
+* UI shell: `ATL-Smart-Attendance-Production.html` (CSS + markup). At serve `_serve_production()` replaces the HTML `<script>` with `backend/ui_app.js` and injects `SCAN_BRIDGE_SCRIPT` before `</body>`.
+* Active scan loop `POST /api/scan {waitSec:2}` when Admin and enroll modal are closed; bridge `GET /api/scan/last` every 2s as fallback. Both call `window.handleRealScan(fid,{status,time,date,seq,student})`. Enroll/re-enroll success `returnToFrontPage()` (close modal, close Admin, upsert student, resume scan).
 
 ## 3. Repository Structure
 ```
-ATL-Smart-Attendance-Production.html  # shell served at /  (~92 KB)
-AGENTS.md  API.md  PI_SETUP.md  README.md  ARCHITECTURE.md  # docs (PROJECT.md removed, see §16)
-assets/images/{admin,diagrams,students,ui}  # logo.svg planet.svg architecture.svg (photos data URLs)
-backend/{app.py, gt511c3.py, schema.sql, config.json, requirements.txt, ui_app.js, test_app.py}
-pi/{setup.sh, atl-attendance.service}  tools/{deploy.ps1, deploy.sh, dev-watch.ps1}
-Artifacts gitignored: __pycache__/ *.db *.log uploads/ .venv/ (.pre_restore.bak, attendance.db)
+ATL-Smart-Attendance-Production.html  # UI shell (CSS + markup)
+AGENTS.md  API.md  PI_SETUP.md  README.md  ARCHITECTURE.md
+assets/images/{admin,diagrams,students,ui}
+backend/{app.py, gt511c3.py, schema.sql, config.example.json, requirements.txt, ui_app.js, test_app.py}
+pi/{setup.sh, atl-attendance.service, README.md}
+tools/{deploy.ps1, deploy.sh, led_test.py}
+Gitignored: __pycache__/ *.db *.log uploads/ .venv/ backend/config.json
 ```
 
 ## 4. UI Rules (approved, light editorial)
-* Theme `bg #FCFBF7 panel #FFFFFF ink #0A0A0A ink-2 #6B6B6B ink-3 #A8A5A0 line #E9E6E0 paper #F6F4EF ok #2F5D34 danger #8A3A3A` + Inter/Newsreader/monospace. Terminal empty: centered `PLACE YOUR FINGER TO SCAN` 11px 0.22em + `Admin` bottom-middle. No frame/scan-line/countdown/clock/divider. Identity card overlays center.
+* Theme `bg #FCFBF7 panel #FFFFFF ink #0A0A0A ink-2 #6B6B6B ink-3 #A8A5A0 line #E9E6E0 paper #F6F4EF ok #2F5D34 danger #8A3A3A` + Inter/Newsreader/monospace. Terminal idle: centered `PLACE YOUR FINGER` 11px 0.22em + `Admin` bottom-middle. No frame/scan-line/countdown/clock/divider. Scan result is frameless photo + fields, then fade.
 * Admin 6 tabs: Students, Today, Reports, Calendar, Settings, Backup. No right-drawer, no dark palette, no `__SSR_DATA__`. New Enrollment is on the Students toolbar (not the terminal).
 * Data model DB-driven since 2026-08-29: fetch `/api/students?active=all /settings /attendance /audit /daily /kpis` on load +15s (skipped while the tab is hidden). LocalStorage `atl_*` is cache only and omits student photos. `DUMMY_MODE/SAMPLE_STUDENTS/simulateScan` removed.
-* Maintained UI source is `backend/ui_app.js`; HTML inline script is fallback stale when opened via `file://`. Do not edit HTML without approval.
+* Maintained UI source is `backend/ui_app.js`. The HTML file is the CSS/markup shell; its `<script>` is a splice point. Keep the current light-editorial layout.
 
 ## 5. Admin Requirements (current)
 * **Students:** search (name/roll/class/batch/phone/fid/section/parent), class/batch/status filters, new student form (photo ≤2MB) + 3-capture `POST /api/enroll`, detail card history 60, Edit (clear photo, active toggle), Re-enroll, Deactivate (`active 0 roll#d{id} free slot`), Re-activate, Print, CSV export/import (Batch/Section/Parent/Address, rate).
@@ -74,7 +75,7 @@ Artifacts gitignored: __pycache__/ *.db *.log uploads/ .venv/ (.pre_restore.bak,
 * **Config** `backend/config.json` hardware only `sensor/uart/baud/db/host/port/imagesDir` file-only, never via API whitelist.
 
 ## 11. Offline / Cache
-LocalStorage `atl_*` cache only `AGENTS.md`; API `cache:no-store`; HTML `file://` runs offline from cache but scan/enroll require backend. Images Pi `/var/lib/atl/images` mirrored `assets/images/students` dev.
+LocalStorage `atl_*` cache only; API `cache:no-store`. Open the app via the Flask server (`/`), not as a raw `file://` HTML file. Images on Pi: `/var/lib/atl/images`.
 
 ## 12. Fingerprint Workflow
 * LED always-on `keep_led_on=True` `app.py:357` `set_led(True)` at startup `app.py:2051`; `tools/led_test.py` diagnostic.
@@ -82,7 +83,7 @@ LocalStorage `atl_*` cache only `AGENTS.md`; API `cache:no-store`; HTML `file://
 * **Identify** `gt511c3.py:406`: `initialize→LED ON→wait_finger(timeout 1-30)→capture→Identify 5s → fid or UNKNOWN/NO_FINGER/UART_ERR` → `set_led(keep)`.
 
 ## 13. API Summary (see `API.md` for contracts)
-`/ /assets/<path> /api/health /api/settings GET POST whitelist /api/students GET POST /api/students/:id GET PATCH DELETE /api/students/:id/reenroll /api/backup /api/restore /api/export/csv?type= /api/import/csv /api/correction /api/enroll /api/sensor/progress /api/scan /api/scan/last /api/reconcile /api/attendance /api/daily /api/export /api/kpis?date&class&batch /api/reports?studentId /api/images* /api/notifications /api/audit`. 404 JSON for `/api/`, fallback HTML else.
+`/ /assets/<path> /api/health /api/settings GET POST whitelist /api/students GET POST /api/students/:id GET PATCH DELETE /api/students/:id/reenroll /api/backup /api/restore /api/export/csv?type= /api/import/csv /api/correction /api/enroll /api/sensor/progress /api/scan /api/scan/last /api/reconcile /api/attendance /api/daily /api/export /api/kpis?date&class&batch /api/reports?studentId /api/images* /api/notifications /api/audit`. 404 JSON for `/api/` and `/assets/`; other unknown paths serve the UI. The app does not statically serve the repo (no `/backend/config.json`).
 
 ## 14. DB Schema & Migration
 `schema.sql:1` WAL, FK ON, tables students/events/daily/notifications/audit/settings/images. Init `get_db()` creates schema if missing then `_migrate_db()` adds `address/batch/section/parent` plus indexes `events(date,studentId)`, `daily(date,studentId)`, `students(fingerId,roll)`. `get_settings()` migrates missing keys (classes/batches/classSchedules/batchSchedules etc). Additive only, preserves history.
@@ -96,23 +97,17 @@ LocalStorage `atl_*` cache only `AGENTS.md`; API `cache:no-store`; HTML `file://
 Target `lancer@192.168.1.8` Pi3B Rev1.2 Debian13, user `lancer` not `pi`, key `C:\Users\LaNcer\.ssh\id_ed25519` hostkey `SHA256:jmqvz4JHHhyxlTlHeTw8Y20fzyZ7RUAJhbhDg1HpYm0`. DB `/var/lib/atl/attendance.db` images `/var/lib/atl/images` config `/opt/atl-attendance/backend/config.json` venv `/opt/atl-attendance/venv`. Wiring VCC 3.3V pin1 never 5V GND pin6 RX GPIO14 pin8 TX GPIO15 pin10 `/dev/serial0 9600 enable_uart=1`. Service `pi/atl-attendance.service` `User=lancer Restart=always`.
 
 ## 17. Dev / Deploy / Testing
-* Local: `python backend/app.py` → `http://127.0.0.1:5000/` or `file://` HTML offline. Pi: `systemctl status atl-attendance` `journalctl -f`.
-* Deploy canonical `tools/deploy.ps1` (scp HTML+app.py/ui_app.js/gt511c3.py/schema.sql+assets+service) or `bash tools/deploy.sh` rsync excludes `.git/__pycache__/*.db/uploads/venv/config.json`. Never scp `attendance.db/config.json`.
-* Watch `tools/dev-watch.ps1` polls HTML/backend/*.py|sql/assets/pi 300ms debounce 700ms, SSE `127.0.0.1:35729/__dev_reload` injected only `?dev=1`.
-* Tests `backend/test_app.py` `python -m unittest backend.test_app -v` temp DB sim sensor — health, settings whitelist (`workingDays` string `"false"`), students (`class` alias, roll unique, re-activate restores roll, photo cap), scans (present/duplicate/real wait/no-finger/sensor fid/NOT_SCHEDULED seq), scan_last, audit, reconcile, calendar, holidays, class/batch schedules, kpi/report buckets, correction, CSV, indexes, GT-511C3 `is_press_finger` NACK, cache headers. Verify `verify_pi_scan.py` live Pi.
+* Local: `python backend/app.py` → `http://127.0.0.1:5000/`. Pi: `systemctl status atl-attendance` · `journalctl -u atl-attendance -f`.
+* Deploy: `tools/deploy.ps1` or `tools/deploy.sh`. Excludes `.git/__pycache__/*.db/uploads/venv/config.json`. Never deploy `attendance.db` or `config.json`. `deploy.sh` does **not** use `rsync --delete` (that would wipe the Pi `venv`).
+* Tests: `python -m unittest backend.test_app -v` (temp SQLite, sim sensor).
 
 ## 18. Deployment-Sensitive / Never Commit
 Artifacts never commit/deploy: `backend/__pycache__/ *.log *.db *.pre_restore.bak uploads/ .venv/ venv/ .env` `assets/images/students/*` `backend/config.json` (machine-specific). Deploy excludes them; template committed `backend/config.example.json`.
 
 ## 19. Dangerous Assumptions
-LocalStorage is truth; editing HTML inline instead of `ui_app.js`; `NOT_SCHEDULED`=absent; holiday single-day only; sensor always ready; config edit auto-applies; `file://` equals served page.
+LocalStorage is truth; editing the HTML splice stub instead of `ui_app.js`; `NOT_SCHEDULED` = absent; deploying `attendance.db` or `config.json`; 5V on the sensor.
 
-## 20. Compatibility-Only
-`SCAN_BRIDGE_SCRIPT` serve-time injection, `?dev=1` SSE reload, `window.handleRealScan` dual signature, `GET /api/sensor/progress` alias, `SIM` fallback for tests.
-
-## 21. History (replaces PROJECT.md)
-* 2026-08-29: DB-driven switch, bridge resolved (`fingerId→fid`), LED always-on, class/batch columns migrated, Significa dark retired, clutter scripts `tools/significa.ps1` removed.
-* 2026-08-30: terminal empty `PLACE YOUR FINGER`, `ui_app.js` active `POST /api/scan` when admin closed, per-class/batch schedules backend-persisted (not UI-only), calendar schedule-only, settings single source, Today NOT_SCHEDULED muted, Reports custom validated, Backup DB+CSV.
-* 2026-08-31: removed temporary PC `tools/dev-local.ps1`; sensor lift NACK `0x1012` is False; inserts use SQLite `lastrowid`; `/api/*` `no-store`; DB indexes; batched reconcile/kpis; exam days working in UI; Students New Enrollment toolbar; deploy `pkill` before start. `PROJECT.md` removed 2026-08-30 — history kept here to avoid duplication.
+## 20. Compatibility
+`SCAN_BRIDGE_SCRIPT` serve-time injection; `window.handleRealScan` accepts `{status,time,date,seq,student}`; `GET /api/sensor/progress` alias `/api/enroll/progress`; sim sensor for tests (`NEED_STUDENT_ID` unless `studentId` is sent).
 
 *Aligned 2026-08-31 with `backend/app.py` `backend/ui_app.js` `ATL-Smart-Attendance-Production.html`.*

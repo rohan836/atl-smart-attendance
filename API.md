@@ -2,14 +2,15 @@
 
 Base: `http://192.168.1.8:5000` (Pi) or `http://127.0.0.1:5000` (local). Server: `backend/app.py` (Flask 3.x).
 
-> UI is DB-driven: fetches SQLite via `/api/students /settings /attendance /audit /daily /kpis` and enrolls via `/api/enroll`. At serve, `backend/app.py:439` splices `backend/ui_app.js` into `ATL-Smart-Attendance-Production.html` (HTML file untouched) and injects poller `GET /api/scan/last` → `window.handleRealScan(fid,{status,time,date,seq})`.
+> UI is DB-driven: fetches SQLite via `/api/students /settings /attendance /audit /daily /kpis` and enrolls via `/api/enroll`. At serve, `backend/app.py` splices `backend/ui_app.js` into the HTML shell and injects poller `GET /api/scan/last` → `window.handleRealScan`.
 
 ## Pages / static
 | Route | Serves |
 |-------|--------|
-| `/` | `ATL-Smart-Attendance-Production.html` (with injected `ui_app.js` + bridge) `Cache-Control: no-store` (`/api/*` also `no-store`) |
+| `/` | HTML shell + spliced `ui_app.js` + scan bridge (`Cache-Control: no-store`; `/api/*` also `no-store`) |
 | `/assets/<path>` | Files under `assets/` |
-| Other non-`/api`, non-`/assets` | Main UI (404 fallback) |
+| Other non-`/api`, non-`/assets` | Same UI as `/` |
+| `/backend/*` | Not served as static files (config/db are not public) |
 
 ## Endpoints
 | Method | Path | Notes |
@@ -19,11 +20,11 @@ Base: `http://192.168.1.8:5000` (Pi) or `http://127.0.0.1:5000` (local). Server:
 | GET/POST | `/api/students` | GET `?q & ?class & ?active=all` + computed `attendance_rate` from `daily`. POST create validates `name(1-80), roll(1-20 unique lower), grade(1-40 required), batch≤40, section≤20, parent≤80, phone≤40 digits≥8, address≤200`; auto-creates class/batch in settings. |
 | GET | `/api/students/:id` | Single + `events` 500 + `daily` 500 + `stats {present,late,duplicate,unknown}`. |
 | PATCH | `/api/students/:id` | Whitelist `photo≤8000, phone, address, name, roll, grade, batch, section, parent, active`. Roll unique, grade auto-adds class. |
-| DELETE | `/api/studies/:id` | Deletes sensor template `GT511C3.delete_id` (sim OK, offline DB-free if `sensor:real` no HW) then `active=0, roll=roll#d{id}, fingerId=NULL` (keeps history). |
+| DELETE | `/api/students/:id` | Deletes sensor template `GT511C3.delete_id` (sim OK, offline DB-free if `sensor:real` no HW) then `active=0, roll=roll#d{id}, fingerId=NULL` (keeps history). |
 | POST | `/api/students/:id/reenroll` | Allocates new `fingerId` 1..199, `SENSOR_LOCK → GT511C3.enroll(newFid)` 3 captures, deletes old fid. |
 | POST | `/api/enroll` | Create + enroll: validates as `/api/students`, `SENSOR_LOCK → GT511C3.enroll(fid)` 3 lifts → insert student + audit `STUDENT_ENROLLED`. Long timeout ~180s. On `hardware_unusable` 503. Progress via `GET /api/sensor/progress`. |
 | GET | `/api/sensor/progress` alias `/api/enroll/progress` | `{mode,step,state,title,detail,timeout_sec,remain_sec,finger,raw}` live enroll/scan wait. |
-| POST | `/api/scan` | Real identify `POST {waitSec 1-30}` (UI uses 2) or legacy `POST {studentId}` sim. Returns `PRESENT/LATE` + `seq` on ok, or `reason DUPLICATE/NOT_SCHEDULED/NON_WORKING_DAY/UNKNOWN/NEED_STUDENT_ID/NO_FINGER/SENSOR_BUSY/SENSOR_DISCONNECT` + `seq` when event written. `NO_FINGER/SENSOR_BUSY/UART` create no event. `NOT_SCHEDULED` shown muted never absent. |
+| POST | `/api/scan` | Real identify `POST {waitSec 1-30}` (UI uses 2) or `POST {studentId}` (sim/tests). Returns `PRESENT/LATE` + `seq` on ok, or `reason DUPLICATE/NOT_SCHEDULED/NON_WORKING_DAY/UNKNOWN/NEED_STUDENT_ID/NO_FINGER/SENSOR_BUSY/SENSOR_DISCONNECT` + `seq` when event written. `NO_FINGER/SENSOR_BUSY/UART` create no event. `NOT_SCHEDULED` shown muted never absent. |
 | GET | `/api/scan/last` | Latest `events` excluding `RECONCILE`: `{seq=rowid, result, status, date, time, fingerId, student|null}` for bridge poller. |
 | POST | `/api/reconcile` | `POST {date}` marks `daily` `ABSENT` (scheduled + no daily) or `NOT_SCHEDULED` (not scheduled) after `lateCutoff`; today guarded `BEFORE_CUTOFF` if `now < lateCutoff`. Called by UI on `loadTodayAttendance`. |
 | GET | `/api/attendance` | `?date=YYYY-MM-DD` or all 2000 `events`. |

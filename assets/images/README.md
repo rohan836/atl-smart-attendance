@@ -1,17 +1,11 @@
-# Assets / Images
-
-All images live here, separated by purpose — not flat.
+# Images
 
 ```
 assets/images/
-  admin/     # editable via Code + UI Admin > Images (hero, logo, planet, banners)
-  students/  # uploaded student avatars (via Enrollment or Admin upload) — gitignored except .gitkeep
-  ui/        # icons, placeholders, fallback avatars
-  diagrams/  # wiring, architecture, workflow diagrams
+  admin/     logo.svg, planet.svg
+  diagrams/  architecture.svg
+  students/  student photos at runtime (gitignored except .gitkeep)
+  ui/        reserved
 ```
 
-**Via UI (live):** Settings → Branding. Upload hits `POST /api/images/upload`; gallery and logo assignments persist in SQLite via `POST /api/settings` / `PATCH /api/students/:id`. Production UI is `ATL-Smart-Attendance-Production.html`.
-
-**Via Code (permanent):** Drop files directly into the subfolders above and reference by path in `DEFAULT_ADMIN_IMAGES` or `state.settings`. Example: `assets/images/admin/planet.png`.
-
-**Pi runtime:** Files are deployed to `/var/lib/atl/images/` via `tools/deploy.ps1` / `tools/deploy.sh` and served statically by backend.
+On the Pi, student files are stored under `/var/lib/atl/images/` and served by the backend. Deploy copies `assets/` but never student photos from git.
