@@ -26,8 +26,9 @@ Fingerprint kiosk:
 | Safely modify code, add a feature | `docs/DEVELOPMENT.md` |
 | Test or verify (unit/hardware/production) | `docs/TESTING.md` |
 | Provision Pi, deploy, backup/restore/recover | `docs/OPERATIONS.md` |
+| Follow standard workflow | `docs/AGENT_WORKFLOW.md` |
 
-`API.md` is the endpoint contract. `README.md` is the short human entry point.
+`API.md` is the endpoint contract. `README.md` is the short human entry point. Workflow: `docs/AGENT_WORKFLOW.md`.
 
 ## Repo and source of truth
 
