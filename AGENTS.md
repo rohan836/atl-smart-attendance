@@ -2,6 +2,8 @@
 
 This file is the first source of rules for any coding agent. Read it before changing code. It points to the right doc for each task.
 
+Production baseline: `v1.0.0` (`c0fe411`). For new work, start from current `main`. Use `v1.0.0` when an exact known-good production baseline is required. Never modify historical release tags. See `docs/VERSIONS.md`.
+
 ## What this project is
 
 Fingerprint kiosk:
