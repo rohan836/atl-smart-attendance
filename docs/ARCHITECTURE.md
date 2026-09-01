@@ -7,12 +7,12 @@ The system is a kiosk: sensor → driver → server → database → UI shell. T
 UI layering:
 - `ATL-Smart-Attendance-Production.html` = shell/markup/CSS — edit for visual redesign
 - `backend/ui_app.js` = behavior/state/events/API — edit for behavior
-- `backend/app.py` = Flask API; serves HTML with `ui_app.js` injected
+- `backend/app.py` = Flask API (serves HTML with `ui_app.js` injected) + background reconciliation worker (`_reconcile_daemon`)
 - `backend/gt511c3.py` = driver (UART only)
-No working-tree backup HTML is kept — Git history and tag `v1.0.0` are the rollback mechanism.
+No working-tree backup HTML is kept — current production release is `v1.0.1` (`32e5ef7`); Git tag `v1.0.0` remains the historical rollback point.
 
 ```
-[GT-511C3 UART] ↔ [gt511c3.py] ↔ [app.py Flask :5000] ↔ [SQLite]
+[GT-511C3 UART] ↔ [gt511c3.py] ↔ [app.py Flask :5000 + ReconcileWorker] ↔ [SQLite]
                                          ↕
                         [HTML shell + spliced ui_app.js + scan bridge]
                                          ↕
@@ -33,4 +33,4 @@ Theme is light editorial: `bg #FCFBF7 panel #FFFFFF ink #0A0A0A ink-2 #6B6B6B in
 
 ## File map
 
-`ATL-Smart-Attendance-Production.html` UI shell, markup, CSS/layout (visual redesign here). `backend/ui_app.js` UI behavior/state/events/API. `backend/app.py` Flask API and serve logic (injects `ui_app.js` into HTML). `backend/gt511c3.py` fingerprint driver. `backend/schema.sql` schema and indexes. `backend/config.example.json` template. `pi/setup.sh` and `pi/atl-attendance.service` provisioning. `tools/deploy.ps1`/`deploy.sh` and `tools/led_test.py`. No working-tree backup HTML — use Git history / tag `v1.0.0` for rollback. See `API.md` for endpoint contracts and `DATA_MODEL.md` for tables and scheduling. See `OPERATIONS.md` for hardware, service, and deployment.
+`ATL-Smart-Attendance-Production.html` UI shell, markup, CSS/layout (visual redesign here). `backend/ui_app.js` UI behavior/state/events/API. `backend/app.py` Flask API and serve logic (injects `ui_app.js` into HTML) + reconciliation worker. `backend/gt511c3.py` fingerprint driver. `backend/schema.sql` schema and indexes. `backend/config.example.json` template. `pi/setup.sh` and `pi/atl-attendance.service` provisioning. `tools/deploy.ps1`/`deploy.sh` and `tools/led_test.py`. No working-tree backup HTML — current production release is `v1.0.1` (`32e5ef7`); tag `v1.0.0` remains the historical rollback point. See `API.md` for endpoint contracts and `DATA_MODEL.md` for tables and scheduling. See `OPERATIONS.md` for hardware, service, and deployment.
