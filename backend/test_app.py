@@ -6,7 +6,7 @@ Run from repo root:
 or
     python backend/test_app.py
 """
-import os, sys, json, tempfile, pathlib, unittest
+import os, sys, json, tempfile, pathlib, unittest, sqlite3
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -1806,6 +1806,92 @@ class ApiTest(unittest.TestCase):
         self.assertIn('openAdmin', ui)
         self.assertIn('pauseSensorScan', ui)
         self.assertIn('api("/api/audit"', ui)
+
+    def test_run_reconciliation_before_cutoff_rejected(self):
+        """When date is today and now < lateCutoff, run_reconciliation returns BEFORE_CUTOFF without DB mutations."""
+        today = atl.today_ist()
+        s = atl.get_settings()
+        s["lateCutoff"] = "23:59"
+        res = atl.run_reconciliation(date=today, s=s)
+        self.assertEqual(res.get("reason"), "BEFORE_CUTOFF")
+        self.assertEqual(res.get("marked"), 0)
+
+    def test_run_reconciliation_after_cutoff_marks_absent_and_idempotent(self):
+        """When date is past or after cutoff, marks scheduled missing students ABSENT, then repeated calls are idempotent."""
+        with atl.app.app_context():
+            db = atl.get_db()
+            with atl.DB_LOCK:
+                db.execute("INSERT INTO students(id, name, roll, grade, active) VALUES (9901, 'Test Absent', 'R9901', 'Grade 10-A', 1)")
+                db.commit()
+            past_date = "2026-08-11"
+            s = atl.get_settings()
+            res1 = atl.run_reconciliation(date=past_date, s=s, db=db)
+            self.assertGreaterEqual(res1.get("marked", 0), 1)
+
+            with atl.DB_LOCK:
+                row = db.execute("SELECT status FROM daily WHERE key=?", (f"{past_date}|9901",)).fetchone()
+                self.assertIsNotNone(row)
+                self.assertEqual(row[0], "ABSENT")
+
+            res2 = atl.run_reconciliation(date=past_date, s=s, db=db)
+            self.assertEqual(res2.get("marked"), 0)
+            self.assertEqual(res2.get("notScheduled"), 0)
+
+    def test_run_reconciliation_not_scheduled_never_absent(self):
+        """Unscheduled students receive NOT_SCHEDULED, never ABSENT."""
+        with atl.app.app_context():
+            db = atl.get_db()
+            with atl.DB_LOCK:
+                db.execute("INSERT INTO students(id, name, roll, grade, active) VALUES (9902, 'Test Sunday', 'R9902', 'Grade 10-A', 1)")
+                db.commit()
+            sunday_date = "2026-08-16" # Sunday
+            s = atl.get_settings()
+            s["workingDays"] = {"0": False, "1": True, "2": True, "3": True, "4": True, "5": True, "6": True}
+            res = atl.run_reconciliation(date=sunday_date, s=s, db=db)
+            self.assertEqual(res.get("marked"), 0)
+            self.assertGreaterEqual(res.get("notScheduled", 0), 1)
+            with atl.DB_LOCK:
+                row = db.execute("SELECT status FROM daily WHERE key=?", (f"{sunday_date}|9902",)).fetchone()
+                self.assertEqual(row[0], "NOT_SCHEDULED")
+
+    def test_reconcile_daemon_tick_resolution_and_restart_durability(self):
+        """Daemon tick evaluates SQLite state, reconciles missing students, and detects NOT_NEEDED once complete."""
+        with atl.app.app_context():
+            db = atl.get_db()
+            with atl.DB_LOCK:
+                db.execute("INSERT INTO students(id, name, roll, grade, active) VALUES (9903, 'Test Tick', 'R9903', 'Grade 10-A', 1)")
+                db.commit()
+            past_date = "2026-08-12"
+            s = atl.get_settings()
+
+            tick1 = atl._reconcile_tick(date=past_date, s=s, db=db)
+            self.assertEqual(tick1.get("status"), "RECONCILED")
+            self.assertGreaterEqual(tick1["result"]["marked"], 1)
+
+            tick2 = atl._reconcile_tick(date=past_date, s=s, db=db)
+            self.assertEqual(tick2.get("status"), "NOT_NEEDED")
+            self.assertEqual(tick2.get("unresolved"), 0)
+
+    def test_reconcile_daemon_dynamic_cutoff_boundary(self):
+        """Changing lateCutoff dynamically changes whether tick runs or skips before cutoff."""
+        today = atl.today_ist()
+        s = atl.get_settings()
+        s["lateCutoff"] = "23:59"
+        tick_future = atl._reconcile_tick(date=today, s=s)
+        self.assertEqual(tick_future.get("status"), "SKIPPED_BEFORE_CUTOFF")
+
+        s["lateCutoff"] = "00:01"
+        tick_past = atl._reconcile_tick(date=today, s=s)
+        self.assertIn(tick_past.get("status"), ("RECONCILED", "NOT_NEEDED"))
+
+    def test_reconcile_daemon_exception_resilience(self):
+        """_reconcile_tick catches exceptions safely and returns status ERROR without crashing."""
+        class BadDb:
+            def execute(self, *args):
+                raise sqlite3.OperationalError("Simulated DB lock error")
+        tick_err = atl._reconcile_tick(date="2026-08-12", db=BadDb())
+        self.assertEqual(tick_err.get("status"), "ERROR")
+        self.assertIn("Simulated DB lock error", tick_err.get("error", ""))
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -18,7 +18,7 @@ Re-enroll (`POST /api/students/:id/reenroll`) allocates a new ID, enrolls the ne
 
 ## Correction and reconciliation
 
-`POST /api/correction {date, studentId, status, reason(3-300)}` updates `daily` and writes a `CORRECTION` event plus `ATTENDANCE_CORRECTED` audit. `POST /api/reconcile {date}` runs after `lateCutoff`; for each active student without a `daily` row it writes `ABSENT 23:59:59` if scheduled or `NOT_SCHEDULED 00:00:00` if not. Today is guarded with `BEFORE_CUTOFF` when now is before `lateCutoff`. Today and Reports both reflect these writes.
+`POST /api/correction {date, studentId, status, reason(3-300)}` updates `daily` and writes a `CORRECTION` event plus `ATTENDANCE_CORRECTED` audit. Reconciliation runs autonomously in the background via the internal daemon `_reconcile_daemon()` in `app.py` (~every 60s); once current IST time reaches `lateCutoff`, it checks SQLite for unresolved active students and invokes `run_reconciliation(today_ist())`. For each active student without a `daily` row it writes `ABSENT 23:59:59` if scheduled or `NOT_SCHEDULED 00:00:00` if not, and records an `ABSENCE_RECONCILIATION` audit entry. Today is guarded with `BEFORE_CUTOFF` when now is before `lateCutoff`. Manual reconciliation via `POST /api/reconcile {date}` remains available for on-demand or historical date processing. Today and Reports both reflect these writes.
 
 ## Reports and export
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ATL Smart Attendance — Flask backend (GT-511C3 UART + SQLite). Offline-first."""
 import os, json, sqlite3, time, uuid, pathlib, datetime, re, threading, base64
-from flask import Flask, request, jsonify, send_from_directory, g, Response
+from flask import Flask, request, jsonify, send_from_directory, g, Response, has_app_context
 from flask_cors import CORS
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -195,6 +195,9 @@ def close_db(exc):
         except: pass
 
 def get_settings():
+    if not has_app_context():
+        with app.app_context():
+            return get_settings()
     try:
         db = get_db()
         row = db.execute("SELECT value FROM settings WHERE key='config'").fetchone()
@@ -2051,75 +2054,193 @@ def scan_last():
     except sqlite3.Error as e:
         return jsonify({"error": f"DB_FAIL {e}"}), 500
 
+def run_reconciliation(date=None, s=None, db=None):
+    """Authoritative reconciliation logic.
+    For the given date (default today_ist()), checks student schedules against daily records.
+    Marks scheduled missing students as ABSENT (time: 23:59:59, source: RECONCILE).
+    Marks unscheduled students as NOT_SCHEDULED (source: RECONCILE).
+    Guards today's execution with BEFORE_CUTOFF if current IST time < lateCutoff.
+    Executes under DB_LOCK and records an ABSENCE_RECONCILIATION audit entry if mutations occur.
+    """
+    if db is None and not has_app_context():
+        with app.app_context():
+            return run_reconciliation(date=date, s=s, db=get_db())
+
+    date = date or today_ist()
+    try:
+        datetime.date.fromisoformat(date)
+    except Exception:
+        return {"error": "bad date", "ok": False}
+    if s is None:
+        s = get_settings()
+    if date == today_ist():
+        tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+        now_t = datetime.datetime.now(tz).strftime("%H:%M:%S")
+        late = s.get("lateCutoff", "08:30")
+        if len(late) == 5:
+            late += ":00"
+        if now_t < late:
+            return {
+                "working": True,
+                "marked": 0,
+                "notScheduled": 0,
+                "reason": "BEFORE_CUTOFF",
+                "cutoff": late,
+                "now": now_t,
+            }
+    if db is None:
+        db = get_db()
+    with DB_LOCK:
+        rows = db.execute("SELECT * FROM students WHERE active=1").fetchall()
+        daily_map = {
+            r["studentId"]: r["status"]
+            for r in db.execute("SELECT studentId, status FROM daily WHERE date=?", (date,)).fetchall()
+        }
+        ns_existing = {
+            r[0]
+            for r in db.execute(
+                "SELECT studentId FROM events WHERE date=? AND status='NOT_SCHEDULED'",
+                (date,),
+            ).fetchall()
+        }
+        marked = 0
+        not_scheduled = 0
+        for r in rows:
+            stu = dict(r)
+            key = f"{date}|{r['id']}"
+            cur = daily_map.get(r["id"])
+            scheduled = is_student_scheduled(date, stu, s)
+            if not scheduled:
+                # never mark absent when not scheduled
+                if not cur or cur in ("ABSENT", None):
+                    ensure_daily(date, r["id"], db)
+                    if r["id"] not in ns_existing:
+                        db.execute(
+                            "UPDATE daily SET status='NOT_SCHEDULED', firstScan='--', lastScan='--' WHERE key=?",
+                            (key,),
+                        )
+                        db.execute(
+                            "INSERT INTO events(id, date, time, studentId, fingerId, result, status, source) VALUES (?,?,?,?,?,?,?,?)",
+                            (str(uuid.uuid4()), date, "00:00:00", r["id"], None, "NOT_SCHEDULED", "NOT_SCHEDULED", "RECONCILE"),
+                        )
+                        ns_existing.add(r["id"])
+                    else:
+                        db.execute("UPDATE daily SET status='NOT_SCHEDULED' WHERE key=?", (key,))
+                    not_scheduled += 1
+                continue
+            if not cur:
+                ensure_daily(date, r["id"], db)
+                db.execute("UPDATE daily SET status='ABSENT' WHERE key=?", (key,))
+                db.execute(
+                    "INSERT INTO events(id, date, time, studentId, fingerId, result, status, source) VALUES (?,?,?,?,?,?,?,?)",
+                    (str(uuid.uuid4()), date, "23:59:59", r["id"], None, "ABSENT", "ABSENT", "RECONCILE"),
+                )
+                db.execute(
+                    "INSERT INTO notifications VALUES (?,?,?,?,?,?)",
+                    (str(uuid.uuid4()), r["id"], now_ist(), "PENDING", f"Absent {date}", 0),
+                )
+                marked += 1
+        if marked or not_scheduled:
+            db.execute(
+                "INSERT INTO audit VALUES (?,?,?,?)",
+                (str(uuid.uuid4()), now_ist(), "ABSENCE_RECONCILIATION", f"{marked} absent {not_scheduled} not_scheduled {date}"),
+            )
+        db.commit()
+    any_scheduled = any(is_student_scheduled(date, dict(r), s) for r in rows) if rows else is_working_day(date, s)
+    return {
+        "working": bool(any_scheduled),
+        "marked": marked,
+        "notScheduled": not_scheduled,
+        "date": date,
+    }
+
+_reconcile_stop_event = threading.Event()
+_reconcile_thread = None
+
+def _reconcile_tick(date=None, s=None, db=None) -> dict:
+    """Evaluate and run reconciliation if due for date (defaults to today_ist()).
+    Checks durable SQLite state (active students without daily record for date).
+    """
+    if db is None and not has_app_context():
+        with app.app_context():
+            return _reconcile_tick(date=date, s=s, db=get_db())
+
+    try:
+        today = date or today_ist()
+        if s is None:
+            s = get_settings()
+        if today == today_ist():
+            tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+            now_t = datetime.datetime.now(tz).strftime("%H:%M:%S")
+            late = s.get("lateCutoff", "08:30")
+            if len(late) == 5:
+                late += ":00"
+            if now_t < late:
+                return {"status": "SKIPPED_BEFORE_CUTOFF", "cutoff": late, "now": now_t, "date": today}
+        if db is None:
+            db = get_db()
+        with DB_LOCK:
+            unresolved = db.execute(
+                "SELECT COUNT(*) FROM students WHERE active=1 AND id NOT IN (SELECT studentId FROM daily WHERE date=?)",
+                (today,)
+            ).fetchone()[0]
+        if unresolved == 0:
+            return {"status": "NOT_NEEDED", "unresolved": 0, "date": today}
+        res = run_reconciliation(date=today, s=s, db=db)
+        print(f"[RECONCILE] Auto-reconciled {today}: {res.get('marked', 0)} absent, {res.get('notScheduled', 0)} not scheduled")
+        return {"status": "RECONCILED", "result": res, "date": today}
+    except Exception as e:
+        print(f"[RECONCILE ERROR] {e}")
+        return {"status": "ERROR", "error": str(e), "date": date or today_ist()}
+
+def _reconcile_daemon():
+    """Background daemon loop running approximately once per minute."""
+    while not _reconcile_stop_event.is_set():
+        try:
+            with app.app_context():
+                _reconcile_tick()
+        except Exception as e:
+            print(f"[RECONCILE DAEMON EXCEPTION] {e}")
+        _reconcile_stop_event.wait(60)
+
+def start_reconcile_daemon():
+    global _reconcile_thread
+    if _reconcile_thread is None or not _reconcile_thread.is_alive():
+        _reconcile_stop_event.clear()
+        _reconcile_thread = threading.Thread(target=_reconcile_daemon, daemon=True, name="ReconcileWorker")
+        _reconcile_thread.start()
+        print("[ATL] Background attendance reconciliation worker active (interval: 60s)")
+
+def stop_reconcile_daemon(timeout=5):
+    global _reconcile_thread
+    _reconcile_stop_event.set()
+    if _reconcile_thread is not None and _reconcile_thread.is_alive():
+        _reconcile_thread.join(timeout=timeout)
+
+# Start background reconciliation daemon
+start_reconcile_daemon()
+
 @app.route("/api/reconcile", methods=["POST"])
 @require_admin
 def reconcile():
     try:
         j = request.get_json(silent=True) or {}
-    except:
+    except Exception:
         j = {}
     date = j.get("date") or today_ist()
-    # Bad date edge
     try:
         datetime.date.fromisoformat(date)
-    except:
-        return jsonify({"error":"bad date"}), 400
-    s = get_settings()
-    # Edge: only after late cutoff — if today and now < lateCutoff, not yet
-    if date == today_ist():
-        tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
-        now_t = datetime.datetime.now(tz).strftime("%H:%M:%S")
-        late = s.get("lateCutoff","08:30")
-        if len(late)==5: late+=":00"
-        if now_t < late:
-            return jsonify({"working": True, "marked": 0, "notScheduled": 0, "reason":"BEFORE_CUTOFF", "cutoff": late, "now": now_t})
+    except Exception:
+        return jsonify({"error": "bad date"}), 400
     try:
-        db = get_db()
-        with DB_LOCK:
-            rows = db.execute("SELECT * FROM students WHERE active=1").fetchall()
-            daily_map = {
-                r["studentId"]: r["status"]
-                for r in db.execute("SELECT studentId, status FROM daily WHERE date=?", (date,)).fetchall()
-            }
-            ns_existing = {
-                r[0]
-                for r in db.execute(
-                    "SELECT studentId FROM events WHERE date=? AND status='NOT_SCHEDULED'",
-                    (date,),
-                ).fetchall()
-            }
-            marked = 0
-            not_scheduled = 0
-            for r in rows:
-                stu = dict(r)
-                key = f"{date}|{r['id']}"
-                cur = daily_map.get(r["id"])
-                scheduled = is_student_scheduled(date, stu, s)
-                if not scheduled:
-                    # never mark absent when not scheduled
-                    if not cur or cur in ("ABSENT", None):
-                        ensure_daily(date, r["id"], db)
-                        if r["id"] not in ns_existing:
-                            db.execute("UPDATE daily SET status='NOT_SCHEDULED', firstScan='--', lastScan='--' WHERE key=?", (key,))
-                            db.execute("INSERT INTO events(id, date, time, studentId, fingerId, result, status, source) VALUES (?,?,?,?,?,?,?,?)", (str(uuid.uuid4()), date, "00:00:00", r["id"], None, "NOT_SCHEDULED", "NOT_SCHEDULED", "RECONCILE"))
-                            ns_existing.add(r["id"])
-                        else:
-                            db.execute("UPDATE daily SET status='NOT_SCHEDULED' WHERE key=?", (key,))
-                        not_scheduled += 1
-                    continue
-                if not cur:
-                    ensure_daily(date, r["id"], db)
-                    db.execute("UPDATE daily SET status='ABSENT' WHERE key=?", (key,))
-                    db.execute("INSERT INTO events(id, date, time, studentId, fingerId, result, status, source) VALUES (?,?,?,?,?,?,?,?)", (str(uuid.uuid4()), date, "23:59:59", r["id"], None, "ABSENT", "ABSENT", "RECONCILE"))
-                    db.execute("INSERT INTO notifications VALUES (?,?,?,?,?,?)", (str(uuid.uuid4()), r["id"], now_ist(), "PENDING", f"Absent {date}", 0))
-                    marked += 1
-            if marked or not_scheduled:
-                db.execute("INSERT INTO audit VALUES (?,?,?,?)", (str(uuid.uuid4()), now_ist(), "ABSENCE_RECONCILIATION", f"{marked} absent {not_scheduled} not_scheduled {date}"))
-            db.commit()
+        res = run_reconciliation(date=date)
+        if "error" in res:
+            return jsonify(res), 400
+        return jsonify(res)
     except sqlite3.Error as e:
-        return jsonify({"error":f"DB_FAIL {e}"}), 500
-    any_scheduled = any(is_student_scheduled(date, dict(r), s) for r in rows) if rows else is_working_day(date, s)
-    return jsonify({"working": bool(any_scheduled), "marked": marked, "notScheduled": not_scheduled, "date": date})
+        return jsonify({"error": f"DB_FAIL {e}"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/attendance")
 def attendance():

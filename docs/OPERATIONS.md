@@ -23,6 +23,14 @@ curl http://127.0.0.1:5000/api/health
 
 The service is `pi/atl-attendance.service`: `User=lancer`, `WorkingDirectory=/opt/atl-attendance`, `ExecStart=/opt/atl-attendance/venv/bin/python /opt/atl-attendance/backend/app.py`, `Restart=always`. Enable with `sudo systemctl enable --now atl-attendance`; inspect with `sudo systemctl status atl-attendance` and `journalctl -u atl-attendance -f`. Without sudo, `pkill -f "python.*app.py"` triggers the restart and `curl` the health endpoint.
 
+## Autonomous reconciliation
+
+Reconciliation runs automatically in the background via `_reconcile_daemon()` in `backend/app.py` (~every 60s). It dynamically reads `lateCutoff` from `settings` (default `08:30`). Once current IST time reaches `lateCutoff`, it queries SQLite for active students without a `daily` row for `today_ist()` (`SELECT COUNT(*) FROM students WHERE active=1 AND id NOT IN (SELECT studentId FROM daily WHERE date=?)`). If unresolved students exist, it executes `run_reconciliation()` under `DB_LOCK`, marks missing scheduled students as `ABSENT`, marks unscheduled students as `NOT_SCHEDULED`, and inserts an `ABSENCE_RECONCILIATION` audit entry.
+
+- **Reboot / missed-run resilience**: If the Pi is powered off at cutoff (e.g. 08:30) and booted later (e.g. 10:15), the daemon detects unresolved students on its initial post-boot tick and automatically reconciles today's attendance.
+- **Idempotence**: Existing `daily` and `events` rows are never overwritten; repeated evaluations produce zero duplicate records.
+- **Observability**: Verification is visible via `journalctl -u atl-attendance` (`[RECONCILE] Auto-reconciled YYYY-MM-DD: ...`) and the `audit` table. Manual API invocation (`POST /api/reconcile`) remains fully functional.
+
 ## Deployment
 
 Canonical deploys copy only code and assets:
