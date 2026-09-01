@@ -27,5 +27,12 @@
   "db": "backend/attendance.db",
   "imagesDir": "backend/uploads",
   "host": "0.0.0.0",
-  "port": 5000
+  "port": 5000,
+  "gdrive": {
+    "enabled": false,
+    "clientId": "YOUR_OAUTH_CLIENT_ID.apps.googleusercontent.com",
+    "clientSecret": "YOUR_OAUTH_CLIENT_SECRET",
+    "folderName": "ATL-Attendance-Backups",
+    "scheduleTime": "18:30"
+  }
 }

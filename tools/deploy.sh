@@ -16,13 +16,13 @@ if command -v rsync >/dev/null 2>&1; then
   rsync -avz -e "ssh -i $KEY -o StrictHostKeyChecking=accept-new" \
     --exclude '.git' --exclude '__pycache__' --exclude '*.db' --exclude 'uploads' \
     --exclude 'venv' --exclude '.venv' --exclude 'backend/venv' \
-    --exclude 'backend/config.json' --exclude '*.log' \
+    --exclude 'backend/config.json' --exclude '*.log' --exclude '*gdrive*.json' --exclude '*gdrive*.token' \
     --exclude '*.bak' --exclude '*.pre_restore*' --exclude '*.incoming' --exclude '*.backup.html' \
     ./ "$USER@$HOST:$REMOTE/"
 else
   echo "Using scp (rsync not found)..."
   scp -i "$KEY" ATL-Smart-Attendance-Production.html "$USER@$HOST:$REMOTE/"
-  scp -i "$KEY" -r ./backend/app.py ./backend/ui_app.js ./backend/gt511c3.py ./backend/schema.sql "$USER@$HOST:$REMOTE/backend/"
+  scp -i "$KEY" -r ./backend/app.py ./backend/gdrive_backup.py ./backend/ui_app.js ./backend/gt511c3.py ./backend/schema.sql "$USER@$HOST:$REMOTE/backend/"
   scp -i "$KEY" -r ./assets "$USER@$HOST:$REMOTE/"
   scp -i "$KEY" ./pi/atl-attendance.service "$USER@$HOST:/tmp/"
 fi

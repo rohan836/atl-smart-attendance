@@ -24,6 +24,7 @@ function Exec-Checked {
 # Copy code only — NEVER overwrite Pi SQLite DB (attendance.db) or config.json
 Exec-Checked { & scp -i $Key -o StrictHostKeyChecking=accept-new "$src\ATL-Smart-Attendance-Production.html" "${User}@${HostAddr}:${Remote}/" } "Copy HTML shell"
 Exec-Checked { & scp -i $Key -o StrictHostKeyChecking=accept-new "$src\backend\app.py" "${User}@${HostAddr}:${Remote}/backend/app.py" } "Copy app.py"
+Exec-Checked { & scp -i $Key -o StrictHostKeyChecking=accept-new "$src\backend\gdrive_backup.py" "${User}@${HostAddr}:${Remote}/backend/gdrive_backup.py" } "Copy gdrive_backup.py"
 Exec-Checked { & scp -i $Key -o StrictHostKeyChecking=accept-new "$src\backend\ui_app.js" "${User}@${HostAddr}:${Remote}/backend/ui_app.js" } "Copy ui_app.js"
 Exec-Checked { & scp -i $Key -o StrictHostKeyChecking=accept-new "$src\backend\gt511c3.py" "${User}@${HostAddr}:${Remote}/backend/gt511c3.py" } "Copy gt511c3.py"
 Exec-Checked { & scp -i $Key -o StrictHostKeyChecking=accept-new "$src\backend\schema.sql" "${User}@${HostAddr}:${Remote}/backend/schema.sql" } "Copy schema.sql"

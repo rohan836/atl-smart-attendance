@@ -19,3 +19,7 @@ venv/
 Thumbs.db
 # machine-specific Pi config — keep template, ignore live
 backend/config.json
+# Google Drive OAuth tokens and client credentials
+*gdrive*.json
+*gdrive*.token
+*.staging.db

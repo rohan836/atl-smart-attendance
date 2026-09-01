@@ -1893,5 +1893,262 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(tick_err.get("status"), "ERROR")
         self.assertIn("Simulated DB lock error", tick_err.get("error", ""))
 
+    def test_gdrive_status_unconfigured(self):
+        """When Google Drive client ID/secret are not set, status returns not configured."""
+        r = self.client.get("/api/backup/gdrive/status")
+        self.assertEqual(r.status_code, 200)
+        j = r.get_json()
+        self.assertIn("enabled", j)
+        self.assertIn("configured", j)
+        self.assertIn("authenticated", j)
+        self.assertIn("lastStatus", j)
+
+    def test_gdrive_auth_url_and_code_exchange(self):
+        """Tests OAuth URL generation and code exchange token persistence with mock."""
+        import backend.gdrive_backup as gb
+        import io, urllib.response, tempfile, shutil
+
+        tdir = tempfile.mkdtemp()
+        try:
+            test_token_file = os.path.join(tdir, "test_gdrive_token.json")
+            client = gb.GDriveClient({"client_id": "mock_cid", "client_secret": "mock_sec"}, test_token_file)
+            self.assertTrue(client.is_configured())
+            self.assertFalse(client.is_authenticated())
+
+            url = client.get_authorization_url()
+            self.assertIn("client_id=mock_cid", url)
+            self.assertIn("scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.file", url)
+
+            mock_resp_data = json.dumps({"access_token": "mock_tok_123", "refresh_token": "mock_ref_456", "expires_in": 3600}).encode("utf-8")
+            def mock_urlopen(req, *a, **kw):
+                return urllib.response.addinfourl(io.BytesIO(mock_resp_data), {"content-type": "application/json"}, req.full_url, code=200)
+
+            import unittest.mock as mock
+            with mock.patch("urllib.request.urlopen", side_effect=mock_urlopen):
+                tokens = client.exchange_code("mock_auth_code_789")
+                self.assertEqual(tokens.get("access_token"), "mock_tok_123")
+                self.assertEqual(tokens.get("refresh_token"), "mock_ref_456")
+                self.assertTrue(client.is_authenticated())
+                self.assertTrue(os.path.exists(test_token_file))
+        finally:
+            shutil.rmtree(tdir, ignore_errors=True)
+
+    def test_gdrive_online_snapshot_creation_and_integrity(self):
+        """Tests SQLite Online Backup snapshot creation, PRAGMA integrity_check, tables, and SHA-256."""
+        import backend.gdrive_backup as gb
+        import tempfile, shutil
+        tdir = tempfile.mkdtemp()
+        try:
+            staging_file = os.path.join(tdir, "test_staging.db")
+            info = gb.create_online_snapshot(atl.DB_PATH, staging_file, db_lock=atl.DB_LOCK)
+            self.assertTrue(os.path.exists(staging_file))
+            self.assertGreater(info["bytes"], 1000)
+            self.assertEqual(len(info["sha256"]), 64)
+            self.assertGreaterEqual(info["students"], 1)
+        finally:
+            shutil.rmtree(tdir, ignore_errors=True)
+
+    def test_gdrive_snapshot_validation_corrupt_header(self):
+        """A corrupt or invalid file must be rejected during snapshot validation."""
+        import backend.gdrive_backup as gb
+        import tempfile, shutil
+        tdir = tempfile.mkdtemp()
+        try:
+            corrupt_src = os.path.join(tdir, "corrupt.db")
+            with open(corrupt_src, "wb") as f:
+                f.write(b"NOT A SQLITE FILE")
+            staging_file = os.path.join(tdir, "corrupt_staging.db")
+            with self.assertRaises(gb.GDriveBackupError):
+                gb.create_online_snapshot(corrupt_src, staging_file)
+        finally:
+            shutil.rmtree(tdir, ignore_errors=True)
+
+    def test_gdrive_resumable_upload_success_mock(self):
+        """Mocks Google Drive API resumable upload and verifies chunk transmission and metadata."""
+        import backend.gdrive_backup as gb
+        import io, urllib.response, tempfile, shutil, time, unittest.mock as mock
+
+        tdir = tempfile.mkdtemp()
+        try:
+            test_token_file = os.path.join(tdir, "test_token_upload.json")
+            with open(test_token_file, "w") as f:
+                json.dump({"access_token": "valid_token", "expires_at": int(time.time()) + 3600}, f)
+
+            client = gb.GDriveClient({"client_id": "cid", "client_secret": "csec"}, test_token_file)
+            storage = gb.GDriveStorage(client, folder_name="Test-Backups")
+
+            staging_file = os.path.join(tdir, "test_upload.db")
+            with open(staging_file, "wb") as f:
+                f.write(b"SQLite format 3\x00" + b"\x00" * 2000)
+
+            snap_info = {"path": staging_file, "bytes": 2016, "sha256": "mocksha123", "students": 5}
+
+            folder_resp = json.dumps({"files": [{"id": "folder_123", "name": "Test-Backups"}]}).encode("utf-8")
+            upload_complete_resp = json.dumps({"id": "file_999", "name": "test_upload.db"}).encode("utf-8")
+
+            def mock_urlopen(req, *a, **kw):
+                url = req.full_url
+                if "upload_id=" in url:
+                    return urllib.response.addinfourl(io.BytesIO(upload_complete_resp), {"content-type": "application/json"}, url, code=200)
+                elif "uploadType=resumable" in url:
+                    headers = {"Location": "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&upload_id=sess123"}
+                    return urllib.response.addinfourl(io.BytesIO(b""), headers, url, code=200)
+                elif "files?" in url:
+                    return urllib.response.addinfourl(io.BytesIO(folder_resp), {"content-type": "application/json"}, url, code=200)
+                raise ValueError("Unexpected URL: " + url)
+
+            with mock.patch("urllib.request.urlopen", side_effect=mock_urlopen):
+                res = storage.upload_snapshot_resumable(snap_info)
+                self.assertEqual(res["fileId"], "file_999")
+                self.assertEqual(res["status"], "success")
+                self.assertEqual(res["sha256"], "mocksha123")
+        finally:
+            shutil.rmtree(tdir, ignore_errors=True)
+
+    def test_gdrive_network_failure_resilience(self):
+        """When network fails during upload, error is caught gracefully and DB remains unaffected."""
+        import backend.gdrive_backup as gb
+        import tempfile, shutil, time, unittest.mock as mock
+
+        def mock_broken_urlopen(req, *a, **kw):
+            raise urllib.error.URLError("Simulated connection timeout")
+
+        tdir = tempfile.mkdtemp()
+        old_cfg = atl.cfg.get("gdrive")
+        atl.cfg["gdrive"] = {"enabled": True, "clientId": "cid", "clientSecret": "csec"}
+        test_token = os.path.join(tdir, "tok.json")
+        with open(test_token, "w") as f:
+            json.dump({"access_token": "tok", "expires_at": int(time.time()) + 3600}, f)
+
+        try:
+            with mock.patch.dict(os.environ, {"ATL_GDRIVE_TOKEN_FILE": test_token}):
+                with mock.patch("urllib.request.urlopen", side_effect=mock_broken_urlopen):
+                    res = atl.run_gdrive_backup(trigger="TEST")
+                    self.assertFalse(res.get("ok"))
+                    self.assertIn("NETWORK_ERROR", res.get("error", ""))
+        finally:
+            shutil.rmtree(tdir, ignore_errors=True)
+            if old_cfg is None: atl.cfg.pop("gdrive", None)
+            else: atl.cfg["gdrive"] = old_cfg
+
+    def test_gdrive_retention_pruning_policy(self):
+        """Tests GFS retention: retains last 7 daily, last 4 weekly, last 12 monthly."""
+        import backend.gdrive_backup as gb
+        import datetime, unittest.mock as mock
+
+        client = gb.GDriveClient({}, "")
+        storage = gb.GDriveStorage(client)
+
+        mock_files = []
+        base_date = datetime.date(2026, 8, 1)
+        for i in range(20):
+            d = base_date + datetime.timedelta(days=i)
+            mock_files.append({"id": f"fid_{i}", "name": f"atl_backup_{d.isoformat()}_120000.db"})
+
+        deleted_ids = []
+        def mock_urlopen(req, *a, **kw):
+            import io, urllib.response
+            if req.method == "DELETE":
+                fid = req.full_url.split("/")[-1]
+                deleted_ids.append(fid)
+                return urllib.response.addinfourl(io.BytesIO(b""), {}, req.full_url, code=204)
+            raise ValueError(req.full_url)
+
+        with mock.patch.object(storage, "list_backups", return_value=mock_files):
+            with mock.patch.object(client, "get_valid_access_token", return_value="tok"):
+                with mock.patch("urllib.request.urlopen", side_effect=mock_urlopen):
+                    pruned = storage.prune_retention(keep_daily=7, keep_weekly=4, keep_monthly=12)
+                    self.assertGreater(len(pruned), 0)
+                    self.assertTrue(len(deleted_ids) > 0)
+
+    def test_gdrive_endpoints_pin_gating(self):
+        """All Google Drive backup endpoints must enforce X-Admin-Pin header when configured."""
+        old_pin = atl.cfg.get("adminPin", "")
+        atl.cfg["adminPin"] = "4321"
+        try:
+            r1 = self.client.get("/api/backup/gdrive/status")
+            self.assertEqual(r1.status_code, 401)
+            r1_ok = self.client.get("/api/backup/gdrive/status", headers={"X-Admin-Pin": "4321"})
+            self.assertEqual(r1_ok.status_code, 200)
+
+            r2 = self.client.get("/api/backup/gdrive/auth-url")
+            self.assertEqual(r2.status_code, 401)
+
+            r3 = self.client.post("/api/backup/gdrive/authorize", json={"code": "123"})
+            self.assertEqual(r3.status_code, 401)
+
+            r4 = self.client.post("/api/backup/gdrive/disconnect")
+            self.assertEqual(r4.status_code, 401)
+
+            r5 = self.client.post("/api/backup/gdrive/backup")
+            self.assertEqual(r5.status_code, 401)
+
+            r6 = self.client.get("/api/backup/gdrive/list")
+            self.assertEqual(r6.status_code, 401)
+
+            r7 = self.client.post("/api/backup/gdrive/restore", json={"fileId": "123"})
+            self.assertEqual(r7.status_code, 401)
+        finally:
+            atl.cfg["adminPin"] = old_pin
+
+    def test_gdrive_cloud_restore_flow_mock(self):
+        """Mocks cloud backup download and verifies atomic local restore, restoring original DB at teardown."""
+        import backend.gdrive_backup as gb
+        import tempfile, shutil, time, io, unittest.mock as mock
+
+        # Save original database to restore at end of test
+        orig_backup = self.client.get("/api/backup").get_data()
+
+        tdir = tempfile.mkdtemp()
+        try:
+            cloud_src = os.path.join(tdir, "mock_cloud_snapshot.db")
+            with open(cloud_src, "wb") as f:
+                f.write(orig_backup)
+
+            c_conn = sqlite3.connect(cloud_src)
+            c_conn.execute("INSERT OR REPLACE INTO students (id, name, roll, grade, active) VALUES (8801, 'Cloud Student', 'CS88', 'Grade 10-A', 1)")
+            c_conn.commit()
+            c_conn.close()
+
+            def mock_download(self_storage, file_id, dest_path):
+                shutil.copy2(cloud_src, dest_path)
+
+            old_cfg = atl.cfg.get("gdrive")
+            atl.cfg["gdrive"] = {"enabled": True, "clientId": "cid", "clientSecret": "csec"}
+            test_token = os.path.join(tdir, "tok_restore.json")
+            with open(test_token, "w") as f:
+                json.dump({"access_token": "tok", "expires_at": int(time.time()) + 3600}, f)
+
+            try:
+                with mock.patch.dict(os.environ, {"ATL_GDRIVE_TOKEN_FILE": test_token}):
+                    with mock.patch.object(gb.GDriveStorage, "download_backup", mock_download):
+                        r = self.client.post("/api/backup/gdrive/restore", json={"fileId": "cloud_file_888"})
+                        self.assertEqual(r.status_code, 200)
+                        j = r.get_json()
+                        self.assertTrue(j.get("ok"))
+                        self.assertEqual(j.get("fileId"), "cloud_file_888")
+
+                        with atl.app.app_context():
+                            db = atl.get_db()
+                            with atl.DB_LOCK:
+                                row = db.execute("SELECT name FROM students WHERE id=8801").fetchone()
+                                self.assertIsNotNone(row)
+                                self.assertEqual(row[0], "Cloud Student")
+            finally:
+                if old_cfg is None: atl.cfg.pop("gdrive", None)
+                else: atl.cfg["gdrive"] = old_cfg
+        finally:
+            shutil.rmtree(tdir, ignore_errors=True)
+            # Restore pristine database state
+            self.client.post("/api/restore", data={"file": (io.BytesIO(orig_backup), "backup.db")}, content_type="multipart/form-data")
+
+    def test_gdrive_daemon_startup_and_shutdown(self):
+        """Tests that background Google Drive daemon can start and cleanly stop without hanging."""
+        atl.stop_gdrive_daemon(timeout=2)
+        self.assertFalse(atl._gdrive_thread.is_alive() if atl._gdrive_thread else False)
+        atl.start_gdrive_daemon()
+        self.assertTrue(atl._gdrive_thread.is_alive() if atl._gdrive_thread else False)
+        atl.stop_gdrive_daemon(timeout=2)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

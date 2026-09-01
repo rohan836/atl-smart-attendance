@@ -1386,6 +1386,311 @@ def restore_db():
     except Exception as e:
         return jsonify({"error": f"FAIL {e}"}), 500
 
+# ---------------------------------------------------------------------------
+# Google Drive Backup Integration (OAuth 2.0 Resumable Backup)
+# ---------------------------------------------------------------------------
+def _gdrive_config():
+    g_cfg = cfg.get("gdrive") if isinstance(cfg.get("gdrive"), dict) else {}
+    client_id = os.environ.get("ATL_GDRIVE_CLIENT_ID") or g_cfg.get("clientId", "")
+    client_secret = os.environ.get("ATL_GDRIVE_CLIENT_SECRET") or g_cfg.get("clientSecret", "")
+    token_file = os.environ.get("ATL_GDRIVE_TOKEN_FILE") or g_cfg.get("tokenFile", "")
+    if not token_file:
+        if os.name == "nt":
+            token_file = str(ROOT / "backend" / "gdrive_token.json")
+        else:
+            token_file = "/var/lib/atl/gdrive_token.json"
+    folder_name = g_cfg.get("folderName") or "ATL-Attendance-Backups"
+    schedule_time = g_cfg.get("scheduleTime") or "18:30"
+    enabled = g_cfg.get("enabled", True) if "enabled" in g_cfg else True
+    return {
+        "enabled": bool(enabled),
+        "client_id": str(client_id).strip(),
+        "client_secret": str(client_secret).strip(),
+        "token_file": token_file,
+        "folder_name": folder_name,
+        "schedule_time": schedule_time,
+    }
+
+_GDRIVE_STATE = {
+    "last_backup_time": None,
+    "last_backup_name": None,
+    "last_status": "IDLE",
+    "last_error": None,
+    "in_progress": False,
+}
+_gdrive_stop_event = threading.Event()
+_gdrive_thread = None
+
+def run_gdrive_backup(trigger="AUTO"):
+    import backend.gdrive_backup as gb
+    gc = _gdrive_config()
+    if not gc["enabled"]:
+        return {"ok": False, "error": "Google Drive backup is disabled in configuration"}
+    if not gc["client_id"] or not gc["client_secret"]:
+        return {"ok": False, "error": "Google Drive OAuth Client ID / Secret not configured"}
+
+    client = gb.GDriveClient(gc, gc["token_file"])
+    if not client.is_authenticated():
+        _GDRIVE_STATE["last_status"] = "AUTH_REQUIRED"
+        _GDRIVE_STATE["last_error"] = "Account authorization required"
+        return {"ok": False, "error": "Google Drive not authorized. Please authenticate."}
+
+    if _GDRIVE_STATE["in_progress"]:
+        return {"ok": False, "error": "Backup already in progress"}
+
+    _GDRIVE_STATE["in_progress"] = True
+    _GDRIVE_STATE["last_status"] = "IN_PROGRESS"
+
+    staging_dir = "/tmp" if os.name != "nt" else os.environ.get("TEMP", str(ROOT / "backend"))
+    staging_name = f"atl_backup_{today_ist()}_{now_ist().replace(':','')}.staging.db"
+    staging_path = os.path.join(staging_dir, staging_name)
+
+    try:
+        snap_info = gb.create_online_snapshot(DB_PATH, staging_path, db_lock=DB_LOCK)
+        storage = gb.GDriveStorage(client, folder_name=gc["folder_name"])
+        upload_res = storage.upload_snapshot_resumable(snap_info)
+        pruned = storage.prune_retention()
+
+        now_str = now_ist()
+        _GDRIVE_STATE["last_backup_time"] = f"{today_ist()} {now_str}"
+        _GDRIVE_STATE["last_backup_name"] = upload_res.get("name")
+        _GDRIVE_STATE["last_status"] = "SUCCESS"
+        _GDRIVE_STATE["last_error"] = None
+
+        try:
+            db = get_db()
+            with DB_LOCK:
+                db.execute(
+                    "INSERT INTO audit (id, at, action, details) VALUES (?, ?, ?, ?)",
+                    (str(uuid.uuid4()), f"{today_ist()} {now_str}", "GDRIVE_BACKUP",
+                     f"Uploaded {upload_res.get('name')} ({upload_res.get('size')} bytes, sha256:{upload_res.get('sha256')[:12]}..., trigger:{trigger})")
+                )
+                db.commit()
+        except Exception:
+            pass
+
+        return {
+            "ok": True,
+            "fileId": upload_res.get("fileId"),
+            "name": upload_res.get("name"),
+            "size": upload_res.get("size"),
+            "sha256": upload_res.get("sha256"),
+            "pruned": pruned
+        }
+    except gb.GDriveAuthError as e:
+        _GDRIVE_STATE["last_status"] = "AUTH_REQUIRED"
+        _GDRIVE_STATE["last_error"] = str(e)
+        return {"ok": False, "error": f"AUTH_ERROR: {e}"}
+    except gb.GDriveNetworkError as e:
+        _GDRIVE_STATE["last_status"] = "NETWORK_ERROR"
+        _GDRIVE_STATE["last_error"] = str(e)
+        return {"ok": False, "error": f"NETWORK_ERROR: {e}"}
+    except Exception as e:
+        _GDRIVE_STATE["last_status"] = "ERROR"
+        _GDRIVE_STATE["last_error"] = str(e)
+        return {"ok": False, "error": f"FAIL: {e}"}
+    finally:
+        _GDRIVE_STATE["in_progress"] = False
+        if os.path.exists(staging_path):
+            try: os.remove(staging_path)
+            except Exception: pass
+
+@app.route("/api/backup/gdrive/status", methods=["GET"])
+@require_admin
+def gdrive_status():
+    import backend.gdrive_backup as gb
+    gc = _gdrive_config()
+    client = gb.GDriveClient(gc, gc["token_file"])
+    is_conf = client.is_configured()
+    is_auth = client.is_authenticated()
+    status_label = _GDRIVE_STATE["last_status"]
+    if not gc["enabled"]:
+        status_label = "DISABLED"
+    elif not is_conf:
+        status_label = "NOT_CONFIGURED"
+    elif not is_auth:
+        status_label = "AUTH_REQUIRED"
+
+    return jsonify({
+        "enabled": gc["enabled"],
+        "configured": is_conf,
+        "authenticated": is_auth,
+        "lastBackup": _GDRIVE_STATE["last_backup_time"],
+        "lastBackupName": _GDRIVE_STATE["last_backup_name"],
+        "lastStatus": status_label,
+        "lastError": _GDRIVE_STATE["last_error"],
+        "inProgress": _GDRIVE_STATE["in_progress"],
+        "folderName": gc["folder_name"],
+        "scheduleTime": gc["schedule_time"],
+    })
+
+@app.route("/api/backup/gdrive/auth-url", methods=["GET"])
+@require_admin
+def gdrive_auth_url():
+    import backend.gdrive_backup as gb
+    gc = _gdrive_config()
+    client = gb.GDriveClient(gc, gc["token_file"])
+    try:
+        url = client.get_authorization_url()
+        return jsonify({"authUrl": url})
+    except gb.GDriveAuthError as e:
+        return jsonify({"error": str(e)}), 400
+
+@app.route("/api/backup/gdrive/authorize", methods=["POST"])
+@require_admin
+def gdrive_authorize():
+    j = request.get_json(silent=True) or {}
+    code = j.get("code", "").strip()
+    if not code:
+        return jsonify({"error": "code required"}), 400
+    import backend.gdrive_backup as gb
+    gc = _gdrive_config()
+    client = gb.GDriveClient(gc, gc["token_file"])
+    try:
+        client.exchange_code(code)
+        _GDRIVE_STATE["last_status"] = "IDLE"
+        _GDRIVE_STATE["last_error"] = None
+        return jsonify({"ok": True})
+    except (gb.GDriveAuthError, gb.GDriveNetworkError) as e:
+        return jsonify({"error": str(e)}), 400
+
+@app.route("/api/backup/gdrive/disconnect", methods=["POST"])
+@require_admin
+def gdrive_disconnect():
+    import backend.gdrive_backup as gb
+    gc = _gdrive_config()
+    client = gb.GDriveClient(gc, gc["token_file"])
+    client.disconnect()
+    _GDRIVE_STATE["last_status"] = "AUTH_REQUIRED"
+    _GDRIVE_STATE["last_error"] = None
+    return jsonify({"ok": True})
+
+@app.route("/api/backup/gdrive/backup", methods=["POST"])
+@require_admin
+def gdrive_manual_backup():
+    res = run_gdrive_backup(trigger="MANUAL")
+    if res.get("ok"):
+        return jsonify(res)
+    status_code = 401 if "AUTH" in str(res.get("error")) else 500
+    return jsonify(res), status_code
+
+@app.route("/api/backup/gdrive/list", methods=["GET"])
+@require_admin
+def gdrive_list():
+    import backend.gdrive_backup as gb
+    gc = _gdrive_config()
+    client = gb.GDriveClient(gc, gc["token_file"])
+    if not client.is_authenticated():
+        return jsonify({"error": "Google Drive not authenticated"}), 401
+    try:
+        storage = gb.GDriveStorage(client, folder_name=gc["folder_name"])
+        files = storage.list_backups()
+        return jsonify({"files": files})
+    except (gb.GDriveAuthError, gb.GDriveNetworkError) as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/backup/gdrive/restore", methods=["POST"])
+@require_admin
+def gdrive_restore():
+    try:
+        j = request.get_json(silent=True) or {}
+        file_id = j.get("fileId")
+        if not file_id:
+            return jsonify({"error": "fileId required"}), 400
+
+        import backend.gdrive_backup as gb
+        gc = _gdrive_config()
+        client = gb.GDriveClient(gc, gc["token_file"])
+        if not client.is_authenticated():
+            return jsonify({"error": "Google Drive not authenticated"}), 401
+
+        storage = gb.GDriveStorage(client, folder_name=gc["folder_name"])
+        incoming = DB_PATH + ".incoming"
+        os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
+        storage.download_backup(file_id, incoming)
+
+        with open(incoming, "rb") as f:
+            header = f.read(16)
+            if not header.startswith(b"SQLite format 3\x00"):
+                if os.path.exists(incoming):
+                    try: os.remove(incoming)
+                    except: pass
+                return jsonify({"error": "invalid SQLite file from cloud"}), 400
+
+        test = sqlite3.connect(incoming)
+        row = test.execute("PRAGMA integrity_check").fetchone()
+        if not row or row[0] != "ok":
+            test.close()
+            if os.path.exists(incoming):
+                try: os.remove(incoming)
+                except: pass
+            return jsonify({"error": "integrity check failed on cloud backup"}), 400
+        names = {r[0] for r in test.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        required = {"students", "events", "daily", "settings"}
+        if not required.issubset(names):
+            test.close()
+            if os.path.exists(incoming):
+                try: os.remove(incoming)
+                except: pass
+            return jsonify({"error": "cloud backup missing required tables"}), 400
+        test.close()
+
+        if not SENSOR_LOCK.acquire(timeout=30):
+            try: os.remove(incoming)
+            except: pass
+            return jsonify({"error": "sensor busy, try again"}), 503
+        if not DB_LOCK.acquire(timeout=30):
+            SENSOR_LOCK.release()
+            try: os.remove(incoming)
+            except: pass
+            return jsonify({"error": "database busy, try again"}), 503
+
+        try:
+            db = g.pop("db", None)
+            if db:
+                try: db.close()
+                except: pass
+            import shutil
+            if os.path.exists(DB_PATH):
+                if os.path.exists(DB_PATH + ".pre_restore.bak"):
+                    try: shutil.copy2(DB_PATH + ".pre_restore.bak", DB_PATH + ".pre_restore.bak.1")
+                    except: pass
+                shutil.copy2(DB_PATH, DB_PATH + ".pre_restore.bak")
+
+            try:
+                os.replace(incoming, DB_PATH)
+            except PermissionError:
+                import gc, time
+                try:
+                    gc.collect()
+                    time.sleep(0.08)
+                except: pass
+                try:
+                    os.replace(incoming, DB_PATH)
+                except PermissionError:
+                    shutil.copy2(incoming, DB_PATH)
+                    try: os.remove(incoming)
+                    except: pass
+
+            restored_size = os.path.getsize(DB_PATH)
+            try:
+                rec_db = get_db()
+                rec_db.execute(
+                    "INSERT INTO audit (id, at, action, details) VALUES (?, ?, ?, ?)",
+                    (str(uuid.uuid4()), f"{today_ist()} {now_ist()}", "GDRIVE_RESTORE", f"Restored cloud fileId: {file_id}, size: {restored_size}")
+                )
+                rec_db.commit()
+            except: pass
+
+            return jsonify({"ok": True, "restored": restored_size, "fileId": file_id})
+        finally:
+            try: DB_LOCK.release()
+            except: pass
+            try: SENSOR_LOCK.release()
+            except: pass
+    except Exception as e:
+        return jsonify({"error": f"FAIL {e}"}), 500
+
 @app.route("/api/export/csv")
 @require_admin
 def export_csv():
@@ -2219,6 +2524,45 @@ def stop_reconcile_daemon(timeout=5):
 
 # Start background reconciliation daemon
 start_reconcile_daemon()
+
+def _gdrive_backup_daemon():
+    """Background daemon loop checking if daily Google Drive backup should run."""
+    while not _gdrive_stop_event.is_set():
+        try:
+            gc = _gdrive_config()
+            if gc["enabled"] and gc["client_id"] and gc["client_secret"]:
+                today = today_ist()
+                now_t = now_ist()[:5]
+                sched_t = gc.get("schedule_time", "18:30")
+                already_done = bool(_GDRIVE_STATE["last_backup_time"] and _GDRIVE_STATE["last_backup_time"].startswith(today) and _GDRIVE_STATE["last_status"] == "SUCCESS")
+                if not already_done and now_t >= sched_t and not _GDRIVE_STATE["in_progress"]:
+                    with app.app_context():
+                        print(f"[GDRIVE] Starting scheduled daily backup for {today}...")
+                        res = run_gdrive_backup(trigger="SCHEDULED")
+                        if res.get("ok"):
+                            print(f"[GDRIVE] Backup completed successfully: {res.get('name')}")
+                        else:
+                            print(f"[GDRIVE ERROR] Backup failed: {res.get('error')}")
+        except Exception as e:
+            print(f"[GDRIVE DAEMON EXCEPTION] {e}")
+        _gdrive_stop_event.wait(60)
+
+def start_gdrive_daemon():
+    global _gdrive_thread
+    if _gdrive_thread is None or not _gdrive_thread.is_alive():
+        _gdrive_stop_event.clear()
+        _gdrive_thread = threading.Thread(target=_gdrive_backup_daemon, daemon=True, name="GDriveBackupWorker")
+        _gdrive_thread.start()
+        print("[ATL] Background Google Drive backup worker active (interval: 60s)")
+
+def stop_gdrive_daemon(timeout=5):
+    global _gdrive_thread
+    _gdrive_stop_event.set()
+    if _gdrive_thread is not None and _gdrive_thread.is_alive():
+        _gdrive_thread.join(timeout=timeout)
+
+# Start background Google Drive backup daemon
+start_gdrive_daemon()
 
 @app.route("/api/reconcile", methods=["POST"])
 @require_admin

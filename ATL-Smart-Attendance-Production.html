@@ -305,6 +305,41 @@ tr:hover td{background:var(--paper)}
               <div id="backupStatus" style="margin-top:12px;font-size:11px;color:var(--ink-2)"></div>
               <div style="margin-top:18px"><div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;font-weight:600;margin-bottom:8px">What gets backed up</div><div style="font-size:11px;line-height:1.6">Students, Attendance, Calendar (global weekly schedule plus per-class and per-batch schedules, holidays, overrides), School settings, Classes, Fingerprint mappings, Audit history. Per-class and per-batch schedules are stored in the database and included in this backup.</div></div>
             </div>
+            <div class="detail-card" style="flex:1 1 360px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:600">Cloud backup — Google Drive</div>
+                <span id="gdriveBadge" class="pill" style="font-size:10px">Checking…</span>
+              </div>
+              <div style="font-size:11px;line-height:1.6;color:var(--ink-2);margin-bottom:12px">
+                Automated offsite backup to your personal Google Drive (<code style="font-size:10px">ATL-Attendance-Backups</code> folder). Uses OAuth 2.0 with least-privilege <code style="font-size:10px">drive.file</code> scope and resumable chunked upload.
+              </div>
+              <div id="gdriveAuthBox" style="display:none;margin-bottom:12px">
+                <div style="font-size:11px;margin-bottom:6px">1. Authorize access in your Google account:</div>
+                <div style="display:flex;gap:8px;margin-bottom:8px">
+                  <a id="gdriveAuthLink" href="#" target="_blank" class="btn primary">Open Google Login</a>
+                </div>
+                <div style="font-size:11px;margin-bottom:4px">2. Paste authorization code here:</div>
+                <div style="display:flex;gap:8px">
+                  <input type="text" id="gdriveAuthCodeInput" class="input" placeholder="Paste Google auth code" style="flex:1">
+                  <button class="btn" id="gdriveConnectBtn">Connect</button>
+                </div>
+              </div>
+              <div id="gdriveActionBox" style="display:none">
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+                  <button class="btn primary" id="gdriveBackupNowBtn">Backup to Drive now</button>
+                  <button class="btn" id="gdriveRefreshListBtn">Refresh cloud list</button>
+                  <button class="btn" id="gdriveDisconnectBtn" style="color:var(--danger)">Disconnect</button>
+                </div>
+                <div id="gdriveStatusMsg" style="font-size:11px;color:var(--ink-2);margin-bottom:10px"></div>
+                <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;font-weight:600;margin-bottom:6px">Available cloud snapshots</div>
+                <div class="table-wrap" style="max-height:160px;overflow-y:auto">
+                  <table>
+                    <thead><tr><th>Date / Name</th><th>Size</th><th>Action</th></tr></thead>
+                    <tbody id="gdriveFilesBody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
             <div class="detail-card" style="flex:2 1 480px">
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:600">Audit history — attendance is administrative record</div><div style="display:flex;gap:8px"><button class="btn" id="auditExportBtn">Export CSV</button><button class="btn" id="auditClearBtn" title="Managed on backend" disabled style="opacity:0.5">Clear audit</button></div></div>
               <div class="table-wrap"><div class="table-scroll large"><table><thead><tr><th>Time</th><th>Action</th><th>Details</th><th>By</th></tr></thead><tbody id="auditBody"></tbody></table></div></div>

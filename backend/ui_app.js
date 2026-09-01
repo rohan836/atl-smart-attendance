@@ -1219,7 +1219,7 @@ function updateTabs(){
   if(currentTab==="reports") renderReports();
   if(currentTab==="calendar"){ renderHolidays(); renderOverrides(); renderCalendarMonth(); }
   if(currentTab==="settings") renderClasses();
-  if(currentTab==="backup") renderAudit();
+  if(currentTab==="backup"){ renderAudit(); loadGDriveStatus(); }
 }
 document.getElementById("openAdminBtn").onclick=openAdmin;
 const _frontEnrollBtn=document.getElementById("openEnrollBtn"); if(_frontEnrollBtn) _frontEnrollBtn.onclick=openNewStudent;
@@ -1566,6 +1566,127 @@ if($("auditExportBtn")) $("auditExportBtn").onclick=()=>{
   exportCSV(rows,"audit_"+todayISO()+".csv");
 };
 $("auditClearBtn").onclick=()=>alert("Clear audit is managed on the backend.");
+
+// Google Drive Cloud Backup
+async function loadGDriveStatus(){
+  if(!$("gdriveBadge")) return;
+  try{
+    const st = await api("/api/backup/gdrive/status");
+    const badge = $("gdriveBadge");
+    const authBox = $("gdriveAuthBox");
+    const actionBox = $("gdriveActionBox");
+    const msg = $("gdriveStatusMsg");
+    if(!st.enabled){
+      badge.textContent="Disabled"; badge.className="pill";
+      if(authBox) authBox.style.display="none";
+      if(actionBox) actionBox.style.display="none";
+    }else if(!st.configured){
+      badge.textContent="Not configured"; badge.className="pill";
+      if(authBox) authBox.style.display="none";
+      if(actionBox) actionBox.style.display="none";
+    }else if(!st.authenticated){
+      badge.textContent="Auth required"; badge.className="pill danger";
+      if(authBox) authBox.style.display="block";
+      if(actionBox) actionBox.style.display="none";
+      try{
+        const u = await api("/api/backup/gdrive/auth-url");
+        if(u.authUrl && $("gdriveAuthLink")) $("gdriveAuthLink").href=u.authUrl;
+      }catch(_u){}
+    }else{
+      badge.textContent=st.inProgress?"Uploading…":(st.lastStatus==="SUCCESS"?"Connected":"Ready");
+      badge.className=st.lastStatus==="SUCCESS"?"pill ok":"pill";
+      if(authBox) authBox.style.display="none";
+      if(actionBox) actionBox.style.display="block";
+      let info = st.lastBackup ? `Last backup: ${st.lastBackup} (${st.lastBackupName||""})` : "No backups created yet.";
+      if(st.lastError) info += ` | Error: ${st.lastError}`;
+      if(msg) msg.textContent=info;
+      loadGDriveList();
+    }
+  }catch(err){
+    if($("gdriveBadge")) { $("gdriveBadge").textContent="Offline"; $("gdriveBadge").className="pill"; }
+  }
+}
+
+async function loadGDriveList(){
+  const tbody = $("gdriveFilesBody");
+  if(!tbody) return;
+  try{
+    const res = await api("/api/backup/gdrive/list");
+    const files = (res && res.files) || [];
+    if(!files.length){
+      tbody.innerHTML='<tr><td colspan="3" style="text-align:center;color:var(--ink-3);padding:8px">No cloud snapshots found</td></tr>';
+      return;
+    }
+    tbody.innerHTML = files.map(f=>{
+      const sz = f.size ? `${(f.size/1024).toFixed(1)} KB` : "";
+      return `<tr>
+        <td style="font-size:11px">${esc(f.name)}</td>
+        <td style="font-size:11px;color:var(--ink-2)">${sz}</td>
+        <td><button class="btn" style="padding:2px 8px;font-size:10px" data-gdrive-restore="${esc(f.id)}" data-gdrive-name="${esc(f.name)}">Restore</button></td>
+      </tr>`;
+    }).join("");
+  }catch(e){
+    tbody.innerHTML=`<tr><td colspan="3" style="color:var(--danger);padding:8px">Failed to list: ${esc(e.message||"error")}</td></tr>`;
+  }
+}
+
+if($("gdriveConnectBtn")) $("gdriveConnectBtn").onclick=async()=>{
+  const code = ($("gdriveAuthCodeInput").value||"").trim();
+  if(!code) return alert("Please enter the authorization code");
+  try{
+    $("gdriveConnectBtn").disabled=true; $("gdriveConnectBtn").textContent="Connecting…";
+    await api("/api/backup/gdrive/authorize", {method:"POST", body:JSON.stringify({code})});
+    $("gdriveAuthCodeInput").value="";
+    alert("Connected to Google Drive successfully.");
+    await loadGDriveStatus();
+  }catch(e){
+    alert("Authorization failed: "+(e.message||(e.body&&e.body.error)||"error"));
+  }finally{
+    $("gdriveConnectBtn").disabled=false; $("gdriveConnectBtn").textContent="Connect";
+  }
+};
+
+if($("gdriveBackupNowBtn")) $("gdriveBackupNowBtn").onclick=async()=>{
+  const btn = $("gdriveBackupNowBtn");
+  try{
+    btn.disabled=true; btn.textContent="Backing up…";
+    const res = await api("/api/backup/gdrive/backup", {method:"POST"});
+    alert("Backup uploaded successfully: "+res.name);
+    await loadGDriveStatus();
+  }catch(e){
+    alert("Backup failed: "+(e.message||(e.body&&e.body.error)||"error"));
+  }finally{
+    btn.disabled=false; btn.textContent="Backup to Drive now";
+  }
+};
+
+if($("gdriveRefreshListBtn")) $("gdriveRefreshListBtn").onclick=()=>loadGDriveList();
+
+if($("gdriveDisconnectBtn")) $("gdriveDisconnectBtn").onclick=async()=>{
+  if(!confirm("Disconnect Google Drive cloud backup?")) return;
+  try{
+    await api("/api/backup/gdrive/disconnect", {method:"POST"});
+    await loadGDriveStatus();
+  }catch(e){ alert("Disconnect failed: "+e.message); }
+};
+
+if($("gdriveFilesBody")) $("gdriveFilesBody").addEventListener("click", async(e)=>{
+  const btn = e.target.closest("button[data-gdrive-restore]");
+  if(!btn) return;
+  const fid = btn.dataset.gdriveRestore;
+  const fname = btn.dataset.gdriveName;
+  if(!confirm(`Restore database from cloud backup:\n\n${fname}\n\nCurrent database will be preserved locally as .pre_restore.bak. Continue?`)) return;
+  try{
+    btn.disabled=true; btn.textContent="Restoring…";
+    await api("/api/backup/gdrive/restore", {method:"POST", body:JSON.stringify({fileId:fid})});
+    alert("Restore complete from cloud snapshot. Reloading data…");
+    await loadAll();
+  }catch(e){
+    alert("Restore failed: "+(e.message||(e.body&&e.body.error)||"error"));
+  }finally{
+    btn.disabled=false; btn.textContent="Restore";
+  }
+});
 if($("calSaveBtn")) $("calSaveBtn").onclick=async()=>{
   try{
     const el=(id)=>$(id);

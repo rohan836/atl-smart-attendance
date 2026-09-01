@@ -26,4 +26,8 @@ Single source for school identity: name, address, late threshold, academic year,
 
 ## Backup
 
-Backup is local-file. `GET /api/backup` checkpoints WAL and sends `atl_backup_YYYY-MM-DD.db` containing students, daily, events, settings (including `classSchedules/batchSchedules/holidays/overrides`), and audit. Restore via `POST /api/restore` validates the SQLite header `SQLite format 3\x00`, saves `.pre_restore.bak`, overwrites the DB file, and verifies `SELECT 1 FROM students`. Audit history exports as CSV from the same tab. Calendar and schedule data travels with the backup.
+Backup supports two independent recovery layers:
+1. **Local-file:** `GET /api/backup` checkpoints WAL and sends `atl_backup_YYYY-MM-DD.db` containing students, daily, events, settings (including `classSchedules/batchSchedules/holidays/overrides`), and audit. Restore via `POST /api/restore` validates the SQLite header `SQLite format 3\x00`, saves `.pre_restore.bak`, overwrites the DB file, and verifies `SELECT 1 FROM students`.
+2. **Google Drive Cloud Backup:** Automated offsite backups to personal Google Drive using OAuth 2.0 with `drive.file` scope. The administrator can connect via Google Login, trigger immediate cloud backups, view historical snapshots, and restore from cloud backups (never automatic, operator-initiated only). Daily backups run automatically via background worker with Grandfather-Father-Son retention (7 daily, 4 weekly, 12 monthly).
+
+Audit history exports as CSV from the same tab. Calendar and schedule data travels with the backup.
