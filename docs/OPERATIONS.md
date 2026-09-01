@@ -31,6 +31,26 @@ Reconciliation runs automatically in the background via `_reconcile_daemon()` in
 - **Idempotence**: Existing `daily` and `events` rows are never overwritten; repeated evaluations produce zero duplicate records.
 - **Observability**: Verification is visible via `journalctl -u atl-attendance` (`[RECONCILE] Auto-reconciled YYYY-MM-DD: ...`) and the `audit` table. Manual API invocation (`POST /api/reconcile`) remains fully functional.
 
+## Remote Admin access (Tailscale)
+
+ATL Smart Attendance supports secure private remote access to the existing Admin panel and backend via [Tailscale](https://tailscale.com) without exposing the kiosk to the public internet or changing application behavior.
+
+- **Local access**: `http://192.168.1.8:5000` remains active and unchanged.
+- **Remote access**: `http://<tailscale-ip>:5000` routes directly to the exact same Flask application and Admin interface over an encrypted WireGuard mesh network.
+- **Security**: Tailscale traffic requires authentication on the operator's Tailscale network and requires the same `adminPin` (`X-Admin-Pin` header) for all administrative actions. Port 5000 is never exposed to the public internet.
+- **Management**:
+  ```bash
+  # Check Tailscale status and IP
+  bash pi/tailscale_service.sh status
+  bash pi/tailscale_service.sh ip
+
+  # Authenticate node (one-time interactive login)
+  bash pi/tailscale_service.sh login
+
+  # Expose port 5000 on Tailscale
+  bash pi/tailscale_service.sh serve
+  ```
+
 ## Deployment
 
 Canonical deploys copy only code and assets:

@@ -8,6 +8,7 @@ User=lancer
 Group=lancer
 WorkingDirectory=/opt/atl-attendance
 Environment=PYTHONUNBUFFERED=1
+ExecStartPre=-/bin/bash /opt/atl-attendance/pi/tailscale_service.sh start
 ExecStart=/opt/atl-attendance/venv/bin/python /opt/atl-attendance/backend/app.py
 Restart=always
 RestartSec=5

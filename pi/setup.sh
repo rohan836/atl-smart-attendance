@@ -15,7 +15,14 @@ echo "=== 1. System update ==="
 sudo apt update && sudo apt upgrade -y
 
 echo "=== 2. Install deps ==="
-sudo apt install -y python3 python3-pip python3-venv sqlite3 git
+sudo apt install -y python3 python3-pip python3-venv sqlite3 git curl tar
+
+echo "=== 2.5 Provision Tailscale for Remote Admin Access ==="
+if [ -f "./pi/tailscale_service.sh" ]; then
+  mkdir -p /home/$USER/.local/bin /home/$USER/.local/share/tailscale
+  bash ./pi/tailscale_service.sh start || true
+  sudo chown -R $USER:$USER /home/$USER/.local
+fi
 
 echo "=== 3. Enable UART for GT-511C3 ==="
 # GT-511C3 on /dev/serial0 (GPIO14/15), 9600 baud, disable console
