@@ -42,10 +42,11 @@ start_daemon() {
     sleep 2
     echo "[Tailscale] tailscaled started."
   fi
-  # If node is authenticated, ensure serve is active
+  # If node is authenticated, ensure serve is active with HTTPS
   if [ -S "${SOCK_PATH}" ]; then
     if "${TS_BIN}" --socket="${SOCK_PATH}" status --json 2>/dev/null | grep -q '"BackendState":"Running"'; then
-      "${TS_BIN}" --socket="${SOCK_PATH}" serve --bg --tcp=5000 5000 2>/dev/null || true
+      "${TS_BIN}" --socket="${SOCK_PATH}" serve --bg --https=443 http://127.0.0.1:5000 2>/dev/null || true
+      "${TS_BIN}" --socket="${SOCK_PATH}" serve --bg --https=5000 http://127.0.0.1:5000 2>/dev/null || true
     fi
   fi
 }
@@ -79,8 +80,9 @@ serve_port() {
     echo "[Tailscale] tailscaled is not running. Run: bash pi/tailscale_service.sh start"
     exit 1
   fi
-  echo "[Tailscale] Exposing local port 5000 on Tailscale network (TCP forwarder)..."
-  "${TS_BIN}" --socket="${SOCK_PATH}" serve --bg --tcp=5000 5000
+  echo "[Tailscale] Exposing local Flask app on Tailscale network over HTTPS..."
+  "${TS_BIN}" --socket="${SOCK_PATH}" serve --bg --https=443 http://127.0.0.1:5000
+  "${TS_BIN}" --socket="${SOCK_PATH}" serve --bg --https=5000 http://127.0.0.1:5000
 }
 
 ip_daemon() {

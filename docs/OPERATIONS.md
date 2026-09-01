@@ -36,8 +36,8 @@ Reconciliation runs automatically in the background via `_reconcile_daemon()` in
 ATL Smart Attendance supports secure private remote access to the existing Admin panel and backend via [Tailscale](https://tailscale.com) without exposing the kiosk to the public internet or changing application behavior.
 
 - **Local access**: `http://192.168.1.8:5000` remains active and unchanged.
-- **Remote access**: `http://<tailscale-ip>:5000` routes directly to the exact same Flask application and Admin interface over an encrypted WireGuard mesh network.
-- **Security**: Tailscale traffic requires authentication on the operator's Tailscale network and requires the same `adminPin` (`X-Admin-Pin` header) for all administrative actions. Port 5000 is never exposed to the public internet.
+- **Remote HTTPS access**: `https://atl-attendance-pii.taile0547b.ts.net/` (and port 5000 `https://atl-attendance-pii.taile0547b.ts.net:5000/`) routes directly to the Flask application with automated Tailscale Let's Encrypt TLS certificates, eliminating "Not secure" browser warnings.
+- **Security**: Tailscale traffic requires authentication on the operator's private Tailscale network. Public internet Funnel is **disabled** (tailnet only). All administrative actions require the configured `adminPin` (`X-Admin-Pin` header).
 - **Management**:
   ```bash
   # Check Tailscale status and IP
@@ -47,7 +47,7 @@ ATL Smart Attendance supports secure private remote access to the existing Admin
   # Authenticate node (one-time interactive login)
   bash pi/tailscale_service.sh login
 
-  # Expose port 5000 on Tailscale
+  # Expose local Flask app over HTTPS
   bash pi/tailscale_service.sh serve
   ```
 
