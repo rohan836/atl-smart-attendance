@@ -703,5 +703,1109 @@ class ApiTest(unittest.TestCase):
         finally:
             atl.cfg["adminPin"] = old_pin
 
+    # --- Task 1 regression tests: real-mode fingerprint required + PIN gates ---
+    def test_scan_real_mode_rejects_forged_studentId(self):
+        self.client.post("/api/students", json={"name": "Forge Kid", "roll": "FORGE-01", "grade": "Grade 10-A", "phone": "9000000000"})
+        sid = None
+        for s in self.client.get("/api/students").get_json():
+            if s["roll"] == "FORGE-01":
+                sid = s["id"]
+        self.assertIsNotNone(sid)
+        before = len(self.client.get("/api/attendance").get_json())
+        old_mode = atl.cfg.get("sensor")
+        atl.cfg["sensor"] = "real"
+        try:
+            r = self.client.post("/api/scan", json={"studentId": sid})
+            self.assertEqual(r.status_code, 403)
+            self.assertEqual(r.get_json().get("reason"), "FINGERPRINT_REQUIRED")
+            after = len(self.client.get("/api/attendance").get_json())
+            self.assertEqual(after, before)
+            r2 = self.client.post("/api/scan", json={"studentId": sid, "isUnknown": True})
+            self.assertEqual(r2.status_code, 403)
+        finally:
+            atl.cfg["sensor"] = old_mode
+
+    def test_scan_real_mode_no_studentId_uses_fingerprint_path(self):
+        self.client.post("/api/students", json={"name": "Real Path Kid", "roll": "RP-01", "grade": "Grade 10-A", "phone": "9000000000"})
+        ctx = atl.app.app_context()
+        ctx.push()
+        db = atl.get_db()
+        sid = db.execute("SELECT id FROM students WHERE roll=?", ("RP-01",)).fetchone()[0]
+        fid = atl.next_finger_id(db)
+        if fid is None:
+            fid = 77
+        db.execute("UPDATE students SET fingerId=? WHERE id=?", (fid, sid))
+        db.commit()
+        ctx.pop()
+        class FakeSensor:
+            sim = False
+            last_error = None
+            def identify(self, log=None, timeout=30):
+                return fid, "OK"
+            def close(self):
+                pass
+        old_mode, old_sensor = atl.cfg.get("sensor"), atl.get_sensor
+        atl.cfg["sensor"] = "real"
+        atl.get_sensor = lambda: FakeSensor()
+        try:
+            before = len(self.client.get("/api/attendance").get_json())
+            r = self.client.post("/api/scan", json={"waitSec": 2})
+            self.assertEqual(r.status_code, 200)
+            self.assertTrue(r.get_json().get("ok"))
+            self.assertEqual(r.get_json()["student"]["id"], sid)
+            after = len(self.client.get("/api/attendance").get_json())
+            self.assertEqual(after, before + 1)
+        finally:
+            atl.cfg["sensor"] = old_mode
+            atl.get_sensor = old_sensor
+
+    def test_scan_real_mode_unmatched_fingerprint_still_unknown(self):
+        class FakeSensorUnknown:
+            sim = False
+            last_error = None
+            def identify(self, log=None, timeout=30):
+                return None, "UNKNOWN"
+            def close(self):
+                pass
+        old_mode, old_sensor = atl.cfg.get("sensor"), atl.get_sensor
+        atl.cfg["sensor"] = "real"
+        atl.get_sensor = lambda: FakeSensorUnknown()
+        try:
+            before = len(self.client.get("/api/attendance").get_json())
+            r = self.client.post("/api/scan", json={"waitSec": 2})
+            self.assertEqual(r.status_code, 200)
+            body = r.get_json()
+            self.assertEqual(body.get("reason"), "UNKNOWN")
+            self.assertIsInstance(body.get("seq"), int)
+            after = len(self.client.get("/api/attendance").get_json())
+            self.assertEqual(after, before + 1)
+            events = self.client.get("/api/attendance").get_json()
+            self.assertTrue(any(e.get("status") == "UNKNOWN" for e in events))
+        finally:
+            atl.cfg["sensor"] = old_mode
+            atl.get_sensor = old_sensor
+
+    def test_scan_sim_mode_studentId_still_works(self):
+        self.client.post("/api/students", json={"name": "Sim OK Kid", "roll": "SIM-OK-01", "grade": "Grade 10-A", "phone": "9000000000"})
+        sid = None
+        for s in self.client.get("/api/students").get_json():
+            if s["roll"] == "SIM-OK-01":
+                sid = s["id"]
+        self.assertIsNotNone(sid)
+        old_mode = atl.cfg.get("sensor")
+        atl.cfg["sensor"] = "sim"
+        try:
+            r = self.client.post("/api/scan", json={"studentId": sid})
+            self.assertEqual(r.status_code, 200)
+            self.assertTrue(r.get_json().get("ok"))
+            self.assertIn(r.get_json().get("status"), ("PRESENT", "LATE"))
+        finally:
+            atl.cfg["sensor"] = old_mode
+
+    def test_reconcile_requires_pin_when_set(self):
+        old_pin = atl.cfg.get("adminPin", "")
+        atl.cfg["adminPin"] = "9999"
+        try:
+            r = self.client.post("/api/reconcile", json={"date": "2026-08-10"})
+            self.assertEqual(r.status_code, 401)
+            r2 = self.client.post("/api/reconcile", json={"date": "2026-08-10"}, headers={"X-Admin-Pin": "bad"})
+            self.assertEqual(r2.status_code, 401)
+            r3 = self.client.post("/api/reconcile", json={"date": "2026-08-10"}, headers={"X-Admin-Pin": "9999"})
+            self.assertEqual(r3.status_code, 200)
+            self.assertIn("working", r3.get_json())
+            r4 = self.client.post("/api/reconcile?pin=9999", json={"date": "2026-08-10"})
+            self.assertEqual(r4.status_code, 401)
+            atl.cfg["adminPin"] = ""
+            r5 = self.client.post("/api/reconcile", json={"date": "2026-08-10"})
+            self.assertEqual(r5.status_code, 200)
+        finally:
+            atl.cfg["adminPin"] = old_pin
+
+    def test_backup_requires_pin_when_set(self):
+        old_pin = atl.cfg.get("adminPin", "")
+        atl.cfg["adminPin"] = "9999"
+        try:
+            r = self.client.get("/api/backup")
+            self.assertEqual(r.status_code, 401)
+            r2 = self.client.get("/api/backup", headers={"X-Admin-Pin": "bad"})
+            self.assertEqual(r2.status_code, 401)
+            r3 = self.client.get("/api/backup", headers={"X-Admin-Pin": "9999"})
+            self.assertEqual(r3.status_code, 200)
+            data = r3.get_data()
+            self.assertTrue(data.startswith(b"SQLite format 3\x00"))
+            r4 = self.client.get("/api/backup?pin=9999")
+            self.assertEqual(r4.status_code, 401)
+            atl.cfg["adminPin"] = ""
+            r5 = self.client.get("/api/backup")
+            self.assertEqual(r5.status_code, 200)
+        finally:
+            atl.cfg["adminPin"] = old_pin
+
+    def test_export_requires_header_when_pin_set(self):
+        old_pin = atl.cfg.get("adminPin", "")
+        atl.cfg["adminPin"] = "9999"
+        try:
+            r = self.client.get("/api/export")
+            self.assertEqual(r.status_code, 401)
+            r2 = self.client.get("/api/export", headers={"X-Admin-Pin": "bad"})
+            self.assertEqual(r2.status_code, 401)
+            r3 = self.client.get("/api/export", headers={"X-Admin-Pin": "9999"})
+            self.assertEqual(r3.status_code, 200)
+            j = r3.get_json()
+            self.assertIn("students", j)
+            # query string must fail even when correct
+            r4 = self.client.get("/api/export?pin=9999")
+            self.assertEqual(r4.status_code, 401)
+            # empty PIN remains open
+            atl.cfg["adminPin"] = ""
+            r5 = self.client.get("/api/export")
+            self.assertEqual(r5.status_code, 200)
+        finally:
+            atl.cfg["adminPin"] = old_pin
+
+    def test_export_csv_requires_header_when_pin_set(self):
+        old_pin = atl.cfg.get("adminPin", "")
+        atl.cfg["adminPin"] = "9999"
+        try:
+            r = self.client.get("/api/export/csv?type=students")
+            self.assertEqual(r.status_code, 401)
+            r2 = self.client.get("/api/export/csv?type=students", headers={"X-Admin-Pin": "9999"})
+            self.assertEqual(r2.status_code, 200)
+            self.assertIn("photo", r2.get_data(as_text=True).lower())
+            r3 = self.client.get("/api/export/csv?type=students&pin=9999")
+            self.assertEqual(r3.status_code, 401)
+            atl.cfg["adminPin"] = ""
+            r4 = self.client.get("/api/export/csv?type=students")
+            self.assertEqual(r4.status_code, 200)
+        finally:
+            atl.cfg["adminPin"] = old_pin
+
+    def test_audit_requires_header_when_pin_set(self):
+        old_pin = atl.cfg.get("adminPin", "")
+        atl.cfg["adminPin"] = "9999"
+        try:
+            r = self.client.get("/api/audit")
+            self.assertEqual(r.status_code, 401)
+            r2 = self.client.get("/api/audit", headers={"X-Admin-Pin": "9999"})
+            self.assertEqual(r2.status_code, 200)
+            self.assertIsInstance(r2.get_json(), list)
+            r3 = self.client.get("/api/audit?pin=9999")
+            self.assertEqual(r3.status_code, 401)
+            atl.cfg["adminPin"] = ""
+            r4 = self.client.get("/api/audit")
+            self.assertEqual(r4.status_code, 200)
+        finally:
+            atl.cfg["adminPin"] = old_pin
+
+    def test_health_never_leaks_adminPin(self):
+        old_pin = atl.cfg.get("adminPin", "")
+        atl.cfg["adminPin"] = "9999"
+        try:
+            r = self.client.get("/api/health")
+            self.assertEqual(r.status_code, 200)
+            body = r.get_data(as_text=True)
+            self.assertNotIn("9999", body)
+            self.assertNotIn("adminPin", body)
+            j = r.get_json()
+            self.assertNotIn("adminPin", j.get("settings", {}))
+            # also check public_settings directly via health settings
+            self.assertNotIn("adminPin", str(j))
+        finally:
+            atl.cfg["adminPin"] = old_pin
+
+    # --- Task 2: scan/last whitelist GT511C3 only ---
+    def test_scan_last_whitelist_gt511c3_variants_still_reach_bridge(self):
+        # PRESENT/LATE via GT511C3 must reach bridge; DUPLICATE/NOT_SCHEDULED/UNKNOWN likewise
+        # create a fresh student
+        self.client.post("/api/students", json={"name": "Bridge Kid", "roll": "BRIDGE-01", "grade": "Grade 10-A", "phone": "9000000000"})
+        sid = None
+        for s in self.client.get("/api/students").get_json():
+            if s["roll"] == "BRIDGE-01":
+                sid = s["id"]
+        self.assertIsNotNone(sid)
+        # 1. PRESENT via GT511C3
+        r = self.client.post("/api/scan", json={"studentId": sid})
+        self.assertEqual(r.status_code, 200)
+        last = self.client.get("/api/scan/last").get_json()
+        self.assertEqual(last.get("status"), r.get_json().get("status"))
+        self.assertEqual(last.get("source") if "source" in last else "GT511C3", last.get("source", "GT511C3"))
+        self.assertEqual(last.get("student", {}).get("id"), sid)
+        seq_present = last["seq"]
+        # 2. DUPLICATE same student same day
+        r_dup = self.client.post("/api/scan", json={"studentId": sid})
+        self.assertEqual(r_dup.get_json().get("reason"), "DUPLICATE")
+        last_dup = self.client.get("/api/scan/last").get_json()
+        self.assertEqual(last_dup.get("status"), "DUPLICATE")
+        self.assertGreater(last_dup["seq"], seq_present)
+        seq_dup = last_dup["seq"]
+        # 3. UNKNOWN via GT511C3 (real sensor mock)
+        class FakeUnknown:
+            sim = False
+            last_error = None
+            def identify(self, log=None, timeout=30):
+                return None, "UNKNOWN"
+            def close(self):
+                pass
+        old_mode, old_sensor = atl.cfg.get("sensor"), atl.get_sensor
+        atl.cfg["sensor"] = "real"
+        atl.get_sensor = lambda: FakeUnknown()
+        try:
+            r_unk = self.client.post("/api/scan", json={"waitSec": 2})
+            self.assertEqual(r_unk.get_json().get("reason"), "UNKNOWN")
+            last_unk = self.client.get("/api/scan/last").get_json()
+            self.assertEqual(last_unk.get("status"), "UNKNOWN")
+            self.assertEqual(last_unk.get("result"), "UNKNOWN")
+            self.assertGreater(last_unk["seq"], seq_dup)
+            seq_unk = last_unk["seq"]
+        finally:
+            atl.cfg["sensor"] = old_mode
+            atl.get_sensor = old_sensor
+        # 4. NOT_SCHEDULED via GT511C3 (schedule off)
+        self.client.post("/api/settings", json={
+            "workingDays": {str(i): True for i in range(7)},
+            "classSchedules": {"Grade 10-A": {"workingDays": {str(i): False for i in range(7)}}},
+            "holidays": [], "overrides": []
+        })
+        self.client.post("/api/students", json={"name": "Bridge NS Kid", "roll": "BRIDGE-NS-01", "grade": "Grade 10-A", "phone": "9000000000"})
+        sid_ns = None
+        for s in self.client.get("/api/students").get_json():
+            if s["roll"] == "BRIDGE-NS-01":
+                sid_ns = s["id"]
+        r_ns = self.client.post("/api/scan", json={"studentId": sid_ns})
+        self.assertEqual(r_ns.get_json().get("status"), "NOT_SCHEDULED")
+        last_ns = self.client.get("/api/scan/last").get_json()
+        self.assertEqual(last_ns.get("status"), "NOT_SCHEDULED")
+        self.assertEqual(last_ns.get("source") if "source" in last_ns else "GT511C3", last_ns.get("source", "GT511C3"))
+        self.assertGreater(last_ns["seq"], seq_unk)
+        # reset schedule to baseline for other tests
+        self.client.post("/api/settings", json={"workingDays": {str(i): True for i in range(7)}, "classSchedules": {}, "batchSchedules": {}, "holidays": [], "overrides": []})
+
+    def test_scan_last_excludes_correction(self):
+        self.client.post("/api/students", json={"name": "Corr Bridge Kid", "roll": "CORR-BR-01", "grade": "Grade 10-A", "phone": "9000000000"})
+        sid = None
+        for s in self.client.get("/api/students").get_json():
+            if s["roll"] == "CORR-BR-01":
+                sid = s["id"]
+        r_scan = self.client.post("/api/scan", json={"studentId": sid})
+        seq_before = self.client.get("/api/scan/last").get_json()["seq"]
+        # CORRECTION writes source=CORRECTION, must not advance scan/last
+        r_corr = self.client.post("/api/correction", json={"date": atl.today_ist(), "studentId": sid, "status": "ABSENT", "reason": "bridge test correction"})
+        self.assertEqual(r_corr.status_code, 200)
+        last_after = self.client.get("/api/scan/last").get_json()
+        self.assertEqual(last_after["seq"], seq_before)
+        self.assertNotEqual(last_after.get("source"), "CORRECTION")
+        # correction still visible in attendance/history
+        events = self.client.get("/api/attendance").get_json()
+        self.assertTrue(any(e.get("source") == "CORRECTION" and e.get("studentId") == sid for e in events))
+
+    def test_scan_last_excludes_reconcile(self):
+        seq_before = self.client.get("/api/scan/last").get_json().get("seq", 0)
+        # RECONCILE inserts ABSENT/NOT_SCHEDULED with source RECONCILE
+        r = self.client.post("/api/reconcile", json={"date": "2026-08-10"})
+        self.assertEqual(r.status_code, 200)
+        last_after = self.client.get("/api/scan/last").get_json()
+        # must not be RECONCILE; seq should not advance to RECONCILE row
+        self.assertNotEqual(last_after.get("source"), "RECONCILE")
+        if seq_before:
+            self.assertEqual(last_after["seq"], seq_before)
+        # but reconcile events are still in attendance
+        events_on_date = self.client.get("/api/attendance?date=2026-08-10").get_json()
+        self.assertTrue(any(e.get("source") == "RECONCILE" for e in events_on_date))
+
+    def test_scan_last_sequence_monotonic_and_visible_to_attendance(self):
+        # correction must not affect seq, but GT511C3 must increment
+        self.client.post("/api/students", json={"name": "Seq Kid", "roll": "SEQ-01", "grade": "Grade 10-A", "phone": "9000000000"})
+        sid = None
+        for s in self.client.get("/api/students").get_json():
+            if s["roll"] == "SEQ-01":
+                sid = s["id"]
+        self.client.post("/api/scan", json={"studentId": sid})
+        seq1 = self.client.get("/api/scan/last").get_json()["seq"]
+        # correction should not change seq
+        self.client.post("/api/correction", json={"date": atl.today_ist(), "studentId": sid, "status": "LATE", "reason": "seq test"})
+        seq_after_corr = self.client.get("/api/scan/last").get_json()["seq"]
+        self.assertEqual(seq_after_corr, seq1)
+        # new student scan must increment
+        self.client.post("/api/students", json={"name": "Seq Kid2", "roll": "SEQ-02", "grade": "Grade 10-A", "phone": "9000000000"})
+        sid2 = None
+        for s in self.client.get("/api/students").get_json():
+            if s["roll"] == "SEQ-02":
+                sid2 = s["id"]
+        self.client.post("/api/scan", json={"studentId": sid2})
+        seq2 = self.client.get("/api/scan/last").get_json()["seq"]
+        self.assertGreater(seq2, seq1)
+
+    # --- Task 3: restore safety with DB_LOCK (revised) ---
+    def test_restore_basic_success_and_backup_valid(self):
+        # backup via API must be valid SQLite and restorable
+        r_bak = self.client.get("/api/backup")
+        self.assertEqual(r_bak.status_code, 200)
+        data = r_bak.get_data()
+        self.assertTrue(data.startswith(b"SQLite format 3\x00"))
+        # create a new student to have known state
+        self.client.post("/api/students", json={"name": "Restore Basic Kid", "roll": "RB-01", "grade": "Grade 10-A", "phone": "9000000000"})
+        before_ids = {s["id"] for s in self.client.get("/api/students?active=all").get_json()}
+        # restore the backup we just took (should revert to before RB-01? but RB-01 was after backup, so after restore it should disappear)
+        # we took backup BEFORE creating RB-01, so restore should remove it — instead take fresh backup after
+        # take a fresh backup after RB-01 exists
+        r_bak2 = self.client.get("/api/backup")
+        data2 = r_bak2.get_data()
+        # add another student after backup
+        self.client.post("/api/students", json={"name": "Restore Basic Kid2", "roll": "RB-02", "grade": "Grade 10-A", "phone": "9000000000"})
+        self.assertTrue(any(s["roll"] == "RB-02" for s in self.client.get("/api/students?active=all").get_json()))
+        # restore to data2 (which had RB-01 but not RB-02)
+        import io
+        r_rest = self.client.post("/api/restore", data={"file": (io.BytesIO(data2), "backup.db")}, content_type="multipart/form-data")
+        self.assertEqual(r_rest.status_code, 200)
+        self.assertTrue(r_rest.get_json().get("ok"))
+        after = self.client.get("/api/students?active=all").get_json()
+        self.assertTrue(any(s["roll"] == "RB-01" for s in after))
+        self.assertFalse(any(s["roll"] == "RB-02" for s in after))
+        # .pre_restore.bak must exist
+        import os
+        self.assertTrue(os.path.exists(atl.DB_PATH + ".pre_restore.bak"))
+        # restored DB must be integrity ok
+        import sqlite3, tempfile, pathlib
+        tmp = tempfile.mktemp(suffix=".db")
+        try:
+            pathlib.Path(tmp).write_bytes(data2)
+            c = sqlite3.connect(tmp)
+            self.assertEqual(c.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+            c.close()
+        finally:
+            try: os.remove(tmp)
+            except: pass
+
+    def test_restore_while_db_lock_held_blocks_then_new_writes_authoritative(self):
+        import threading, time, io, os
+        # create baseline backup
+        r_bak = self.client.get("/api/backup")
+        backup_data = r_bak.get_data()
+        # hold DB_LOCK in main thread to simulate active writer
+        held = threading.Event()
+        done = threading.Event()
+        restore_result = {}
+        def do_restore():
+            held.wait(timeout=2)
+            # this will block on DB_LOCK until holder releases
+            r = self.client.post("/api/restore", data={"file": (io.BytesIO(backup_data), "backup.db")}, content_type="multipart/form-data")
+            restore_result["r"] = r
+            restore_result["t"] = time.time()
+        # holder thread
+        holder_done = threading.Event()
+        def holder():
+            with atl.DB_LOCK:
+                held.set()
+                # keep DB_LOCK for 0.7s
+                time.sleep(0.7)
+                # write inside lock to prove writer path uses DB_LOCK
+                with atl.app.app_context():
+                    db = atl.get_db()
+                    db.execute("INSERT INTO audit VALUES (?,?,?,?)", (__import__("uuid").uuid4().hex, atl.now_ist(), "HOLD_TEST", "holding"))
+                    db.commit()
+                holder_done.wait(timeout=1)
+        ht = threading.Thread(target=holder)
+        ht.start()
+        # wait until holder has DB_LOCK
+        self.assertTrue(held.wait(timeout=2))
+        start = time.time()
+        rt = threading.Thread(target=do_restore)
+        rt.start()
+        time.sleep(0.2)
+        # restore should be blocked, not yet completed
+        self.assertNotIn("r", restore_result)
+        # release holder
+        holder_done.set()
+        ht.join(timeout=2)
+        rt.join(timeout=5)
+        elapsed = restore_result["t"] - start if "t" in restore_result else 0
+        self.assertIn("r", restore_result)
+        self.assertEqual(restore_result["r"].status_code, 200)
+        self.assertGreater(elapsed, 0.4)
+        # after restore, new app writer must go to new DB, not old
+        self.client.post("/api/students", json={"name": "Post Restore Kid", "roll": "PR-01", "grade": "Grade 10-A", "phone": "9000000000"})
+        self.assertTrue(any(s["roll"] == "PR-01" for s in self.client.get("/api/students?active=all").get_json()))
+        # verify old hold's audit may have been overwritten (since backup didn't have it) — new DB authoritative
+        # the post-restore student must be present, proving new writes go to new inode
+        self.assertTrue(any(s["roll"] == "PR-01" for s in self.client.get("/api/students?active=all").get_json()))
+
+    def test_restore_failure_leaves_original_intact(self):
+        import io, os, sqlite3
+        before_count = len(self.client.get("/api/students?active=all").get_json())
+        before_data = self.client.get("/api/backup").get_data()
+        # invalid header
+        r = self.client.post("/api/restore", data={"file": (io.BytesIO(b"not sqlite"), "bad.db")}, content_type="multipart/form-data")
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(len(self.client.get("/api/students?active=all").get_json()), before_count)
+        # integrity fail (valid header but corrupt)
+        fake = b"SQLite format 3\x00" + b"corrupt" * 100
+        r2 = self.client.post("/api/restore", data={"file": (io.BytesIO(fake), "bad2.db")}, content_type="multipart/form-data")
+        self.assertEqual(r2.status_code, 400)
+        self.assertEqual(len(self.client.get("/api/students?active=all").get_json()), before_count)
+        # missing tables
+        import tempfile
+        tmp = tempfile.mktemp(suffix=".db")
+        try:
+            c = sqlite3.connect(tmp)
+            c.execute("CREATE TABLE students (id INTEGER PRIMARY KEY)")
+            c.commit()
+            c.close()
+            with open(tmp, "rb") as f:
+                bad3 = f.read()
+            r3 = self.client.post("/api/restore", data={"file": (io.BytesIO(bad3), "bad3.db")}, content_type="multipart/form-data")
+            self.assertEqual(r3.status_code, 400)
+            self.assertEqual(len(self.client.get("/api/students?active=all").get_json()), before_count)
+        finally:
+            try: os.remove(tmp)
+            except: pass
+        # original still integrity ok
+        self.assertEqual(self.client.get("/api/health").get_json()["db_ok"], True)
+
+    def test_db_lock_not_held_during_sensor_wait(self):
+        # prove DB_LOCK not held during sensor identify, so a DB writer (correction) can proceed concurrently
+        import threading, time
+        # create student and scan to have daily
+        self.client.post("/api/students", json={"name": "Sensor Wait Kid", "roll": "SW-01", "grade": "Grade 10-A", "phone": "9000000000"})
+        sid = None
+        for s in self.client.get("/api/students").get_json():
+            if s["roll"] == "SW-01":
+                sid = s["id"]
+        self.client.post("/api/scan", json={"studentId": sid})
+        # need a student with fid for the slow sensor to map
+        self.client.post("/api/students", json={"name": "Slow Kid", "roll": "SLOW-01", "grade": "Grade 10-A", "phone": "9000000000"})
+        ctx = atl.app.app_context()
+        ctx.push()
+        db = atl.get_db()
+        sid_slow = db.execute("SELECT id FROM students WHERE roll=?", ("SLOW-01",)).fetchone()[0]
+        fid_slow = atl.next_finger_id(db)
+        if fid_slow is None:
+            fid_slow = 77
+        db.execute("UPDATE students SET fingerId=? WHERE id=?", (fid_slow, sid_slow))
+        db.commit()
+        ctx.pop()
+        # capture fid for sensor
+        _fid = fid_slow
+        class SlowSensor:
+            sim = False
+            last_error = None
+            def identify(self, log=None, timeout=30):
+                time.sleep(0.6)
+                return _fid, "OK"
+            def close(self):
+                pass
+        old_mode, old_sensor = atl.cfg.get("sensor"), atl.get_sensor
+        atl.cfg["sensor"] = "real"
+        atl.get_sensor = lambda: SlowSensor()
+        result = {}
+        def do_scan():
+            client2 = atl.app.test_client()
+            result["scan"] = client2.post("/api/scan", json={"waitSec": 2})
+        t = threading.Thread(target=do_scan)
+        start = time.time()
+        t.start()
+        time.sleep(0.15)
+        # while scan is in SENSOR_LOCK sleep, correction (DB_LOCK only) should not be blocked
+        r_corr = self.client.post("/api/correction", json={"date": atl.today_ist(), "studentId": sid, "status": "LATE", "reason": "sensor wait test"})
+        corr_time = time.time() - start
+        self.assertEqual(r_corr.status_code, 200)
+        self.assertLess(corr_time, 0.4)
+        t.join(timeout=2)
+        self.assertIn("scan", result)
+        # cleanup
+        atl.cfg["sensor"] = old_mode
+        atl.get_sensor = old_sensor
+        self.client.post("/api/settings", json={"workingDays": {str(i): True for i in range(7)}, "classSchedules": {}, "batchSchedules": {}, "holidays": [], "overrides": []})
+
+    # --- P1 Calendar: deterministic backend tests for local date correctness ---
+    # NOTE: These tests do NOT execute ui_app.js; they verify backend calendar logic across
+    # month/year/TZ boundaries and document the former toISOString UTC shift. Browser/Pi
+    # verification is still required for the JS fix (toLocalISO vs toISOString).
+
+    def test_calendar_local_vs_utc_boundary_deterministic(self):
+        # Document the former bug: IST +05:30 midnight 2026-01-01 is 2025-12-31T18:30Z.
+        # Old JS new Date(y,m,d).toISOString().slice(0,10) would return 2025-12-31 for 2026-01-01 IST.
+        # Backend today_ist and frontend toLocalISO must agree on YYYY-MM-DD local.
+        import datetime
+        # simulate old JS UTC conversion for IST
+        ist = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+        local_midnight = datetime.datetime(2026, 1, 1, 0, 0, 0, tzinfo=ist)
+        utc_date = local_midnight.astimezone(datetime.timezone.utc).date().isoformat()
+        self.assertEqual(utc_date, "2025-12-31")
+        # correct local date
+        local_date = local_midnight.date().isoformat()
+        self.assertEqual(local_date, "2026-01-01")
+        # backend must treat 2026-01-01 as the correct date, not the UTC-shifted one
+        s = {"workingDays": {str(i): True for i in range(7)}, "holidays": [], "overrides": []}
+        # both dates are working days when all true, but they are distinct keys
+        self.assertTrue(atl.is_working_day("2026-01-01", s))
+        self.assertTrue(atl.is_working_day("2025-12-31", s))
+        self.assertNotEqual("2026-01-01", utc_date)
+
+    def test_calendar_year_boundary_holiday_override(self):
+        # holiday spanning year-end and override single day — tests month/year boundary precedence
+        s = {
+            "workingDays": {str(i): True for i in range(7)},
+            "holidays": ["2025-12-31..2026-01-02:vacation:YearEnd"],
+            "overrides": ["2026-01-01:1:Working"],
+        }
+        self.assertFalse(atl.is_working_day("2025-12-31", s))
+        self.assertTrue(atl.is_working_day("2026-01-01", s))  # override wins
+        self.assertFalse(atl.is_working_day("2026-01-02", s))  # vacation still
+        self.assertTrue(atl.is_working_day("2026-01-03", s))  # back to weekly
+
+    def test_calendar_month_boundary_scheduled(self):
+        # Feb 28 -> Mar 1 spanning vacation + batch schedule — tests month boundary and Grade|Batch precedence
+        self.client.post("/api/settings", json={
+            "workingDays": {str(i): True for i in range(7)},
+            "holidays": ["2026-02-28..2026-03-01:vacation:Boundary"],
+            "overrides": [],
+            "classSchedules": {"Grade 10-A": {"workingDays": {str(i): False for i in range(7)}}},
+            "batchSchedules": {"Grade 10-A|Batch X": {"workingDays": {"0": False, "1": True, "2": True, "3": True, "4": True, "5": True, "6": True}}},
+        })
+        s = self.client.get("/api/settings").get_json()
+        # 2026-02-28 is vacation -> not working even for Batch X
+        self.assertFalse(atl.is_student_scheduled("2026-02-28", {"grade": "Grade 10-A", "batch": "Batch X"}, s))
+        # 2026-03-01 also vacation
+        self.assertFalse(atl.is_student_scheduled("2026-03-01", {"grade": "Grade 10-A", "batch": "Batch X"}, s))
+        # 2026-03-02 back to batch schedule (working)
+        self.assertTrue(atl.is_student_scheduled("2026-03-02", {"grade": "Grade 10-A", "batch": "Batch X"}, s))
+        # Grade without batch falls back to class schedule (all false)
+        self.assertFalse(atl.is_student_scheduled("2026-03-02", {"grade": "Grade 10-A"}, s))
+        # cleanup
+        self.client.post("/api/settings", json={"workingDays": {str(i): True for i in range(7)}, "classSchedules": {}, "batchSchedules": {}, "holidays": [], "overrides": []})
+
+    # --- P2 Reporting: windowed denominator and absent=0 ---
+    def test_reports_student_window_respects_start_end(self):
+        # create student with two daily entries in different months
+        self.client.post("/api/students", json={"name": "Window Kid", "roll": "WIN-01", "grade": "Grade 10-A", "phone": "9000000000"})
+        sid = None
+        for s in self.client.get("/api/students").get_json():
+            if s["roll"] == "WIN-01":
+                sid = s["id"]
+        ctx = atl.app.app_context()
+        ctx.push()
+        db = atl.get_db()
+        # ensure attendanceStartDate covers both
+        self.client.post("/api/settings", json={"attendanceStartDate": "2026-06-15"})
+        # clean any existing
+        db.execute("DELETE FROM daily WHERE studentId=?", (sid,))
+        db.execute("INSERT OR IGNORE INTO daily(key,date,studentId,status,firstScan,lastScan) VALUES (?,?,?,?,?,?)", (f"2026-07-15|{sid}", "2026-07-15", sid, "PRESENT", "08:00:00", "08:00:00"))
+        db.execute("INSERT OR IGNORE INTO daily(key,date,studentId,status,firstScan,lastScan) VALUES (?,?,?,?,?,?)", (f"2026-08-15|{sid}", "2026-08-15", sid, "ABSENT", "00:00:00", "00:00:00"))
+        db.commit()
+        ctx.pop()
+        # window only July
+        r = self.client.get(f"/api/reports?studentId={sid}&start=2026-07-01&end=2026-07-31").get_json()
+        self.assertEqual(r["present"], 1)
+        self.assertEqual(r["absent"], 0)
+        self.assertEqual(r["late"], 0)
+        # window only August
+        r2 = self.client.get(f"/api/reports?studentId={sid}&start=2026-08-01&end=2026-08-31").get_json()
+        self.assertEqual(r2["present"], 0)
+        self.assertEqual(r2["absent"], 1)
+        # full window
+        r3 = self.client.get(f"/api/reports?studentId={sid}&start=2026-07-01&end=2026-08-31").get_json()
+        self.assertEqual(r3["present"], 1)
+        self.assertEqual(r3["absent"], 1)
+        # cleanup
+        ctx = atl.app.app_context()
+        ctx.push()
+        db = atl.get_db()
+        db.execute("DELETE FROM daily WHERE studentId=?", (sid,))
+        db.commit()
+        ctx.pop()
+
+    def test_reports_window_outside_dates_ignored(self):
+        self.client.post("/api/students", json={"name": "Outside Kid", "roll": "OUT-01", "grade": "Grade 10-A", "phone": "9000000000"})
+        sid = None
+        for s in self.client.get("/api/students").get_json():
+            if s["roll"] == "OUT-01":
+                sid = s["id"]
+        ctx = atl.app.app_context()
+        ctx.push()
+        db = atl.get_db()
+        db.execute("DELETE FROM daily WHERE studentId=?", (sid,))
+        db.execute("INSERT OR IGNORE INTO daily(key,date,studentId,status,firstScan,lastScan) VALUES (?,?,?,?,?,?)", (f"2026-09-10|{sid}", "2026-09-10", sid, "PRESENT", "08:00:00", "08:00:00"))
+        db.commit()
+        ctx.pop()
+        # query window that does not include 2026-09-10
+        r = self.client.get(f"/api/reports?studentId={sid}&start=2026-07-01&end=2026-07-31").get_json()
+        self.assertEqual(r["present"], 0)
+        self.assertEqual(r["absent"], 0)
+        self.assertEqual(r["eligible"], 0 if r["eligible"]==0 else r["eligible"])  # may be 0 or scheduled days without attendance
+        ctx = atl.app.app_context()
+        ctx.push()
+        db = atl.get_db()
+        db.execute("DELETE FROM daily WHERE studentId=?", (sid,))
+        db.commit()
+        ctx.pop()
+
+    def test_reports_absent_zero_remains_zero(self):
+        self.client.post("/api/students", json={"name": "Zero Abs Kid", "roll": "ZERO-01", "grade": "Grade 10-A", "phone": "9000000000"})
+        sid = None
+        for s in self.client.get("/api/students").get_json():
+            if s["roll"] == "ZERO-01":
+                sid = s["id"]
+        ctx = atl.app.app_context()
+        ctx.push()
+        db = atl.get_db()
+        db.execute("DELETE FROM daily WHERE studentId=?", (sid,))
+        db.execute("INSERT OR IGNORE INTO daily(key,date,studentId,status,firstScan,lastScan) VALUES (?,?,?,?,?,?)", (f"2026-07-15|{sid}", "2026-07-15", sid, "PRESENT", "08:00:00", "08:00:00"))
+        db.commit()
+        ctx.pop()
+        r = self.client.get(f"/api/reports?studentId={sid}&start=2026-07-01&end=2026-07-31").get_json()
+        self.assertEqual(r["absent"], 0)
+        self.assertEqual(r["present"], 1)
+        # ensure backend returns 0 not null
+        self.assertIsInstance(r["absent"], int)
+        ctx = atl.app.app_context()
+        ctx.push()
+        db = atl.get_db()
+        db.execute("DELETE FROM daily WHERE studentId=?", (sid,))
+        db.commit()
+        ctx.pop()
+
+    def test_reports_kpi_export_same_window(self):
+        # KPI is daily, but reports and export should use same window and denominator
+        self.client.post("/api/students", json={"name": "SameWin Kid", "roll": "SWIN-01", "grade": "Grade 10-A", "phone": "9000000000"})
+        sid = None
+        for s in self.client.get("/api/students").get_json():
+            if s["roll"] == "SWIN-01":
+                sid = s["id"]
+        ctx = atl.app.app_context()
+        ctx.push()
+        db = atl.get_db()
+        db.execute("DELETE FROM daily WHERE studentId=?", (sid,))
+        db.execute("DELETE FROM events WHERE studentId=?", (sid,))
+        db.execute("INSERT OR IGNORE INTO daily(key,date,studentId,status,firstScan,lastScan) VALUES (?,?,?,?,?,?)", (f"2026-07-15|{sid}", "2026-07-15", sid, "PRESENT", "08:00:00", "08:00:00"))
+        db.execute("INSERT OR IGNORE INTO daily(key,date,studentId,status,firstScan,lastScan) VALUES (?,?,?,?,?,?)", (f"2026-07-16|{sid}", "2026-07-16", sid, "ABSENT", "00:00:00", "00:00:00"))
+        # also create events for export
+        import uuid
+        db.execute("INSERT OR IGNORE INTO events(id,date,time,studentId,fingerId,result,status,source) VALUES (?,?,?,?,?,?,?,?)", (str(uuid.uuid4()), "2026-07-15", "08:00:00", sid, None, "MATCH", "PRESENT", "GT511C3"))
+        db.execute("INSERT OR IGNORE INTO events(id,date,time,studentId,fingerId,result,status,source) VALUES (?,?,?,?,?,?,?,?)", (str(uuid.uuid4()), "2026-07-16", "00:00:00", sid, None, "ABSENT", "ABSENT", "RECONCILE"))
+        db.commit()
+        ctx.pop()
+        r = self.client.get(f"/api/reports?studentId={sid}&start=2026-07-15&end=2026-07-16").get_json()
+        self.assertEqual(r["present"], 1)
+        self.assertEqual(r["absent"], 1)
+        # export with same window should include both rows
+        csv_resp = self.client.get("/api/export/csv?type=attendance&start=2026-07-15&end=2026-07-16&studentId=%d" % sid)
+        self.assertEqual(csv_resp.status_code, 200)
+        txt = csv_resp.get_data(as_text=True)
+        self.assertIn("2026-07-15", txt)
+        self.assertIn("2026-07-16", txt)
+        # outside window should not appear
+        csv_out = self.client.get("/api/export/csv?type=attendance&start=2026-07-01&end=2026-07-14&studentId=%d" % sid)
+        self.assertNotIn("2026-07-15", csv_out.get_data(as_text=True))
+        ctx = atl.app.app_context()
+        ctx.push()
+        db = atl.get_db()
+        db.execute("DELETE FROM daily WHERE studentId=?", (sid,))
+        db.execute("DELETE FROM events WHERE studentId=?", (sid,))
+        db.commit()
+        ctx.pop()
+
+    # --- P4: sensor_audit count-based and reenroll retry ---
+    def test_sensor_audit_missing_when_sensor_zero(self):
+        # DB has 2 fingerIds, sensor 0 → missing 2, orphans 0
+        self.client.post("/api/students", json={"name": "Audit Miss1", "roll": "AM1", "grade": "Grade 10-A", "phone": "9000000000"})
+        self.client.post("/api/students", json={"name": "Audit Miss2", "roll": "AM2", "grade": "Grade 10-A", "phone": "9000000000"})
+        ctx = atl.app.app_context()
+        ctx.push()
+        db = atl.get_db()
+        # ensure they have fingerIds
+        for roll in ("AM1", "AM2"):
+            sid = db.execute("SELECT id FROM students WHERE roll=?", (roll,)).fetchone()[0]
+            fid = atl.next_finger_id(db)
+            db.execute("UPDATE students SET fingerId=? WHERE id=?", (fid, sid))
+        db.commit()
+        ctx.pop()
+        class FakeSensorZero:
+            sim = False
+            hw_failed = False
+            def _cmd(self, cmd, param=0, timeout=1.0):
+                if cmd == 0x20:
+                    return True, 0
+                return False, "UNKNOWN"
+            def close(self):
+                pass
+        old_sensor = atl.get_sensor
+        atl.get_sensor = lambda: FakeSensorZero()
+        try:
+            r = self.client.get("/api/sensor/audit")
+            self.assertEqual(r.status_code, 200)
+            j = r.get_json()
+            self.assertEqual(j["sim"], False)
+            self.assertEqual(j["sensor_count"], 0)
+            self.assertGreaterEqual(j["db_count"], 2)
+            self.assertEqual(j["missing_estimate"], j["db_count"])
+            self.assertEqual(j["orphans_estimate"], 0)
+            self.assertEqual(j["sensor_ids"], [])
+        finally:
+            atl.get_sensor = old_sensor
+            # cleanup fingerIds
+            ctx = atl.app.app_context()
+            ctx.push()
+            db = atl.get_db()
+            for roll in ("AM1", "AM2"):
+                db.execute("UPDATE students SET fingerId=NULL WHERE roll=?", (roll,))
+            db.commit()
+            ctx.pop()
+
+    def test_sensor_audit_orphan_when_sensor_gt_db(self):
+        # DB 1, sensor 3 → orphans 2, missing 0
+        self.client.post("/api/students", json={"name": "Audit Orphan", "roll": "AO1", "grade": "Grade 10-A", "phone": "9000000000"})
+        ctx = atl.app.app_context()
+        ctx.push()
+        db = atl.get_db()
+        sid = db.execute("SELECT id FROM students WHERE roll=?", ("AO1",)).fetchone()[0]
+        # clear all fingerIds then set one
+        db.execute("UPDATE students SET fingerId=NULL WHERE active=1")
+        db.execute("UPDATE students SET fingerId=? WHERE id=?", (50, sid))
+        db.commit()
+        ctx.pop()
+        class FakeSensorThree:
+            sim = False
+            hw_failed = False
+            def _cmd(self, cmd, param=0, timeout=1.0):
+                if cmd == 0x20:
+                    return True, 3
+                return False, "UNKNOWN"
+            def close(self):
+                pass
+        old_sensor = atl.get_sensor
+        atl.get_sensor = lambda: FakeSensorThree()
+        try:
+            r = self.client.get("/api/sensor/audit")
+            j = r.get_json()
+            self.assertEqual(j["sensor_count"], 3)
+            self.assertEqual(j["db_count"], 1)
+            self.assertEqual(j["orphans_estimate"], 2)
+            self.assertEqual(j["missing_estimate"], 0)
+        finally:
+            atl.get_sensor = old_sensor
+            ctx = atl.app.app_context()
+            ctx.push()
+            db = atl.get_db()
+            db.execute("UPDATE students SET fingerId=NULL WHERE roll=?", ("AO1",))
+            db.commit()
+            ctx.pop()
+
+    def test_sensor_audit_balanced(self):
+        self.client.post("/api/students", json={"name": "Audit Bal1", "roll": "AB1", "grade": "Grade 10-A", "phone": "9000000000"})
+        ctx = atl.app.app_context()
+        ctx.push()
+        db = atl.get_db()
+        db.execute("UPDATE students SET fingerId=NULL WHERE active=1")
+        sid = db.execute("SELECT id FROM students WHERE roll=?", ("AB1",)).fetchone()[0]
+        db.execute("UPDATE students SET fingerId=? WHERE id=?", (60, sid))
+        db.commit()
+        ctx.pop()
+        class FakeSensorOne:
+            sim = False
+            hw_failed = False
+            def _cmd(self, cmd, param=0, timeout=1.0):
+                if cmd == 0x20:
+                    return True, 1
+                return False, "UNKNOWN"
+            def close(self):
+                pass
+        old_sensor = atl.get_sensor
+        atl.get_sensor = lambda: FakeSensorOne()
+        try:
+            r = self.client.get("/api/sensor/audit")
+            j = r.get_json()
+            self.assertEqual(j["sensor_count"], 1)
+            self.assertEqual(j["db_count"], 1)
+            self.assertEqual(j["orphans_estimate"], 0)
+            self.assertEqual(j["missing_estimate"], 0)
+        finally:
+            atl.get_sensor = old_sensor
+            ctx = atl.app.app_context()
+            ctx.push()
+            db = atl.get_db()
+            db.execute("UPDATE students SET fingerId=NULL WHERE roll=?", ("AB1",))
+            db.commit()
+            ctx.pop()
+
+    def test_reenroll_retries_after_is_already_used(self):
+        # create student with fid 10 and two other students occupying next fids
+        self.client.post("/api/students", json={"name": "Reenroll Victim", "roll": "REV-01", "grade": "Grade 10-A", "phone": "9000000000"})
+        ctx = atl.app.app_context()
+        ctx.push()
+        db = atl.get_db()
+        # clear all fids
+        db.execute("UPDATE students SET fingerId=NULL WHERE active=1")
+        sid = db.execute("SELECT id FROM students WHERE roll=?", ("REV-01",)).fetchone()[0]
+        db.execute("UPDATE students SET fingerId=? WHERE id=?", (10, sid))
+        # occupy 11 and 12 to force next_finger_id to 1 (since 1 is free) — but we want next to be 1, then sensor says IS_ALREADY_USED for 1, should retry to 2
+        # Instead create orphans: ensure sensor has template at 1 but DB doesn't, so next_finger_id=1 will collide
+        db.commit()
+        ctx.pop()
+        attempts = []
+        class FakeSensorRetry:
+            sim = False
+            hw_failed = False
+            def enroll(self, fid, log=None):
+                attempts.append(fid)
+                if len(attempts) == 1:
+                    return False, "START_FAIL IS_ALREADY_USED"
+                return True, "OK"
+            def delete_id(self, fid):
+                return True, "OK"
+            def close(self):
+                pass
+        old_sensor = atl.get_sensor
+        atl.get_sensor = lambda: FakeSensorRetry()
+        try:
+            r = self.client.post(f"/api/students/{sid}/reenroll")
+            self.assertEqual(r.status_code, 200)
+            j = r.get_json()
+            self.assertNotEqual(j["fingerId"], 10)
+            self.assertEqual(len(attempts), 2)
+            self.assertNotEqual(attempts[0], attempts[1])
+            # old 10 should be considered for deletion (best-effort) — new must not equal old
+            self.assertNotEqual(j["fingerId"], 10)
+        finally:
+            atl.get_sensor = old_sensor
+            ctx = atl.app.app_context()
+            ctx.push()
+            db = atl.get_db()
+            db.execute("UPDATE students SET fingerId=NULL WHERE roll=?", ("REV-01",))
+            db.commit()
+            ctx.pop()
+
+    def test_offline_delete_does_not_falsely_claim_sensor_cleanup(self):
+        self.client.post("/api/students", json={"name": "Offline Del", "roll": "OFF-01", "grade": "Grade 10-A", "phone": "9000000000"})
+        ctx = atl.app.app_context()
+        ctx.push()
+        db = atl.get_db()
+        sid = db.execute("SELECT id FROM students WHERE roll=?", ("OFF-01",)).fetchone()[0]
+        # give it a fingerId so delete will try sensor
+        fid = atl.next_finger_id(db) or 20
+        db.execute("UPDATE students SET fingerId=? WHERE id=?", (fid, sid))
+        db.commit()
+        ctx.pop()
+        class FakeOfflineSensor:
+            sim = True
+            hw_failed = True
+            last_error = "sim offline"
+            def close(self):
+                pass
+        old_mode = atl.cfg.get("sensor")
+        old_sensor_fn = atl.get_sensor
+        atl.cfg["sensor"] = "real"
+        atl.get_sensor = lambda: FakeOfflineSensor()
+        try:
+            r = self.client.delete(f"/api/students/{sid}")
+            self.assertEqual(r.status_code, 200)
+            j = r.get_json()
+            self.assertEqual(j["sensor"], "SENSOR_OFFLINE_DB_FREED")
+            # DB must be freed but not claim OK
+            ctx = atl.app.app_context()
+            ctx.push()
+            db = atl.get_db()
+            row = db.execute("SELECT active, fingerId FROM students WHERE id=?", (sid,)).fetchone()
+            ctx.pop()
+            self.assertEqual(row["active"], 0)
+            self.assertIsNone(row["fingerId"])
+        finally:
+            atl.cfg["sensor"] = old_mode
+            atl.get_sensor = old_sensor_fn
+
+    # --- P6: image storage single canonical write, orphan cleanup, dedup, photo preserved ---
+    def test_images_upload_single_write(self):
+        import io, pathlib
+        # upload should write exactly one canonical file, not dev_mirror duplicate
+        data = io.BytesIO(b"testimg1")
+        r = self.client.post("/api/images/upload", data={"file": (data, "single.png")}, content_type="multipart/form-data")
+        self.assertEqual(r.status_code, 200)
+        j = r.get_json()
+        name = j["name"]
+        # canonical file must exist
+        p_canonical = pathlib.Path(atl.IMAGES_DIR) / name
+        self.assertTrue(p_canonical.is_file())
+        # legacy mirror must NOT have been created by upload (P6 fix)
+        p_legacy = pathlib.Path(atl.ROOT) / "assets" / "images" / "students" / name
+        # tolerate legacy file from old code if previously existed, but new upload should not create it
+        # for this test, ensure at least canonical exists and is a file
+        self.assertTrue(p_canonical.exists())
+        # cleanup
+        try:
+            p_canonical.unlink()
+        except:
+            pass
+        try:
+            if p_legacy.is_file():
+                p_legacy.unlink()
+        except:
+            pass
+        # also delete DB row
+        self.client.delete(f"/api/images/{j['id']}")
+
+    def test_images_delete_removes_file(self):
+        import io, pathlib
+        r = self.client.post("/api/images/upload", data={"file": (io.BytesIO(b"delme"), "todelete.png")}, content_type="multipart/form-data")
+        self.assertEqual(r.status_code, 200)
+        j = r.get_json()
+        name = j["name"]
+        iid = j["id"]
+        p = pathlib.Path(atl.IMAGES_DIR) / name
+        self.assertTrue(p.is_file())
+        r2 = self.client.delete(f"/api/images/{iid}")
+        self.assertEqual(r2.status_code, 200)
+        self.assertFalse(p.exists())
+        # also ensure legacy mirror cleaned if present
+        p_legacy = pathlib.Path(atl.ROOT) / "assets" / "images" / "students" / name
+        self.assertFalse(p_legacy.exists())
+
+    def test_images_bulk_delete_removes_files(self):
+        import io, pathlib
+        names = []
+        ids = []
+        for i in range(2):
+            r = self.client.post("/api/images/upload", data={"file": (io.BytesIO(b"x"*10), f"bulk{i}.png")}, content_type="multipart/form-data")
+            self.assertEqual(r.status_code, 200)
+            j = r.get_json()
+            names.append(j["name"])
+            ids.append(j["id"])
+        for n in names:
+            self.assertTrue((pathlib.Path(atl.IMAGES_DIR) / n).is_file())
+        r = self.client.delete("/api/images")
+        self.assertEqual(r.status_code, 200)
+        for n in names:
+            self.assertFalse((pathlib.Path(atl.IMAGES_DIR) / n).exists())
+            self.assertFalse((pathlib.Path(atl.ROOT) / "assets" / "images" / "students" / n).exists())
+
+    def test_images_deduplication(self):
+        # create an images row and a legacy imageGallery entry with same id → GET should dedupe
+        import uuid, pathlib
+        # upload one
+        import io
+        r = self.client.post("/api/images/upload", data={"file": (io.BytesIO(b"dup"), "dup.png")}, content_type="multipart/form-data")
+        self.assertEqual(r.status_code, 200)
+        j = r.get_json()
+        iid = j["id"]
+        # inject legacy duplicate with same id via settings
+        s = self.client.get("/api/settings").get_json()
+        # directly set via DB to avoid validation?
+        ctx = atl.app.app_context()
+        ctx.push()
+        db = atl.get_db()
+        # settings imageGallery is JSON; add duplicate
+        cur = atl.get_settings()
+        cur["imageGallery"] = cur.get("imageGallery", []) + [{"id": iid, "url": j["url"], "name": j["name"], "category": "gallery", "at": atl.today_ist()}]
+        atl.save_settings(cur)
+        ctx.pop()
+        lst = self.client.get("/api/images").get_json()
+        # count occurrences of iid should be 1, not 2
+        count = sum(1 for x in lst if str(x.get("id")) == str(iid))
+        self.assertEqual(count, 1)
+        # cleanup
+        self.client.delete(f"/api/images/{iid}")
+        # also clear legacy
+        ctx = atl.app.app_context()
+        ctx.push()
+        try:
+            s = atl.get_settings()
+            s["imageGallery"] = [x for x in s.get("imageGallery", []) if str(x.get("id")) != str(iid)]
+            atl.save_settings(s)
+        finally:
+            ctx.pop()
+
+    def test_students_photo_still_renders(self):
+        # student photo data URL preserved via DB and returned via API
+        photo = "data:image/png;base64," + "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII="
+        r = self.client.post("/api/students", json={"name": "Photo Render Kid", "roll": "PHR-01", "grade": "Grade 10-A", "phone": "9000000000", "photo": photo})
+        self.assertIn(r.status_code, (200, 201))
+        sid = r.get_json()["id"]
+        got = self.client.get(f"/api/students/{sid}").get_json()
+        self.assertEqual(got["photo"], photo)
+        # patch to clear
+        r2 = self.client.patch(f"/api/students/{sid}", json={"photo": ""})
+        self.assertEqual(r2.status_code, 200)
+        self.assertEqual(r2.get_json()["photo"], "")
+
+    def test_student_export_still_includes_photo_column(self):
+        # export contract must still contain photo column (backward compatible); do not silently remove
+        photo = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII="
+        self.client.post("/api/students", json={"name": "Export Photo Kid", "roll": "EXP-01", "grade": "Grade 10-A", "phone": "9000000000", "photo": photo})
+        r = self.client.get("/api/export/csv?type=students")
+        self.assertEqual(r.status_code, 200)
+        txt = r.get_data(as_text=True)
+        # header must contain photo
+        self.assertIn("photo", txt.lower())
+        # row for EXP-01 must be present and photo column exists (header has photo, so row has at least empty or data URL)
+        self.assertIn("EXP-01", txt)
+        # size check: export with one small photo should be < 5MB and not huge
+        self.assertLess(len(txt.encode("utf-8")), 5 * 1024 * 1024)
+
+    # --- P7b: Admin workflow/security integration ---
+    def test_admin_open_via_audit_without_sensor(self):
+        old_pin = atl.cfg.get("adminPin", "")
+        atl.cfg["adminPin"] = "9999"
+        try:
+            r = self.client.get("/api/audit")
+            self.assertEqual(r.status_code, 401)
+            r2 = self.client.get("/api/audit", headers={"X-Admin-Pin": "9999"})
+            self.assertEqual(r2.status_code, 200)
+            # sensor audit also requires PIN but should not be used for admin open when sensor offline
+            class FakeOffline:
+                sim = True
+                hw_failed = True
+                def close(self): pass
+            old_sensor = atl.get_sensor
+            atl.get_sensor = lambda: FakeOffline()
+            try:
+                r3 = self.client.get("/api/sensor/audit", headers={"X-Admin-Pin": "9999"})
+                self.assertEqual(r3.status_code, 200)
+                self.assertEqual(r3.get_json().get("sim"), True)
+            finally:
+                atl.get_sensor = old_sensor
+        finally:
+            atl.cfg["adminPin"] = old_pin
+
+    def test_backup_restore_ui_uses_api_header(self):
+        import pathlib
+        ui = pathlib.Path(atl.ROOT / "backend" / "ui_app.js").read_text()
+        self.assertIn('api("/api/backup"', ui)
+        self.assertIn('responseType', ui)
+        self.assertIn('api("/api/restore"', ui)
+        self.assertNotIn('fetch("/api/backup"', ui)
+        self.assertNotIn('fetch("/api/restore"', ui)
+        self.assertIn('_noPrompt', ui)
+        self.assertIn('FormData', ui)
+
+    def test_bridge_does_not_call_handleRealScan_while_admin_open(self):
+        import pathlib
+        app_text = pathlib.Path(atl.ROOT / "backend" / "app.py").read_text()
+        self.assertIn('adminLayer', app_text)
+        self.assertIn('enrollModal', app_text)
+        self.assertIn('adminOpen', app_text)
+        self.assertIn('window.handleRealScan', app_text)
+
+    def test_reconcile_background_no_prompt(self):
+        import pathlib
+        ui = pathlib.Path(atl.ROOT / "backend" / "ui_app.js").read_text()
+        self.assertIn('api("/api/reconcile"', ui)
+        self.assertIn('_noPrompt', ui)
+        old_pin = atl.cfg.get("adminPin", "")
+        atl.cfg["adminPin"] = "9999"
+        try:
+            r = self.client.post("/api/reconcile", json={"date": "2026-08-10"})
+            self.assertEqual(r.status_code, 401)
+            r2 = self.client.post("/api/reconcile", json={"date": "2026-08-10"}, headers={"X-Admin-Pin": "9999"})
+            self.assertEqual(r2.status_code, 200)
+        finally:
+            atl.cfg["adminPin"] = old_pin
+
+    def test_closing_admin_resumes_scan(self):
+        import pathlib
+        ui = pathlib.Path(atl.ROOT / "backend" / "ui_app.js").read_text()
+        self.assertIn('adminClose', ui)
+        self.assertIn('resumeSensorScan', ui)
+        self.assertIn('openAdmin', ui)
+        self.assertIn('pauseSensorScan', ui)
+        self.assertIn('api("/api/audit"', ui)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

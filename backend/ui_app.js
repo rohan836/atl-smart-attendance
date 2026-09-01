@@ -36,21 +36,56 @@ let _enrollPoll = null; let _enrollAbort = false; let _enrollCtrl = null;
 function $(id){ return document.getElementById(id); }
 function esc(s){ if(s==null) return ""; return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;"); }
 function todayISO(){ const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,'0')+"-"+String(d.getDate()).padStart(2,'0'); }
+function toLocalISO(d){ return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,'0')+"-"+String(d.getDate()).padStart(2,'0'); }
 function parseISO(s){ return new Date(s+"T00:00:00"); }
 function fmtDate(d){ if(!d) return ""; const dt=parseISO(d); return dt.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}); }
 function inRange(d,a,b){ return d>=a && d<=b; }
 async function api(path, opts){
   opts = opts || {};
-  opts.headers = Object.assign({"Content-Type":"application/json"}, opts.headers||{});
+  // Don't set JSON content-type for FormData (browser sets multipart boundary)
+  const isFormData = typeof FormData !== 'undefined' && opts.body instanceof FormData;
+  if(!isFormData && !opts.headers?.["Content-Type"]){
+    opts.headers = Object.assign({"Content-Type":"application/json"}, opts.headers||{});
+  } else {
+    opts.headers = Object.assign({}, opts.headers||{});
+  }
   try{
     const pin = sessionStorage.getItem("atl_admin_pin") || "";
     if(pin) opts.headers["X-Admin-Pin"] = pin;
   }catch(e){}
   opts.cache = "no-store";
   let r = await fetch(path, opts);
+  // blob response for backup/download
+  if(opts.responseType === 'blob'){
+    if(!r.ok && r.status===401 && !opts._pinRetry && !opts._noPrompt){
+      let body = null;
+      try{ body = await r.clone().json(); }catch(e){}
+      const msg = (body&&(body.error||""))||"";
+      if(msg.toLowerCase().includes("admin pin")){
+        let pin = null;
+        try{ pin = prompt("Admin PIN required"); }catch(e){}
+        if(pin){
+          try{ sessionStorage.setItem("atl_admin_pin", pin); }catch(e){}
+          opts.headers = Object.assign({}, opts.headers, {"X-Admin-Pin": pin});
+          opts._pinRetry = true;
+          r = await fetch(path, opts);
+          if(r.ok) return r.blob();
+          try{ body = await r.json(); }catch(e){ body=null; }
+          if(r.ok) return r.blob();
+          const err = new Error((body&&(body.error||body.detail||body.reason))||("HTTP "+r.status)); err.status=r.status; err.body=body; throw err;
+        }
+      }
+    }
+    if(!r.ok){
+      let body = null;
+      try{ body = await r.json(); }catch(e){}
+      const err = new Error((body&&(body.error||body.detail||body.reason))||("HTTP "+r.status)); err.status=r.status; err.body=body; throw err;
+    }
+    return r.blob();
+  }
   let body = null;
   try{ body = await r.json(); }catch(e){}
-  if(!r.ok && r.status===401 && !opts._pinRetry){
+  if(!r.ok && r.status===401 && !opts._pinRetry && !opts._noPrompt){
     const msg = (body&&(body.error||""))||"";
     if(msg.toLowerCase().includes("admin pin")){
       let pin = null;
@@ -215,8 +250,9 @@ async function loadTodayAttendance(){
   const t = todayISO();
   try{
     // reconcile today's attendance (marks ABSENT/NOT_SCHEDULED after lateCutoff; backend guards BEFORE_CUTOFF)
+    // background reconcile must not prompt — use _noPrompt so public idle does not spam PIN
     if(!(typeof document!=="undefined" && document.hidden)){
-      try{ await api("/api/reconcile",{method:"POST",body:JSON.stringify({date:t})}); }catch(e){}
+      try{ await api("/api/reconcile",{method:"POST",body:JSON.stringify({date:t}), _noPrompt:true}); }catch(e){}
     }
     const ev = await api("/api/attendance?date="+t, {method:"GET"});
     if(Array.isArray(ev)){
@@ -660,9 +696,9 @@ function renderToday(){
   // Prefer backend KPI if available for authoritative counts (scheduled never includes Not Scheduled)
   let presentAll, lateAll, absentAll, pct;
   if(Kpis && Kpis.date===t && !cf && typeof Kpis.scheduled==="number"){
-    presentAll = Kpis.present||0;
-    lateAll = Kpis.late||0;
-    absentAll = Kpis.absent||Math.max(0, (Kpis.scheduled||scheduledTotal) - presentAll - lateAll);
+    presentAll = Kpis.present ?? 0;
+    lateAll = Kpis.late ?? 0;
+    absentAll = Kpis.absent ?? Math.max(0, (Kpis.scheduled ?? scheduledTotal) - presentAll - lateAll);
     pct = Kpis.scheduled ? Math.round((presentAll+lateAll)/Kpis.scheduled*100) : 0;
   } else {
     presentAll = Attendance.filter(a=>a.date===t && a.studentId).map(a=>{const s=byId.get(a.studentId); return s&& (!cf||s.class===cf) && isWorkingDayForStudent(t, s) ? a:null}).filter(a=>a&&a.status==="Present").length;
@@ -696,8 +732,8 @@ async function renderReports(){
   const scope=reportScope.value, cls=reportClass.value, time=reportTime.value;
   let from,to; const today=todayISO();
   if(time==="today"){from=today;to=today;}
-  else if(time==="week"){const d=new Date();d.setDate(d.getDate()-6);from=d.toISOString().slice(0,10);to=today;}
-  else if(time==="month"){const d=new Date();d.setDate(1);from=d.toISOString().slice(0,10);to=today;}
+  else if(time==="week"){const d=new Date();d.setDate(d.getDate()-6);from=toLocalISO(d);to=today;}
+  else if(time==="month"){const d=new Date();d.setDate(1);from=toLocalISO(d);to=today;}
   else if(time==="academic"){from=Settings.startDate||today;to=Settings.endDate||today;}
   else if(time==="custom"){
     from=reportFrom.value||""; to=reportTo.value||"";
@@ -726,8 +762,21 @@ async function renderReports(){
   const duplicate=list.filter(a=>a.isDuplicate).length;
   // For non-student scope, build stats with backend-aware counts (absent never includes Not Scheduled)
   if(scope!=="student"){
-    const rate = (present+late+absent) ? Math.round((present+late)/(present+late+absent)*100) : 0;
-    reportStats.innerHTML=`<div class="stat"><b>${list.length}</b><label>Records</label></div><div class="stat"><b>${present}</b><label>Present</label></div><div class="stat"><b>${late}</b><label>Late</label></div><div class="stat"><b>${absent}</b><label>Absent</label></div><div class="stat"><b>${notScheduled}</b><label>Not Scheduled</label></div><div class="stat"><b>${duplicate}</b><label>Duplicate</label></div><div class="stat"><b>${rate}%</b><label>Rate</label></div><div class="stat"><b>${from} → ${to}</b><label>Range</label></div>`;
+    // scheduled denominator consistent with kpis/reports (not raw event count)
+    let scheduled = 0;
+    try{
+      const studentsInScope = Students.filter(s=> s.active && (scope!=="class" || !cls || s.class===cls));
+      let d = parseISO(from), endD = parseISO(to);
+      while(d <= endD){
+        const iso = toLocalISO(d);
+        for(const stu of studentsInScope){
+          if(isWorkingDayForStudent(iso, stu)) scheduled++;
+        }
+        d.setDate(d.getDate()+1);
+      }
+    }catch(e){ scheduled = present+late+absent; }
+    const rate = scheduled ? Math.round((present+late)/scheduled*100) : 0;
+    reportStats.innerHTML=`<div class="stat"><b>${list.length}</b><label>Records</label></div><div class="stat"><b>${present}</b><label>Present</label></div><div class="stat"><b>${late}</b><label>Late</label></div><div class="stat"><b>${absent}</b><label>Absent</label></div><div class="stat"><b>${notScheduled}</b><label>Not Scheduled</label></div><div class="stat"><b>${duplicate}</b><label>Duplicate</label></div><div class="stat"><b>${scheduled}</b><label>Scheduled</label></div><div class="stat"><b>${rate}%</b><label>Rate</label></div><div class="stat"><b>${from} → ${to}</b><label>Range</label></div>`;
   }
   if(!list.length){ reportBody.innerHTML=`<tr><td colspan="7"><div class="empty"><b>No records</b>Adjust scope or time range.</div></td></tr>`; return; }
   reportBody.innerHTML=list.map(a=>{
@@ -894,7 +943,7 @@ function renderCalendarMonth(){
   let html=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=>`<div class="calendar-cell head">${d}</div>`).join("");
   for(let i=0;i<first;i++) html+=`<div class="calendar-cell"></div>`;
   for(let d=1;d<=last;d++){
-    const iso=new Date(y,m,d).toISOString().slice(0,10);
+    const iso=toLocalISO(new Date(y,m,d));
     const hol=isHoliday(iso), ov=getOverride(iso), todayCls=iso===todayISO()?" today":"";
     const working = selectedClass ? isWorkingDayForClass(iso, selectedClass) : isWorkingDayUI(iso);
     const typeCls=ov?"override":(hol?(hol.type==="vacation"?"vacation":"holiday"):(working?"working":"holiday"));
@@ -1138,7 +1187,21 @@ function printHTML(htmlContent){
 }
 
 // ---- events ----
-function openAdmin(){
+async function openAdmin(){
+  // require admin auth when PIN configured — use safe header-only check that does not need sensor
+  try{
+    await api("/api/audit", {method:"GET"});
+  }catch(e){
+    if(e.status===401) return;
+    // for other errors (e.g., network when PIN empty), still allow open to preserve offline admin when no PIN
+    const pin = (()=>{ try{ return sessionStorage.getItem("atl_admin_pin") || ""; }catch(_e){ return ""; }})();
+    if(!pin){
+      // check if PIN actually required by probing require_admin logic: if health would show PIN needed, but we already tried audit
+      // if PIN is configured but user cancelled, e.status 401 already handled; otherwise allow open
+    } else {
+      return;
+    }
+  }
   const titles={students:"Students", today:"Today — Attendance", reports:"Reports", calendar:"Calendar — Schedule", settings:"Settings", backup:"Backup — Audit"};
   if(adminTitle) adminTitle.textContent=titles[currentTab]||"Admin";
   // show loading briefly while data refreshes
@@ -1303,8 +1366,8 @@ $("reportCsvBtn").onclick=async()=>{
   let from,to; const today=todayISO();
   const time=reportTime.value;
   if(time==="today"){from=today;to=today;}
-  else if(time==="week"){const d=new Date();d.setDate(d.getDate()-6);from=d.toISOString().slice(0,10);to=today;}
-  else if(time==="month"){const d=new Date();d.setDate(1);from=d.toISOString().slice(0,10);to=today;}
+  else if(time==="week"){const d=new Date();d.setDate(d.getDate()-6);from=toLocalISO(d);to=today;}
+  else if(time==="month"){const d=new Date();d.setDate(1);from=toLocalISO(d);to=today;}
   else if(time==="academic"){from=Settings.startDate||today;to=Settings.endDate||today;}
   else if(time==="custom"){from=reportFrom.value||""; to=reportTo.value||"";}
   else {from=Settings.startDate||today;to=today;}
@@ -1476,20 +1539,26 @@ $("settingsSaveBtn").onclick=async()=>{
   }catch(e){ alert("Failed: "+e.message); }
 };
 $("settingsExportBtn").onclick=()=>exportCSV([["Field","Value"],["School name",$("setSchoolName").value],["Address",$("setSchoolAddress").value],["Late threshold",$("setLateThreshold").value],["Academic year",$("setAcademicYear").value]],"school-settings.csv");
-$("backupDownloadBtn").onclick=()=>{
-  fetch("/api/backup",{cache:"no-store"}).then(r=>{ if(!r.ok) throw 0; return r.blob(); }).then(b=>{
+$("backupDownloadBtn").onclick=async()=>{
+  try{
+    const b = await api("/api/backup", {method:"GET", responseType:"blob"});
     const url=URL.createObjectURL(b), a=document.createElement('a'); a.href=url; a.download="atl-backup-"+todayISO()+".db"; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),1500);
-  }).catch(()=>alert("Backup failed"));
+  }catch(e){
+    alert("Backup failed: "+(e.message||(e.body&&e.body.error)||e.status));
+  }
 };
 $("backupFileInput").onchange=async(e)=>{
   const file=e.target.files&&e.target.files[0]; if(!file) return;
   const status=$("backupStatus"); status.textContent="Restoring…";
   try{
     const form=new FormData(); form.append("file",file);
-    const r=await fetch("/api/restore",{method:"POST",body:form,cache:"no-store"});
-    const body=await r.json(); if(!r.ok) throw new Error(body.error||("HTTP "+r.status));
+    const body = await api("/api/restore", {method:"POST", body:form});
     status.textContent="Restore complete. Reloading data…"; await loadAll();
-  }catch(err){ status.textContent="Restore failed: "+err.message; }
+  }catch(err){
+    const msg = err.message || (err.body && err.body.error) || err.status;
+    status.textContent="Restore failed: "+msg;
+    try{ alert("Restore failed: "+msg); }catch(_e){}
+  }
   e.target.value="";
 };
 if($("auditExportBtn")) $("auditExportBtn").onclick=()=>{

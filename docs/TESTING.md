@@ -8,9 +8,9 @@ Run from the repository root:
 python -m unittest backend.test_app -v
 ```
 
-`backend/test_app.py:20` creates a temporary directory, points `app.DB_PATH` to a temp SQLite file and `IMAGES_DIR` to a temp folder, forces `cfg.sensor=sim` and `uart=/dev/null`, and builds a fresh schema via `get_db()`. The Flask test client exercises `/api/*` without hardware. Tests reset `workingDays`, `classSchedules`, `batchSchedules`, `holidays`, and `overrides` to known states before each case.
+`backend/test_app.py` creates a temporary directory, points `app.DB_PATH` to a temp SQLite file and `IMAGES_DIR` to a temp folder, forces `cfg.sensor=sim` and `uart=/dev/null`, and builds a fresh schema via `get_db()`. The Flask test client exercises `/api/*` without hardware. Tests reset `workingDays`, `classSchedules`, `batchSchedules`, `holidays`, and `overrides` to known states before each case.
 
-Coverage includes health (`/api/health` returns `db_ok true` and `sensor sim`), the production page containing `__ATL_BRIDGE__`, `renderWeekly()` and `sensorScanLoop()` spliced from `ui_app.js`, settings whitelist rejection of `sensor`/`uart`, student create/list with `name/roll/grade` validation, scan `PRESENT` then `DUPLICATE` for the same student, `GET /api/scan/last` sequence monotonicity, no-event behavior for `NO_FINGER`, fingerprint-to-student mapping on real sensor fakes, audit and reconcile payloads, calendar priority with holiday ranges and overrides, `classSchedules` and `batchSchedules` `NOT_SCHEDULED` handling, KPIs and reports over scheduled days only, `POST /api/correction` with audit `ATTENDANCE_CORRECTED`, CSV import/export with `batch/section/parent`, index existence, roll case uniqueness and re-activation (`roll#d{id}` restore), and `GT511C3.is_press_finger` NACK handling. The suite is the contract — failures indicate a behavioral regression, not a test flaw.
+Coverage (83 tests) includes health (`db_ok` and `sensor` mode), production page `__ATL_BRIDGE__`/`renderWeekly`/`sensorScanLoop` splice, settings whitelist, student create/list and `photo` handling, scan `PRESENT` then `DUPLICATE`, `GET /api/scan/last` whitelist `source='GT511C3'` and `CORRECTION`/`RECONCILE` exclusion, no-event `NO_FINGER`, fingerprint-to-student mapping on fakes, audit and reconcile, calendar priority with holiday ranges and `toLocalISO` local-date fix, `classSchedules`/`batchSchedules` `NOT_SCHEDULED`, KPIs and windowed reports `?start&end` with `eligible` scheduled-only, `POST /api/correction` with `DB_LOCK` atomicity, `sensor_audit` `missing_estimate`/`orphans_estimate` and `reenroll` retry, CSV import/export with `batch/section/parent` and `photo` column, image single-write/dedup/delete, indexes, roll case `roll#d{id}`, `is_press_finger` NACK, `DB_LOCK`/`SENSOR_LOCK` ordering, backup/restore PIN `X-Admin-Pin` header-only and `health` `adminPin` strip, `export`/`audit` PIN gates, and `admin` bridge `adminLayer` guard. The suite is the contract — failures indicate a behavioral regression, not a test flaw.
 
 ## Integration testing
 
@@ -18,7 +18,7 @@ Two scan paths are exercised: the active loop `POST /api/scan {waitSec:2}` and t
 
 ## Hardware testing
 
-Hardware tests are manual and isolated from unit tests. `tools/led_test.py` checks CMOS LED control. Wiring follows `PI_SETUP` / `OPERATIONS.md`: VCC 3.3V pin 1 only, GND pin 6, RX GPIO14/pin 8, TX GPIO15/pin 10, `baud 9600`, `enable_uart=1`. When `cfg.sensor=real` without a sensor, health reports `sensor offline` and scans return `SENSOR_DISCONNECT` 503 — this is expected. Keep `keep_led_on=True` so the LED stays on while the service runs (`app.py:62`).
+Hardware tests are manual and isolated from unit tests. `tools/led_test.py` checks CMOS LED control. Wiring follows `PI_SETUP` / `OPERATIONS.md`: VCC 3.3V pin 1 only, GND pin 6, RX GPIO14/pin 8, TX GPIO15/pin 10, `baud 9600`, `enable_uart=1`. When `cfg.sensor=real` without a sensor, health reports `sensor offline` and scans return `SENSOR_DISCONNECT` 503 — this is expected. Keep `keep_led_on=True` so the LED stays on while the service runs.
 
 ## Production verification
 
