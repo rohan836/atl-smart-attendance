@@ -47,6 +47,18 @@ if [ -d "./backend" ]; then
   sudo chown -R $USER:$USER $APP_DIR
 fi
 
+# Ensure runtime config.json exists (never overwrite existing)
+if [ ! -f "$APP_DIR/backend/config.json" ]; then
+  if [ -f "./backend/config.json" ]; then
+    sudo cp ./backend/config.json "$APP_DIR/backend/config.json"
+  elif [ -f "$APP_DIR/backend/config.example.json" ]; then
+    sudo cp "$APP_DIR/backend/config.example.json" "$APP_DIR/backend/config.json"
+  elif [ -f "./backend/config.example.json" ]; then
+    sudo cp ./backend/config.example.json "$APP_DIR/backend/config.json"
+  fi
+  sudo chown $USER:$USER "$APP_DIR/backend/config.json" 2>/dev/null || true
+fi
+
 # Ensure DB path from config exists
 DB_PATH=$(python3 -c "import json;print(json.load(open('$APP_DIR/backend/config.json'))['db'])" 2>/dev/null || echo "$DATA_DIR/attendance.db")
 sudo mkdir -p $(dirname $DB_PATH)
