@@ -344,7 +344,55 @@ tr:hover td{background:var(--paper)}
                   <button class="btn" id="gdriveRefreshListBtn">Refresh cloud list</button>
                   <button class="btn" id="gdriveDisconnectBtn" style="color:var(--danger)">Disconnect</button>
                 </div>
-                <div id="gdriveStatusMsg" style="font-size:11px;color:var(--ink-2);margin-bottom:10px"></div>
+                <div id="gdriveStatusMsg" style="font-size:11px;color:var(--ink-2);margin-bottom:12px"></div>
+
+                <!-- Schedule Configuration -->
+                <div style="border-top:1px solid var(--line);padding-top:12px;margin-bottom:14px">
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                    <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;font-weight:600">Automatic Backup Schedule</div>
+                    <label style="display:flex;align-items:center;gap:6px;font-size:11px;cursor:pointer">
+                      <input type="checkbox" id="gdriveSchedEnabled" style="accent-color:var(--ink);cursor:pointer">
+                      <span>Enable</span>
+                    </label>
+                  </div>
+                  <div id="gdriveSchedBody" style="display:flex;flex-direction:column;gap:10px">
+                    <div style="display:flex;gap:12px;flex-wrap:wrap">
+                      <div style="flex:1 1 110px">
+                        <label style="display:block;font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:4px">Backup Time</label>
+                        <input type="time" id="gdriveSchedTime" value="18:30" style="width:100%;height:30px;border:1px solid var(--line);background:#fff;padding:0 8px;font-size:11px;outline:0">
+                      </div>
+                      <div style="flex:1 1 140px">
+                        <label style="display:block;font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:4px">Frequency</label>
+                        <select id="gdriveSchedFreq" style="width:100%;height:30px;border:1px solid var(--line);background:#fff;padding:0 8px;font-size:11px;outline:0">
+                          <option value="daily">Daily</option>
+                          <option value="interval">Every N Days</option>
+                          <option value="weekdays">Specific Weekdays</option>
+                        </select>
+                      </div>
+                      <div id="gdriveSchedIntervalWrap" style="flex:1 1 100px;display:none">
+                        <label style="display:block;font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:4px">Interval (Days)</label>
+                        <input type="number" id="gdriveSchedInterval" min="1" max="30" value="1" style="width:100%;height:30px;border:1px solid var(--line);background:#fff;padding:0 8px;font-size:11px;outline:0">
+                      </div>
+                    </div>
+                    <div id="gdriveSchedDaysWrap" style="display:none">
+                      <label style="display:block;font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:6px">Active Weekdays</label>
+                      <div id="gdriveSchedDays" style="display:flex;gap:6px;flex-wrap:wrap">
+                        <button type="button" class="btn" data-day="1" style="padding:2px 8px;font-size:10px">Mon</button>
+                        <button type="button" class="btn" data-day="2" style="padding:2px 8px;font-size:10px">Tue</button>
+                        <button type="button" class="btn" data-day="3" style="padding:2px 8px;font-size:10px">Wed</button>
+                        <button type="button" class="btn" data-day="4" style="padding:2px 8px;font-size:10px">Thu</button>
+                        <button type="button" class="btn" data-day="5" style="padding:2px 8px;font-size:10px">Fri</button>
+                        <button type="button" class="btn" data-day="6" style="padding:2px 8px;font-size:10px">Sat</button>
+                        <button type="button" class="btn" data-day="0" style="padding:2px 8px;font-size:10px">Sun</button>
+                      </div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:10px;margin-top:2px">
+                      <button class="btn" id="gdriveSchedSaveBtn" style="min-width:100px">Save Schedule</button>
+                      <span id="gdriveSchedStatus" style="font-size:11px;color:var(--ok)"></span>
+                    </div>
+                  </div>
+                </div>
+
                 <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;font-weight:600;margin-bottom:6px">Available cloud snapshots</div>
                 <div class="table-wrap" style="max-height:160px;overflow-y:auto">
                   <table>

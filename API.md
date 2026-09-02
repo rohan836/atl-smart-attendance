@@ -43,6 +43,7 @@ Base: `http://192.168.1.8:5000` (Pi) or `http://127.0.0.1:5000` (local). Server:
 | POST | `/api/backup/gdrive/device-poll` | header only | Poll Google token endpoint for device authorization completion: returns `{status: "pending"|"slow_down"|"success"|"error"}`. Saves tokens with 0600 permissions upon approval. |
 | POST | `/api/backup/gdrive/device-cancel` | header only | Cancel active device authorization session. |
 | POST | `/api/backup/gdrive/disconnect` | header only | Disconnect Google Drive integration and delete stored token file. |
+| GET/POST | `/api/backup/gdrive/schedule` | header only | Get or update versatile cloud backup schedule `{enabled, time, frequency (daily|interval|weekdays), intervalDays, weekdays}`. Persisted safely in SQLite `settings` table with audit trail. |
 | POST | `/api/backup/gdrive/backup` | header only | Trigger manual Google Drive backup now. Takes online SQLite snapshot under lock, checks integrity, uploads in resumable chunks, prunes retention. |
 | GET | `/api/backup/gdrive/list` | header only | List available cloud backup snapshots in dedicated Drive folder. |
 | POST | `/api/backup/gdrive/restore` | header only | Restore from cloud backup: `POST {fileId}`. Downloads to `.incoming`, validates integrity and tables, creates `.pre_restore.bak`, atomically replaces DB. Operator-initiated only. |

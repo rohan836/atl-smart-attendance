@@ -2210,6 +2210,11 @@ class ApiTest(unittest.TestCase):
 
             r7 = self.client.post("/api/backup/gdrive/restore", json={"fileId": "123"})
             self.assertEqual(r7.status_code, 401)
+
+            r8 = self.client.post("/api/backup/gdrive/schedule", json={"time": "19:00"})
+            self.assertEqual(r8.status_code, 401)
+            r8_ok = self.client.post("/api/backup/gdrive/schedule", json={"time": "19:00"}, headers={"X-Admin-Pin": "4321"})
+            self.assertEqual(r8_ok.status_code, 200)
         finally:
             atl.cfg["adminPin"] = old_pin
 
@@ -2263,6 +2268,65 @@ class ApiTest(unittest.TestCase):
             shutil.rmtree(tdir, ignore_errors=True)
             # Restore pristine database state
             self.client.post("/api/restore", data={"file": (io.BytesIO(orig_backup), "backup.db")}, content_type="multipart/form-data")
+
+    def test_gdrive_schedule_configuration(self):
+        """Tests getting, updating, and validating Google Drive automatic backup schedules."""
+        # 1. GET schedule returns defaults or current settings
+        r_get = self.client.get("/api/backup/gdrive/schedule")
+        self.assertEqual(r_get.status_code, 200)
+        j_get = r_get.get_json()
+        self.assertTrue(j_get.get("ok"))
+        self.assertIn("schedule", j_get)
+        self.assertEqual(j_get["schedule"]["frequency"], "daily")
+
+        # 2. POST invalid time format sanitizes safely to 18:30
+        r_bad = self.client.post("/api/backup/gdrive/schedule", json={"time": "invalid", "frequency": "unknown"})
+        self.assertEqual(r_bad.status_code, 200)
+        self.assertEqual(r_bad.get_json()["schedule"]["time"], "18:30")
+        self.assertEqual(r_bad.get_json()["schedule"]["frequency"], "daily")
+
+        # 3. POST valid interval schedule
+        r_interval = self.client.post("/api/backup/gdrive/schedule", json={
+            "enabled": True,
+            "time": "20:45",
+            "frequency": "interval",
+            "intervalDays": 3
+        })
+        self.assertEqual(r_interval.status_code, 200)
+        sched = r_interval.get_json()["schedule"]
+        self.assertEqual(sched["time"], "20:45")
+        self.assertEqual(sched["frequency"], "interval")
+        self.assertEqual(sched["intervalDays"], 3)
+
+        # Verify status endpoint reflects new schedule
+        r_status = self.client.get("/api/backup/gdrive/status")
+        self.assertEqual(r_status.status_code, 200)
+        j_status = r_status.get_json()
+        self.assertEqual(j_status["scheduleTime"], "20:45")
+        self.assertEqual(j_status["schedule"]["intervalDays"], 3)
+
+        # 4. POST valid weekdays schedule
+        r_weekdays = self.client.post("/api/backup/gdrive/schedule", json={
+            "enabled": False,
+            "time": "12:00",
+            "frequency": "weekdays",
+            "weekdays": [1, 3, 5]
+        })
+        self.assertEqual(r_weekdays.status_code, 200)
+        sched_wd = r_weekdays.get_json()["schedule"]
+        self.assertFalse(sched_wd["enabled"])
+        self.assertEqual(sched_wd["time"], "12:00")
+        self.assertEqual(sched_wd["frequency"], "weekdays")
+        self.assertEqual(sched_wd["weekdays"], [1, 3, 5])
+
+        # Restore default daily schedule
+        self.client.post("/api/backup/gdrive/schedule", json={
+            "enabled": True,
+            "time": "18:30",
+            "frequency": "daily",
+            "intervalDays": 1,
+            "weekdays": [0, 1, 2, 3, 4, 5, 6]
+        })
 
     def test_gdrive_daemon_startup_and_shutdown(self):
         """Tests that background Google Drive daemon can start and cleanly stop without hanging."""

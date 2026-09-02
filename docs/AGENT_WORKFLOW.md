@@ -28,7 +28,7 @@ Every agent must follow this workflow. It keeps changes small, verifiable, and p
 A task is done only when:
 
 - Requested behavior works as specified
-- Tests pass (`98/98` or current suite) and new regression coverage exists
+- Tests pass (`99/99` or current suite) and new regression coverage exists
 - Documentation is accurate and the relevant `docs/*.md` were updated
 - No unrelated changes are in the diff
 - Git diff was reviewed and no secrets or runtime data are included

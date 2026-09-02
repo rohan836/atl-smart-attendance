@@ -1702,12 +1702,104 @@ async function loadGDriveStatus(){
       let info = st.lastBackup ? `Last backup: ${st.lastBackup} (${st.lastBackupName||""})` : "No backups created yet.";
       if(st.lastError) info += ` | Error: ${st.lastError}`;
       if(msg) msg.textContent=info;
+      if(st.schedule){
+        renderGDriveSchedule(st.schedule);
+      }
       loadGDriveList();
     }
   }catch(err){
     if($("gdriveBadge")) { $("gdriveBadge").textContent="Offline"; $("gdriveBadge").className="pill"; }
   }
 }
+
+let _gdriveActiveWeekdays = [0, 1, 2, 3, 4, 5, 6];
+
+function renderGDriveSchedule(sched){
+  if(!$("gdriveSchedEnabled")) return;
+  const enabled = sched.enabled !== false;
+  $("gdriveSchedEnabled").checked = enabled;
+  if($("gdriveSchedTime")) $("gdriveSchedTime").value = sched.time || "18:30";
+  if($("gdriveSchedFreq")) $("gdriveSchedFreq").value = sched.frequency || "daily";
+  if($("gdriveSchedInterval")) $("gdriveSchedInterval").value = sched.intervalDays || 1;
+  
+  _gdriveActiveWeekdays = Array.isArray(sched.weekdays) ? [...sched.weekdays] : [0, 1, 2, 3, 4, 5, 6];
+  updateGDriveScheduleVisibility();
+  updateGDriveWeekdayButtons();
+}
+
+function updateGDriveScheduleVisibility(){
+  const freq = $("gdriveSchedFreq") ? $("gdriveSchedFreq").value : "daily";
+  const intervalWrap = $("gdriveSchedIntervalWrap");
+  const daysWrap = $("gdriveSchedDaysWrap");
+  if(intervalWrap) intervalWrap.style.display = (freq === "interval") ? "block" : "none";
+  if(daysWrap) daysWrap.style.display = (freq === "weekdays") ? "block" : "none";
+}
+
+function updateGDriveWeekdayButtons(){
+  const container = $("gdriveSchedDays");
+  if(!container) return;
+  const btns = container.querySelectorAll("button[data-day]");
+  btns.forEach(btn => {
+    const day = parseInt(btn.dataset.day, 10);
+    if(_gdriveActiveWeekdays.includes(day)){
+      btn.classList.add("primary");
+    } else {
+      btn.classList.remove("primary");
+    }
+  });
+}
+
+if($("gdriveSchedFreq")) $("gdriveSchedFreq").onchange = updateGDriveScheduleVisibility;
+
+if($("gdriveSchedDays")) $("gdriveSchedDays").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-day]");
+  if(!btn) return;
+  const day = parseInt(btn.dataset.day, 10);
+  if(_gdriveActiveWeekdays.includes(day)){
+    if(_gdriveActiveWeekdays.length > 1){
+      _gdriveActiveWeekdays = _gdriveActiveWeekdays.filter(d => d !== day);
+    }
+  } else {
+    _gdriveActiveWeekdays.push(day);
+  }
+  updateGDriveWeekdayButtons();
+});
+
+if($("gdriveSchedSaveBtn")) $("gdriveSchedSaveBtn").onclick = async () => {
+  const btn = $("gdriveSchedSaveBtn");
+  const statusEl = $("gdriveSchedStatus");
+  try {
+    btn.disabled = true;
+    btn.textContent = "Saving…";
+    if(statusEl) statusEl.textContent = "";
+
+    const payload = {
+      enabled: $("gdriveSchedEnabled") ? $("gdriveSchedEnabled").checked : true,
+      time: $("gdriveSchedTime") ? $("gdriveSchedTime").value : "18:30",
+      frequency: $("gdriveSchedFreq") ? $("gdriveSchedFreq").value : "daily",
+      intervalDays: $("gdriveSchedInterval") ? parseInt($("gdriveSchedInterval").value, 10) || 1 : 1,
+      weekdays: _gdriveActiveWeekdays
+    };
+
+    const res = await api("/api/backup/gdrive/schedule", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+
+    if(res && res.ok){
+      if(statusEl) statusEl.textContent = "Schedule saved.";
+      setTimeout(() => { if(statusEl) statusEl.textContent = ""; }, 3000);
+      await loadGDriveStatus();
+    } else {
+      alert((res && res.error) || "Failed to save schedule");
+    }
+  } catch(e){
+    alert("Save schedule failed: " + (e.message || (e.body && e.body.error) || "error"));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Save Schedule";
+  }
+};
 
 function checkAdminRoute(){
   const h = window.location.hash || "";

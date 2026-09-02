@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """ATL Smart Attendance — Flask backend (GT-511C3 UART + SQLite). Offline-first."""
 import os, json, sqlite3, time, uuid, pathlib, datetime, re, threading, base64, secrets
+# pyrefly: ignore [missing-import]
 from flask import Flask, request, jsonify, send_from_directory, g, Response, has_app_context, redirect
 from flask_cors import CORS
 
@@ -1247,6 +1248,7 @@ def backup_db():
             db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         except:
             pass
+        # pyrefly: ignore [missing-import]
         from flask import send_file
         # Ensure file exists
         if not os.path.exists(DB_PATH):
@@ -1416,6 +1418,57 @@ def _gdrive_config():
         "schedule_time": schedule_time,
     }
 
+def _clean_gdrive_schedule(raw: dict) -> dict:
+    """Validate and sanitize gdriveSchedule dict."""
+    if not isinstance(raw, dict):
+        raw = {}
+    enabled = bool(raw.get("enabled", True))
+    raw_time = str(raw.get("time") or "18:30").strip()
+    try:
+        datetime.datetime.strptime(raw_time[:5], "%H:%M")
+        sched_time = raw_time[:5]
+    except Exception:
+        sched_time = "18:30"
+    
+    freq = str(raw.get("frequency") or "daily").strip().lower()
+    if freq not in ("daily", "interval", "weekdays"):
+        freq = "daily"
+        
+    try:
+        interval_days = int(raw.get("intervalDays", 1))
+        if interval_days < 1: interval_days = 1
+        elif interval_days > 30: interval_days = 30
+    except Exception:
+        interval_days = 1
+        
+    raw_weekdays = raw.get("weekdays")
+    if isinstance(raw_weekdays, list):
+        cleaned_wd = []
+        for d in raw_weekdays:
+            try:
+                di = int(d)
+                if 0 <= di <= 6 and di not in cleaned_wd:
+                    cleaned_wd.append(di)
+            except Exception: pass
+        if not cleaned_wd:
+            cleaned_wd = [0, 1, 2, 3, 4, 5, 6]
+    else:
+        cleaned_wd = [0, 1, 2, 3, 4, 5, 6]
+        
+    return {
+        "enabled": enabled,
+        "time": sched_time,
+        "frequency": freq,
+        "intervalDays": interval_days,
+        "weekdays": sorted(cleaned_wd)
+    }
+
+def _get_gdrive_schedule() -> dict:
+    """Retrieve effective gdriveSchedule from SQLite settings or defaults."""
+    s = get_settings()
+    raw = s.get("gdriveSchedule")
+    return _clean_gdrive_schedule(raw)
+
 _GDRIVE_STATE = {
     "last_backup_time": None,
     "last_backup_name": None,
@@ -1537,6 +1590,7 @@ def gdrive_status():
             else:
                 device_flow_info = None
 
+        sched = _get_gdrive_schedule()
         return jsonify({
             "enabled": gc["enabled"],
             "configured": is_conf,
@@ -1548,12 +1602,41 @@ def gdrive_status():
             "lastError": _GDRIVE_STATE["last_error"],
             "inProgress": _GDRIVE_STATE["in_progress"],
             "folderName": gc["folder_name"],
-            "scheduleTime": gc["schedule_time"],
+            "scheduleTime": sched["time"],
+            "schedule": sched,
         })
     except Exception as e:
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
+
+@app.route("/api/backup/gdrive/schedule", methods=["GET", "POST"])
+@require_admin
+def gdrive_schedule_endpoint():
+    if request.method == "GET":
+        return jsonify({"ok": True, "schedule": _get_gdrive_schedule()})
+    try:
+        j = request.get_json(force=True) or {}
+    except Exception:
+        return jsonify({"error": "invalid JSON"}), 400
+
+    clean_sched = _clean_gdrive_schedule(j)
+    
+    # Save into SQLite settings under key "gdriveSchedule"
+    with DB_LOCK:
+        cur_settings = get_settings()
+        cur_settings["gdriveSchedule"] = clean_sched
+        save_settings(cur_settings)
+        try:
+            db = get_db()
+            db.execute(
+                "INSERT INTO audit (id, at, action, details) VALUES (?, ?, ?, ?)",
+                (str(uuid.uuid4()), f"{today_ist()} {now_ist()}", "GDRIVE_SCHEDULE_CHANGED", json.dumps(clean_sched))
+            )
+            db.commit()
+        except Exception: pass
+
+    return jsonify({"ok": True, "schedule": clean_sched})
 
 @app.route("/api/backup/gdrive/device-start", methods=["GET", "POST"])
 @require_admin
@@ -2597,23 +2680,72 @@ def stop_reconcile_daemon(timeout=5):
 start_reconcile_daemon()
 
 def _gdrive_backup_daemon():
-    """Background daemon loop checking if daily Google Drive backup should run."""
+    """Background daemon loop checking if Google Drive backup should run based on configured schedule."""
     while not _gdrive_stop_event.is_set():
         try:
             gc = _gdrive_config()
             if gc["enabled"] and gc["client_id"] and gc["client_secret"]:
-                today = today_ist()
-                now_t = now_ist()[:5]
-                sched_t = gc.get("schedule_time", "18:30")
-                already_done = bool(_GDRIVE_STATE["last_backup_time"] and _GDRIVE_STATE["last_backup_time"].startswith(today) and _GDRIVE_STATE["last_status"] == "SUCCESS")
-                if not already_done and now_t >= sched_t and not _GDRIVE_STATE["in_progress"]:
-                    with app.app_context():
-                        print(f"[GDRIVE] Starting scheduled daily backup for {today}...")
-                        res = run_gdrive_backup(trigger="SCHEDULED")
-                        if res.get("ok"):
-                            print(f"[GDRIVE] Backup completed successfully: {res.get('name')}")
-                        else:
-                            print(f"[GDRIVE ERROR] Backup failed: {res.get('error')}")
+                sched = _get_gdrive_schedule()
+                if sched.get("enabled", True):
+                    today = today_ist()
+                    now_t = now_ist()[:5]
+                    sched_t = sched.get("time", "18:30")
+                    already_done = bool(_GDRIVE_STATE["last_backup_time"] and _GDRIVE_STATE["last_backup_time"].startswith(today) and _GDRIVE_STATE["last_status"] == "SUCCESS")
+
+                    # Check if today has already run, or time hasn't arrived yet, or backup is in progress
+                    if not already_done and now_t >= sched_t and not _GDRIVE_STATE["in_progress"]:
+                        should_run = False
+                        freq = sched.get("frequency", "daily")
+
+                        if freq == "daily":
+                            should_run = True
+                        elif freq == "weekdays":
+                            # Python weekday(): Mon=0..Sun=6 -> map to Sun=0..Sat=6
+                            tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+                            today_d = datetime.datetime.now(tz).date()
+                            cur_wday = (today_d.weekday() + 1) % 7
+                            if cur_wday in sched.get("weekdays", []):
+                                should_run = True
+                        elif freq == "interval":
+                            interval_n = sched.get("intervalDays", 1)
+                            tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+                            today_d = datetime.datetime.now(tz).date()
+                            
+                            # Find last successful backup date from state or audit table
+                            last_date_str = None
+                            if _GDRIVE_STATE.get("last_backup_time"):
+                                last_date_str = _GDRIVE_STATE["last_backup_time"][:10]
+                            else:
+                                try:
+                                    with app.app_context():
+                                        db = get_db()
+                                        with DB_LOCK:
+                                            row = db.execute("SELECT at FROM audit WHERE action='GDRIVE_BACKUP' ORDER BY at DESC LIMIT 1").fetchone()
+                                            if row and row[0]:
+                                                last_date_str = row[0][:10]
+                                except Exception:
+                                    pass
+
+                            if last_date_str:
+                                try:
+                                    last_d = datetime.date.fromisoformat(last_date_str)
+                                    days_elapsed = (today_d - last_d).days
+                                    if days_elapsed >= interval_n:
+                                        should_run = True
+                                except Exception:
+                                    should_run = True
+                            else:
+                                # Never backed up, run now
+                                should_run = True
+
+                        if should_run:
+                            with app.app_context():
+                                print(f"[GDRIVE] Starting scheduled backup for {today} (freq: {freq})...")
+                                res = run_gdrive_backup(trigger="SCHEDULED")
+                                if res.get("ok"):
+                                    print(f"[GDRIVE] Backup completed successfully: {res.get('name')}")
+                                else:
+                                    print(f"[GDRIVE ERROR] Backup failed: {res.get('error')}")
         except Exception as e:
             print(f"[GDRIVE DAEMON EXCEPTION] {e}")
         _gdrive_stop_event.wait(60)
