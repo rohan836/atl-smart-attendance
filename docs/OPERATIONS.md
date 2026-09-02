@@ -75,6 +75,18 @@ Backup runs `PRAGMA wal_checkpoint(TRUNCATE)` and sends the SQLite file as `atl_
 - **Grandfather-Father-Son (GFS) retention:** After every successful backup, the engine prunes historical cloud backups, retaining the last 7 daily, last 4 weekly, and last 12 monthly snapshots.
 - **Operator-initiated cloud restore:** Cloud backups NEVER restore automatically. In the Backup tab, operators can view available cloud snapshots and trigger a restore. The cloud snapshot is downloaded to `.incoming`, validated against SQLite header, `PRAGMA integrity_check`, and schema tables, backed up locally to `.pre_restore.bak`, and atomically replaces the live database while holding `SENSOR_LOCK` and `DB_LOCK`. All cloud backup and restore actions are logged to `audit`.
 
+**Telegram Secondary Cloud Backup (automated document delivery):**
+- **Architecture:** Sends verified SQLite snapshot documents to a designated Telegram chat or channel via the official Telegram Bot API `sendDocument` (`multipart/form-data`). Operates independently from Google Drive and local backups — Telegram network or API errors never block attendance scanning, reconciliation, or other backup routines.
+- **Configuration & Security:** Configured in `backend/config.json` under `"telegram"`: `{"enabled": true, "botToken": "...", "chatId": "..."}` or via environment variables (`ATL_TELEGRAM_BOT_TOKEN`, `ATL_TELEGRAM_CHAT_ID`). Bot tokens are strictly protected on the backend, redacted from all API responses, log files, UI views, and audit entries.
+- **Automated Scheduling:** Independent schedule evaluated by background worker (`telegramSchedule` in SQLite settings) matching identical time/frequency semantics as Google Drive, preventing duplicate uploads on the same calendar date.
+- **On-demand execution:** Operators can trigger on-demand Telegram backups via "Back Up Now" in the Unified Backup Manager when Telegram is selected.
+
+**USB Local Storage Backup (physical offline layer):**
+- **Architecture:** Detects external USB storage partitions mounted on the system (e.g. `/media/usb` on Linux/Pi or removable drive roots on Windows). Writes verified SQLite snapshots into `ATL-Attendance-Backups/atl_backup_YYYYMMDD_HHMMSS.db`.
+- **Integrity & Fault Tolerance:** Validates SQLite header `SQLite format 3\x00` and `PRAGMA integrity_check == 'ok'` before copying snapshot to USB. If no USB drive is connected, status cleanly reports `Not connected` / `USB_NOT_FOUND` without error spam or blocking foreground operations.
+- **Automated Scheduling:** Evaluated by background worker (`usbSchedule` in SQLite settings) when USB storage is present. Same-day duplicate prevention ensures only one automatic snapshot per scheduled cycle.
+- **On-demand execution:** Supports manual trigger via "Back Up Now" when USB is selected. Dynamic detection updates instantly via the "↻ Refresh" button when USB devices are attached or detached.
+
 
 **Sensor audit (count-based only, not ID-level):** `GET /api/sensor/audit` holds `SENSOR_LOCK`, returns `{db_count, db_ids, sensor_count, sensor_ids:[], orphans_estimate, missing_estimate}` — `sensor_ids` stays `[]` (driver has no proven ID enumeration), `orphans_estimate = max(0, sensor-db)` (sensor>db, orphan templates), `missing_estimate = max(0, db-sensor)` (db>sensor, missing after replacement). `sim` or offline returns `sim:true`. Use `led_test.py` only for diagnostics.
 

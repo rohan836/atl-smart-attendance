@@ -14,7 +14,8 @@ Wiring: VCC→3.3V pin1, GND→pin6, RX→GPIO14/pin8, TX→GPIO15/pin10.
 
 ```bash
 python backend/app.py          # http://127.0.0.1:5000/
-python -m unittest backend.test_app -v
+python -m unittest backend.test_app -v       # 113 backend unit tests
+python -m unittest backend.test_ui_e2e -v    # 10 Playwright E2E browser tests
 ```
 
 Pi: `http://192.168.1.8:5000/` · `sudo systemctl status atl-attendance` · `journalctl -u atl-attendance -f`
@@ -23,7 +24,7 @@ Deploy: `powershell -File tools/deploy.ps1` — never copies `attendance.db` or 
 
 ## UI architecture
 
-`ATL-Smart-Attendance-Production.html` = shell/markup/CSS · `backend/ui_app.js` = behavior · `backend/app.py` = serves HTML with JS injected · `backend/gt511c3.py` = driver · `backend/gdrive_backup.py` = cloud backup. Redesign: HTML/CSS in the HTML file, behavior in `ui_app.js`; current release `v1.0.1`; rollback via Git tag `v1.0.0` (see `docs/VERSIONS.md`).
+`ATL-Smart-Attendance-Production.html` = shell/markup/CSS · `backend/ui_app.js` = behavior · `backend/app.py` = serves HTML with JS injected · `backend/gt511c3.py` = driver · `backend/gdrive_backup.py` = cloud backup. Redesign: HTML/CSS in the HTML file, behavior in `ui_app.js`; current production release `v1.1.0` (`da89bdf`); rollback via Git tags `v1.0.1` and `v1.0.0` (see `docs/VERSIONS.md`).
 
 ## Docs
 
