@@ -1219,7 +1219,7 @@ function updateTabs(){
   if(currentTab==="reports") renderReports();
   if(currentTab==="calendar"){ renderHolidays(); renderOverrides(); renderCalendarMonth(); }
   if(currentTab==="settings") renderClasses();
-  if(currentTab==="backup"){ renderAudit(); loadGDriveStatus(); loadTelegramStatus(); loadUsbStatus(); }
+  if(currentTab==="backup"){ renderAudit(); loadBackupManagerStatus(); }
 }
 document.getElementById("openAdminBtn").onclick=openAdmin;
 const _frontEnrollBtn=document.getElementById("openEnrollBtn"); if(_frontEnrollBtn) _frontEnrollBtn.onclick=openNewStudent;
@@ -1567,8 +1567,14 @@ if($("auditExportBtn")) $("auditExportBtn").onclick=()=>{
 };
 $("auditClearBtn").onclick=()=>alert("Clear audit is managed on the backend.");
 
-// Google Drive Cloud Backup (Device Flow)
+// --- Unified Backup Manager Controller ---
 let _gdrivePollTimer = null;
+let _unifiedActiveWeekdays = [0, 1, 2, 3, 4, 5, 6];
+let _destStates = {
+  gdrive: null,
+  telegram: null,
+  usb: null
+};
 
 function stopGDrivePolling(){
   if(_gdrivePollTimer){
@@ -1580,8 +1586,10 @@ function stopGDrivePolling(){
 function renderDeviceCodeBox(df){
   const codeBox = $("gdriveDeviceCodeBox");
   const initBox = $("gdriveInitBox");
+  const authBox = $("gdriveAuthBox");
   if(!codeBox) return;
   if(df && df.userCode){
+    if(authBox) authBox.style.display = "block";
     if(initBox) initBox.style.display = "none";
     codeBox.style.display = "block";
     if($("gdriveUserCodeDisplay")) $("gdriveUserCodeDisplay").textContent = df.userCode;
@@ -1591,7 +1599,7 @@ function renderDeviceCodeBox(df){
     }
     if($("gdriveDevicePollStatus")) $("gdriveDevicePollStatus").textContent = "Waiting for approval…";
   } else {
-    if(initBox) initBox.style.display = "block";
+    if(initBox) initBox.style.display = "flex";
     codeBox.style.display = "none";
   }
 }
@@ -1606,14 +1614,14 @@ function startGDrivePolling(intervalSec){
         stopGDrivePolling();
         renderDeviceCodeBox(null);
         alert("Connected to Google Drive successfully!");
-        await loadGDriveStatus();
+        await loadBackupManagerStatus();
       } else if(res && (res.status === "pending" || res.status === "slow_down")){
         if($("gdriveDevicePollStatus")) $("gdriveDevicePollStatus").textContent = "Waiting for approval…";
       } else if(res && res.status === "expired"){
         stopGDrivePolling();
         renderDeviceCodeBox(null);
         if($("gdriveDevicePollStatus")) $("gdriveDevicePollStatus").textContent = "Session expired.";
-        await loadGDriveStatus();
+        await loadBackupManagerStatus();
       }
     } catch(e){
       stopGDrivePolling();
@@ -1641,7 +1649,7 @@ async function startDeviceFlow(){
     const m = (err.body && err.body.error) || err.message || "Failed to start Google authorization";
     alert("Google Drive: " + m);
   } finally {
-    if(btn){ btn.disabled = false; btn.textContent = "Connect Google Drive"; }
+    if(btn){ btn.disabled = false; btn.textContent = "Pair with Google"; }
   }
 }
 
@@ -1651,97 +1659,64 @@ async function cancelDeviceFlow(){
   try {
     await api("/api/backup/gdrive/device-cancel", { method: "POST" });
   } catch(_){}
-  await loadGDriveStatus();
+  await loadBackupManagerStatus();
 }
 
-async function loadGDriveStatus(){
-  if(!$("gdriveBadge")) return;
-  try{
-    const st = await api("/api/backup/gdrive/status");
-    const badge = $("gdriveBadge");
-    const authBox = $("gdriveAuthBox");
-    const actionBox = $("gdriveActionBox");
-    const msg = $("gdriveStatusMsg");
-    if(!st.enabled){
-      badge.textContent="Disabled"; badge.className="pill";
-      if(authBox) authBox.style.display="none";
-      if(actionBox) actionBox.style.display="none";
-      stopGDrivePolling();
-    }else if(!st.configured){
-      badge.textContent="Not configured"; badge.className="pill";
-      if(authBox) authBox.style.display="block";
-      if(actionBox) actionBox.style.display="none";
-      renderDeviceCodeBox(null);
-      stopGDrivePolling();
-      if($("gdriveAuthNotice")) $("gdriveAuthNotice").textContent="OAuth Client ID and Secret must be configured in backend config.json before connecting.";
-      if($("gdriveDeviceStartBtn")) $("gdriveDeviceStartBtn").onclick=(e)=>{
-        e.preventDefault();
-        alert("Google Drive backup is not configured yet.\n\nPlease enter your Google OAuth Client ID and Secret (TVs and Limited Input devices) in backend config.json first.");
-      };
-    }else if(!st.authenticated){
-      badge.textContent="Auth required"; badge.className="pill danger";
-      if(authBox) authBox.style.display="block";
-      if(actionBox) actionBox.style.display="none";
-      if($("gdriveAuthNotice")) $("gdriveAuthNotice").textContent="Authorizes directly with Google Device Flow. Works seamlessly from Android or PC without redirect URIs.";
-      if($("gdriveDeviceStartBtn")) $("gdriveDeviceStartBtn").onclick = startDeviceFlow;
-      if($("gdriveDeviceCancelBtn")) $("gdriveDeviceCancelBtn").onclick = cancelDeviceFlow;
+function updateUnifiedLastBackupInfo(dests){
+  const infoEl = $("backupLastInfo");
+  if(!infoEl) return;
+  let newestStr = null;
+  let newestDest = null;
+  let newestName = null;
+  const labels = ["Google Drive", "Telegram", "USB Drive"];
 
-      if(st.deviceFlow){
-        renderDeviceCodeBox(st.deviceFlow);
-        if(!_gdrivePollTimer) startGDrivePolling(st.deviceFlow.interval || 5);
-      } else {
-        renderDeviceCodeBox(null);
-        stopGDrivePolling();
+  dests.forEach((d, idx) => {
+    if(d && d.lastBackup){
+      if(!newestStr || d.lastBackup > newestStr){
+        newestStr = d.lastBackup;
+        newestName = d.lastBackupName || "";
+        newestDest = labels[idx];
       }
-    }else{
-      badge.textContent=st.inProgress?"Uploading…":(st.lastStatus==="SUCCESS"?"Connected":"Ready");
-      badge.className=st.lastStatus==="SUCCESS"?"pill ok":"pill";
-      if(authBox) authBox.style.display="none";
-      if(actionBox) actionBox.style.display="block";
-      stopGDrivePolling();
-      let info = st.lastBackup ? `Last backup: ${st.lastBackup} (${st.lastBackupName||""})` : "No backups created yet.";
-      if(st.lastError) info += ` | Error: ${st.lastError}`;
-      if(msg) msg.textContent=info;
-      if(st.schedule){
-        renderGDriveSchedule(st.schedule);
-      }
-      loadGDriveList();
     }
-  }catch(err){
-    if($("gdriveBadge")) { $("gdriveBadge").textContent="Offline"; $("gdriveBadge").className="pill"; }
+  });
+
+  if(newestStr){
+    infoEl.textContent = `Last backup: ${newestStr}${newestName ? ` (${newestName})` : ""} · ${newestDest}`;
+  } else {
+    infoEl.textContent = "Last backup: Never";
   }
 }
 
-let _gdriveActiveWeekdays = [0, 1, 2, 3, 4, 5, 6];
-
-function renderGDriveSchedule(sched){
-  if(!$("gdriveSchedEnabled")) return;
+function renderUnifiedSchedule(sched){
+  if(!$("backupSchedEnabled")) return;
   const enabled = sched.enabled !== false;
-  $("gdriveSchedEnabled").checked = enabled;
-  if($("gdriveSchedTime")) $("gdriveSchedTime").value = sched.time || "18:30";
-  if($("gdriveSchedFreq")) $("gdriveSchedFreq").value = sched.frequency || "daily";
-  if($("gdriveSchedInterval")) $("gdriveSchedInterval").value = sched.intervalDays || 1;
-  
-  _gdriveActiveWeekdays = Array.isArray(sched.weekdays) ? [...sched.weekdays] : [0, 1, 2, 3, 4, 5, 6];
-  updateGDriveScheduleVisibility();
-  updateGDriveWeekdayButtons();
+  $("backupSchedEnabled").checked = enabled;
+  const label = $("backupSchedToggleLabel");
+  if(label) label.textContent = enabled ? "ON" : "OFF";
+  if($("backupSchedTime")) $("backupSchedTime").value = sched.time || "18:30";
+  if($("backupSchedFreq")) $("backupSchedFreq").value = sched.frequency || "daily";
+  if($("backupSchedInterval")) $("backupSchedInterval").value = sched.intervalDays || 1;
+
+  _unifiedActiveWeekdays = Array.isArray(sched.weekdays) ? [...sched.weekdays] : [0, 1, 2, 3, 4, 5, 6];
+  updateUnifiedScheduleVisibility();
+  updateUnifiedWeekdayButtons();
 }
 
-function updateGDriveScheduleVisibility(){
-  const freq = $("gdriveSchedFreq") ? $("gdriveSchedFreq").value : "daily";
-  const intervalWrap = $("gdriveSchedIntervalWrap");
-  const daysWrap = $("gdriveSchedDaysWrap");
+function updateUnifiedScheduleVisibility(){
+  const freq = $("backupSchedFreq") ? $("backupSchedFreq").value : "daily";
+  const intervalWrap = $("backupSchedIntervalWrap");
+  const daysWrap = $("backupSchedDaysWrap");
   if(intervalWrap) intervalWrap.style.display = (freq === "interval") ? "block" : "none";
   if(daysWrap) daysWrap.style.display = (freq === "weekdays") ? "block" : "none";
 }
 
-function updateGDriveWeekdayButtons(){
-  const container = $("gdriveSchedDays");
+function updateUnifiedWeekdayButtons(){
+  const container = $("backupSchedDays");
   if(!container) return;
   const btns = container.querySelectorAll("button[data-day]");
   btns.forEach(btn => {
     const day = parseInt(btn.dataset.day, 10);
-    if(_gdriveActiveWeekdays.includes(day)){
+    if(_unifiedActiveWeekdays.includes(day)){
       btn.classList.add("primary");
     } else {
       btn.classList.remove("primary");
@@ -1749,50 +1724,157 @@ function updateGDriveWeekdayButtons(){
   });
 }
 
-if($("gdriveSchedFreq")) $("gdriveSchedFreq").onchange = updateGDriveScheduleVisibility;
+async function loadBackupManagerStatus(){
+  if(!$("backupManagerCard")) return;
+  try{
+    const [gdRes, tgRes, usbRes] = await Promise.allSettled([
+      api("/api/backup/gdrive/status"),
+      api("/api/backup/telegram/status"),
+      api("/api/backup/usb/status")
+    ]);
 
-if($("gdriveSchedDays")) $("gdriveSchedDays").addEventListener("click", (e) => {
+    const gd = gdRes.status === "fulfilled" ? gdRes.value : null;
+    const tg = tgRes.status === "fulfilled" ? tgRes.value : null;
+    const usb = usbRes.status === "fulfilled" ? usbRes.value : null;
+
+    _destStates.gdrive = gd;
+    _destStates.telegram = tg;
+    _destStates.usb = usb;
+
+    // 1. Google Drive Row
+    const gdCheck = $("destCheckGdrive");
+    const gdStatus = $("destStatusGdrive");
+    const gdAuthBox = $("gdriveAuthBox");
+    if(gdCheck && gd) gdCheck.checked = gd.enabled !== false;
+    if(gdStatus){
+      if(!gd){
+        gdStatus.textContent = "Offline"; gdStatus.className = "pill";
+      } else if(!gd.enabled){
+        gdStatus.textContent = "Disabled"; gdStatus.className = "pill";
+        if(gdAuthBox) gdAuthBox.style.display = "none";
+      } else if(!gd.configured){
+        gdStatus.textContent = "Disabled"; gdStatus.className = "pill";
+        if(gdAuthBox) gdAuthBox.style.display = "none";
+      } else if(!gd.authenticated){
+        gdStatus.textContent = "Not paired"; gdStatus.className = "pill danger";
+        if(gdAuthBox) gdAuthBox.style.display = "block";
+        if(gd.deviceFlow){
+          renderDeviceCodeBox(gd.deviceFlow);
+          if(!_gdrivePollTimer) startGDrivePolling(gd.deviceFlow.interval || 5);
+        } else {
+          renderDeviceCodeBox(null);
+        }
+      } else {
+        gdStatus.textContent = "Ready"; gdStatus.className = "pill active";
+        if(gdAuthBox) gdAuthBox.style.display = "none";
+      }
+    }
+
+    // 2. Telegram Row
+    const tgCheck = $("destCheckTelegram");
+    const tgStatus = $("destStatusTelegram");
+    if(tgCheck && tg) tgCheck.checked = tg.enabled !== false;
+    if(tgStatus){
+      if(!tg){
+        tgStatus.textContent = "Offline"; tgStatus.className = "pill";
+      } else if(!tg.enabled){
+        tgStatus.textContent = "Disabled"; tgStatus.className = "pill";
+      } else if(!tg.configured){
+        tgStatus.textContent = "Not configured"; tgStatus.className = "pill";
+      } else if(tg.lastStatus === "ERROR"){
+        tgStatus.textContent = "Error"; tgStatus.className = "pill danger";
+      } else {
+        tgStatus.textContent = "Ready"; tgStatus.className = "pill active";
+      }
+    }
+
+    // 3. USB Row
+    const usbCheck = $("destCheckUsb");
+    const usbStatus = $("destStatusUsb");
+    if(usbCheck && usb) usbCheck.checked = usb.enabled !== false;
+    if(usbStatus){
+      if(!usb){
+        usbStatus.textContent = "Offline"; usbStatus.className = "pill";
+      } else if(!usb.connected){
+        usbStatus.textContent = "Not connected"; usbStatus.className = "pill";
+      } else if(!usb.enabled){
+        usbStatus.textContent = "Disabled"; usbStatus.className = "pill";
+      } else if(usb.lastStatus === "ERROR"){
+        usbStatus.textContent = "Error"; usbStatus.className = "pill danger";
+      } else {
+        usbStatus.textContent = "Ready"; usbStatus.className = "pill active";
+      }
+    }
+
+    // 4. Shared Schedule
+    const activeSched = (gd && gd.schedule) || (tg && tg.schedule) || (usb && usb.schedule);
+    if(activeSched) renderUnifiedSchedule(activeSched);
+
+    // 5. Last Backup Info
+    updateUnifiedLastBackupInfo([gd, tg, usb]);
+
+  }catch(err){
+    console.warn("loadBackupManagerStatus error:", err);
+  }
+}
+
+// Backward-compatibility aliases
+function loadGDriveStatus(){ return loadBackupManagerStatus(); }
+function loadTelegramStatus(){ return loadBackupManagerStatus(); }
+function loadUsbStatus(){ return loadBackupManagerStatus(); }
+
+// Schedule Event Listeners
+if($("backupSchedFreq")) $("backupSchedFreq").onchange = updateUnifiedScheduleVisibility;
+
+if($("backupSchedEnabled")) $("backupSchedEnabled").onchange = function(){
+  const label = $("backupSchedToggleLabel");
+  if(label) label.textContent = this.checked ? "ON" : "OFF";
+};
+
+if($("backupSchedDays")) $("backupSchedDays").addEventListener("click", (e) => {
   const btn = e.target.closest("button[data-day]");
   if(!btn) return;
   const day = parseInt(btn.dataset.day, 10);
-  if(_gdriveActiveWeekdays.includes(day)){
-    if(_gdriveActiveWeekdays.length > 1){
-      _gdriveActiveWeekdays = _gdriveActiveWeekdays.filter(d => d !== day);
+  if(_unifiedActiveWeekdays.includes(day)){
+    if(_unifiedActiveWeekdays.length > 1){
+      _unifiedActiveWeekdays = _unifiedActiveWeekdays.filter(d => d !== day);
     }
   } else {
-    _gdriveActiveWeekdays.push(day);
+    _unifiedActiveWeekdays.push(day);
   }
-  updateGDriveWeekdayButtons();
+  updateUnifiedWeekdayButtons();
 });
 
-if($("gdriveSchedSaveBtn")) $("gdriveSchedSaveBtn").onclick = async () => {
-  const btn = $("gdriveSchedSaveBtn");
-  const statusEl = $("gdriveSchedStatus");
+if($("backupSchedSaveBtn")) $("backupSchedSaveBtn").onclick = async () => {
+  const btn = $("backupSchedSaveBtn");
+  const statusEl = $("backupSchedStatus");
   try {
     btn.disabled = true;
     btn.textContent = "Saving…";
     if(statusEl) statusEl.textContent = "";
 
     const payload = {
-      enabled: $("gdriveSchedEnabled") ? $("gdriveSchedEnabled").checked : true,
-      time: $("gdriveSchedTime") ? $("gdriveSchedTime").value : "18:30",
-      frequency: $("gdriveSchedFreq") ? $("gdriveSchedFreq").value : "daily",
-      intervalDays: $("gdriveSchedInterval") ? parseInt($("gdriveSchedInterval").value, 10) || 1 : 1,
-      weekdays: _gdriveActiveWeekdays
+      enabled: $("backupSchedEnabled") ? $("backupSchedEnabled").checked : true,
+      time: $("backupSchedTime") ? $("backupSchedTime").value : "18:30",
+      frequency: $("backupSchedFreq") ? $("backupSchedFreq").value : "daily",
+      intervalDays: $("backupSchedInterval") ? parseInt($("backupSchedInterval").value, 10) || 1 : 1,
+      weekdays: _unifiedActiveWeekdays
     };
 
-    const res = await api("/api/backup/gdrive/schedule", {
-      method: "POST",
-      body: JSON.stringify(payload)
-    });
+    const isGd = $("destCheckGdrive") ? $("destCheckGdrive").checked : true;
+    const isTg = $("destCheckTelegram") ? $("destCheckTelegram").checked : true;
+    const isUsb = $("destCheckUsb") ? $("destCheckUsb").checked : true;
 
-    if(res && res.ok){
-      if(statusEl) statusEl.textContent = "Schedule saved.";
-      setTimeout(() => { if(statusEl) statusEl.textContent = ""; }, 3000);
-      await loadGDriveStatus();
-    } else {
-      alert((res && res.error) || "Failed to save schedule");
-    }
+    const saves = [];
+    if(isGd) saves.push(api("/api/backup/gdrive/schedule", { method: "POST", body: JSON.stringify(payload) }));
+    if(isTg) saves.push(api("/api/backup/telegram/schedule", { method: "POST", body: JSON.stringify(payload) }));
+    if(isUsb) saves.push(api("/api/backup/usb/schedule", { method: "POST", body: JSON.stringify(payload) }));
+
+    await Promise.allSettled(saves);
+
+    if(statusEl) statusEl.textContent = "Schedule saved.";
+    setTimeout(() => { if(statusEl) statusEl.textContent = ""; }, 3000);
+    await loadBackupManagerStatus();
   } catch(e){
     alert("Save schedule failed: " + (e.message || (e.body && e.body.error) || "error"));
   } finally {
@@ -1801,6 +1883,141 @@ if($("gdriveSchedSaveBtn")) $("gdriveSchedSaveBtn").onclick = async () => {
   }
 };
 
+// Destination Toggles
+if($("destCheckGdrive")) $("destCheckGdrive").onchange = async function(){
+  try{
+    await api("/api/backup/gdrive/toggle", {
+      method: "POST",
+      body: JSON.stringify({ enabled: this.checked })
+    });
+  }catch(e){
+    console.warn("Failed to toggle Google Drive:", e);
+  }
+  await loadBackupManagerStatus();
+};
+
+if($("destCheckTelegram")) $("destCheckTelegram").onchange = async function(){
+  try{
+    await api("/api/backup/telegram/toggle", {
+      method: "POST",
+      body: JSON.stringify({ enabled: this.checked })
+    });
+  }catch(e){
+    alert("Failed to toggle Telegram backup: " + (e.message || "error"));
+  }
+  await loadBackupManagerStatus();
+};
+
+if($("destCheckUsb")) $("destCheckUsb").onchange = async function(){
+  try{
+    await api("/api/backup/usb/toggle", {
+      method: "POST",
+      body: JSON.stringify({ enabled: this.checked })
+    });
+  }catch(e){
+    alert("Failed to toggle USB backup: " + (e.message || "error"));
+  }
+  await loadBackupManagerStatus();
+};
+
+// Select All Destinations Button
+if($("backupSelectAllBtn")) $("backupSelectAllBtn").onclick = async () => {
+  const gd = $("destCheckGdrive");
+  const tg = $("destCheckTelegram");
+  const usb = $("destCheckUsb");
+  const allChecked = (gd && gd.checked) && (tg && tg.checked) && (usb && usb.checked);
+  const targetState = !allChecked;
+
+  const toggles = [];
+  if(gd && gd.checked !== targetState){
+    gd.checked = targetState;
+    toggles.push(api("/api/backup/gdrive/toggle", { method: "POST", body: JSON.stringify({ enabled: targetState }) }));
+  }
+  if(tg && tg.checked !== targetState){
+    tg.checked = targetState;
+    toggles.push(api("/api/backup/telegram/toggle", { method: "POST", body: JSON.stringify({ enabled: targetState }) }));
+  }
+  if(usb && usb.checked !== targetState){
+    usb.checked = targetState;
+    toggles.push(api("/api/backup/usb/toggle", { method: "POST", body: JSON.stringify({ enabled: targetState }) }));
+  }
+  await Promise.allSettled(toggles);
+  await loadBackupManagerStatus();
+};
+
+// Back Up Now Button
+if($("backupNowBtn")) $("backupNowBtn").onclick = async () => {
+  const btn = $("backupNowBtn");
+  const statusEl = $("backupNowStatus");
+  const isGd = $("destCheckGdrive") && $("destCheckGdrive").checked;
+  const isTg = $("destCheckTelegram") && $("destCheckTelegram").checked;
+  const isUsb = $("destCheckUsb") && $("destCheckUsb").checked;
+
+  if(!isGd && !isTg && !isUsb){
+    alert("Please select at least one backup destination.");
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = "Backing up…";
+  if(statusEl) statusEl.textContent = "Starting backups…";
+
+  const tasks = [];
+  const taskNames = [];
+
+  if(isGd){
+    taskNames.push("Google Drive");
+    tasks.push(api("/api/backup/gdrive/backup", { method: "POST" }));
+  }
+  if(isTg){
+    taskNames.push("Telegram");
+    tasks.push(api("/api/backup/telegram/backup", { method: "POST" }));
+  }
+  if(isUsb){
+    taskNames.push("USB");
+    tasks.push(api("/api/backup/usb/backup", { method: "POST" }));
+  }
+
+  const results = await Promise.allSettled(tasks);
+  const summaries = [];
+
+  results.forEach((r, idx) => {
+    const name = taskNames[idx];
+    if(r.status === "fulfilled" && r.value && r.value.ok !== false){
+      summaries.push(`${name}: OK`);
+    } else {
+      const err = (r.reason && ((r.reason.body && r.reason.body.error) || r.reason.message)) || (r.value && r.value.error) || "Failed";
+      summaries.push(`${name}: ${err}`);
+    }
+  });
+
+  const summaryText = summaries.join("; ");
+  if(statusEl) statusEl.textContent = summaryText;
+  alert(summaryText);
+
+  await loadBackupManagerStatus();
+  btn.disabled = false;
+  btn.textContent = "Back Up Now";
+};
+
+// Refresh Button
+if($("backupRefreshBtn")) $("backupRefreshBtn").onclick = async () => {
+  const btn = $("backupRefreshBtn");
+  try{
+    btn.disabled = true;
+    btn.innerHTML = "<span>↻</span> Checking…";
+    await loadBackupManagerStatus();
+  }finally{
+    btn.disabled = false;
+    btn.innerHTML = "<span>↻</span> Refresh";
+  }
+};
+
+// Google Device Flow Event Listeners
+if($("gdriveDeviceStartBtn")) $("gdriveDeviceStartBtn").onclick = startDeviceFlow;
+if($("gdriveDeviceCancelBtn")) $("gdriveDeviceCancelBtn").onclick = cancelDeviceFlow;
+
+// Window Focus & Routing
 function checkAdminRoute(){
   const h = window.location.hash || "";
   const s = window.location.search || "";
@@ -1819,474 +2036,9 @@ window.addEventListener("load", checkAdminRoute);
 window.addEventListener("hashchange", checkAdminRoute);
 window.addEventListener("focus", ()=>{
   if(currentTab==="backup" && adminLayer && adminLayer.classList.contains("open")){
-    loadGDriveStatus();
-    loadTelegramStatus();
-    loadUsbStatus();
+    loadBackupManagerStatus();
   }
 });
-
-async function loadGDriveList(){
-  const tbody = $("gdriveFilesBody");
-  if(!tbody) return;
-  try{
-    const res = await api("/api/backup/gdrive/list");
-    const files = (res && res.files) || [];
-    if(!files.length){
-      tbody.innerHTML='<tr><td colspan="3" style="text-align:center;color:var(--ink-3);padding:8px">No cloud snapshots found</td></tr>';
-      return;
-    }
-    tbody.innerHTML = files.map(f=>{
-      const sz = f.size ? `${(f.size/1024).toFixed(1)} KB` : "";
-      return `<tr>
-        <td style="font-size:11px">${esc(f.name)}</td>
-        <td style="font-size:11px;color:var(--ink-2)">${sz}</td>
-        <td><button class="btn" style="padding:2px 8px;font-size:10px" data-gdrive-restore="${esc(f.id)}" data-gdrive-name="${esc(f.name)}">Restore</button></td>
-      </tr>`;
-    }).join("");
-  }catch(e){
-    tbody.innerHTML=`<tr><td colspan="3" style="color:var(--danger);padding:8px">Failed to list: ${esc(e.message||"error")}</td></tr>`;
-  }
-}
-
-if($("gdriveBackupNowBtn")) $("gdriveBackupNowBtn").onclick=async()=>{
-  const btn = $("gdriveBackupNowBtn");
-  try{
-    btn.disabled=true; btn.textContent="Backing up…";
-    const res = await api("/api/backup/gdrive/backup", {method:"POST"});
-    alert("Backup uploaded successfully: "+res.name);
-    await loadGDriveStatus();
-  }catch(e){
-    alert("Backup failed: "+(e.message||(e.body&&e.body.error)||"error"));
-  }finally{
-    btn.disabled=false; btn.textContent="Backup to Drive now";
-  }
-};
-
-if($("gdriveRefreshListBtn")) $("gdriveRefreshListBtn").onclick=()=>loadGDriveList();
-
-if($("gdriveDisconnectBtn")) $("gdriveDisconnectBtn").onclick=async()=>{
-  if(!confirm("Disconnect Google Drive cloud backup?")) return;
-  try{
-    await api("/api/backup/gdrive/disconnect", {method:"POST"});
-    await loadGDriveStatus();
-  }catch(e){ alert("Disconnect failed: "+e.message); }
-};
-
-if($("gdriveFilesBody")) $("gdriveFilesBody").addEventListener("click", async(e)=>{
-  const btn = e.target.closest("button[data-gdrive-restore]");
-  if(!btn) return;
-  const fid = btn.dataset.gdriveRestore;
-  const fname = btn.dataset.gdriveName;
-  if(!confirm(`Restore database from cloud backup:\n\n${fname}\n\nCurrent database will be preserved locally as .pre_restore.bak. Continue?`)) return;
-  try{
-    btn.disabled=true; btn.textContent="Restoring…";
-    await api("/api/backup/gdrive/restore", {method:"POST", body:JSON.stringify({fileId:fid})});
-    alert("Restore complete from cloud snapshot. Reloading data…");
-    await loadAll();
-  }catch(e){
-    alert("Restore failed: "+(e.message||(e.body&&e.body.error)||"error"));
-  }finally{
-    btn.disabled=false; btn.textContent="Restore";
-  }
-});
-
-// --- Secondary Backup — Telegram ---
-async function loadTelegramStatus(){
-  const badge = $("telegramBadge");
-  const statusText = $("telegramStatusText");
-  const toggle = $("telegramEnabledToggle");
-  const chatSpan = $("telegramChatId");
-  const lastSpan = $("telegramLastBackup");
-  const errDiv = $("telegramLastError");
-  if(!badge) return;
-
-  try{
-    const st = await api("/api/backup/telegram/status");
-    if(toggle) toggle.checked = !!st.enabled;
-    if(chatSpan) chatSpan.textContent = st.chatId || "Not configured";
-
-    if(!st.configured){
-      badge.textContent = "Not configured";
-      badge.className = "pill";
-      if(statusText) statusText.textContent = "Not configured (set botToken in config)";
-    }else if(!st.enabled){
-      badge.textContent = "Disabled";
-      badge.className = "pill";
-      if(statusText) statusText.textContent = "Disabled";
-    }else if(st.lastStatus === "SUCCESS"){
-      badge.textContent = "Connected";
-      badge.className = "pill active";
-      if(statusText) statusText.textContent = "Ready / Active";
-    }else if(st.lastStatus === "ERROR"){
-      badge.textContent = "Error";
-      badge.className = "pill danger";
-      if(statusText) statusText.textContent = "Error";
-    }else{
-      badge.textContent = "Ready";
-      badge.className = "pill active";
-      if(statusText) statusText.textContent = "Ready / Active";
-    }
-
-    if(lastSpan){
-      lastSpan.textContent = st.lastBackup ? `${st.lastBackup} (${st.lastBackupName || ""})` : "Never";
-    }
-
-    if(errDiv){
-      if(st.lastError){
-        errDiv.style.display = "block";
-        errDiv.textContent = "Error: " + st.lastError;
-      }else{
-        errDiv.style.display = "none";
-        errDiv.textContent = "";
-      }
-    }
-
-    if(st.schedule) renderTelegramSchedule(st.schedule);
-  }catch(e){
-    badge.textContent = "Unavailable";
-    badge.className = "pill danger";
-    if(statusText) statusText.textContent = "Error loading status";
-  }
-}
-
-let _telegramActiveWeekdays = [0, 1, 2, 3, 4, 5, 6];
-
-function renderTelegramSchedule(sched){
-  if(!$("telegramSchedEnabled")) return;
-  const enabled = sched.enabled !== false;
-  $("telegramSchedEnabled").checked = enabled;
-  if($("telegramSchedTime")) $("telegramSchedTime").value = sched.time || "18:30";
-  if($("telegramSchedFreq")) $("telegramSchedFreq").value = sched.frequency || "daily";
-  if($("telegramSchedInterval")) $("telegramSchedInterval").value = sched.intervalDays || 1;
-  
-  _telegramActiveWeekdays = Array.isArray(sched.weekdays) ? [...sched.weekdays] : [0, 1, 2, 3, 4, 5, 6];
-  updateTelegramScheduleVisibility();
-  updateTelegramWeekdayButtons();
-}
-
-function updateTelegramScheduleVisibility(){
-  const freq = $("telegramSchedFreq") ? $("telegramSchedFreq").value : "daily";
-  const intervalWrap = $("telegramSchedIntervalWrap");
-  const daysWrap = $("telegramSchedDaysWrap");
-  if(intervalWrap) intervalWrap.style.display = (freq === "interval") ? "block" : "none";
-  if(daysWrap) daysWrap.style.display = (freq === "weekdays") ? "block" : "none";
-}
-
-function updateTelegramWeekdayButtons(){
-  const container = $("telegramSchedDays");
-  if(!container) return;
-  const btns = container.querySelectorAll("button[data-day]");
-  btns.forEach(btn => {
-    const day = parseInt(btn.dataset.day, 10);
-    if(_telegramActiveWeekdays.includes(day)){
-      btn.classList.add("primary");
-    } else {
-      btn.classList.remove("primary");
-    }
-  });
-}
-
-if($("telegramSchedFreq")) $("telegramSchedFreq").onchange = updateTelegramScheduleVisibility;
-
-if($("telegramSchedDays")) $("telegramSchedDays").addEventListener("click", (e) => {
-  const btn = e.target.closest("button[data-day]");
-  if(!btn) return;
-  const day = parseInt(btn.dataset.day, 10);
-  if(_telegramActiveWeekdays.includes(day)){
-    if(_telegramActiveWeekdays.length > 1){
-      _telegramActiveWeekdays = _telegramActiveWeekdays.filter(d => d !== day);
-    }
-  } else {
-    _telegramActiveWeekdays.push(day);
-  }
-  updateTelegramWeekdayButtons();
-});
-
-if($("telegramSchedSaveBtn")) $("telegramSchedSaveBtn").onclick = async () => {
-  const btn = $("telegramSchedSaveBtn");
-  const statusEl = $("telegramSchedStatus");
-  try {
-    btn.disabled = true;
-    btn.textContent = "Saving…";
-    if(statusEl) statusEl.textContent = "";
-
-    const payload = {
-      enabled: $("telegramSchedEnabled") ? $("telegramSchedEnabled").checked : true,
-      time: $("telegramSchedTime") ? $("telegramSchedTime").value : "18:30",
-      frequency: $("telegramSchedFreq") ? $("telegramSchedFreq").value : "daily",
-      intervalDays: $("telegramSchedInterval") ? parseInt($("telegramSchedInterval").value, 10) || 1 : 1,
-      weekdays: _telegramActiveWeekdays
-    };
-
-    const res = await api("/api/backup/telegram/schedule", {
-      method: "POST",
-      body: JSON.stringify(payload)
-    });
-
-    if(res && res.ok){
-      if(statusEl) statusEl.textContent = "Schedule saved.";
-      setTimeout(() => { if(statusEl) statusEl.textContent = ""; }, 3000);
-      await loadTelegramStatus();
-    } else {
-      alert((res && res.error) || "Failed to save schedule");
-    }
-  } catch(e){
-    alert("Save schedule failed: " + (e.message || (e.body && e.body.error) || "error"));
-  } finally {
-    btn.disabled = false;
-    btn.textContent = "Save Schedule";
-  }
-};
-
-if($("telegramEnabledToggle")) $("telegramEnabledToggle").onchange = async function(){
-  try{
-    await api("/api/backup/telegram/toggle", {
-      method: "POST",
-      body: JSON.stringify({ enabled: this.checked })
-    });
-    await loadTelegramStatus();
-  }catch(e){
-    alert("Failed to toggle Telegram backup: " + (e.message || "error"));
-    await loadTelegramStatus();
-  }
-};
-
-if($("telegramBackupNowBtn")) $("telegramBackupNowBtn").onclick = async () => {
-  const btn = $("telegramBackupNowBtn");
-  try{
-    btn.disabled = true; btn.textContent = "Sending…";
-    const res = await api("/api/backup/telegram/backup", { method: "POST" });
-    alert("Backup sent to Telegram successfully: " + (res.name || ""));
-    await loadTelegramStatus();
-  }catch(e){
-    alert("Telegram backup failed: " + (e.message || (e.body && e.body.error) || "error"));
-    await loadTelegramStatus();
-  }finally{
-    btn.disabled = false; btn.textContent = "Send backup now";
-  }
-};
-
-if($("telegramClearStatusBtn")) $("telegramClearStatusBtn").onclick = async () => {
-  try{
-    await api("/api/backup/telegram/clear-status", { method: "POST" });
-    await loadTelegramStatus();
-  }catch(e){
-    alert("Failed to clear status: " + (e.message || "error"));
-  }
-};
-
-// --- USB Storage Backup Client Logic ---
-let _usbActiveWeekdays = [0, 1, 2, 3, 4, 5, 6];
-
-function formatBytes(bytes){
-  if(!bytes || bytes <= 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
-}
-
-async function loadUsbStatus(){
-  const badge = $("usbBadge");
-  const toggle = $("usbEnabledToggle");
-  const mountSpan = $("usbMountPath");
-  const freeSpan = $("usbFreeSpace");
-  const statusText = $("usbStatusText");
-  const lastSpan = $("usbLastBackup");
-  const errDiv = $("usbLastError");
-  if(!badge) return;
-
-  try{
-    const st = await api("/api/backup/usb/status");
-    if(toggle) toggle.checked = !!st.enabled;
-    if(mountSpan){
-      if(st.connected){
-        mountSpan.textContent = st.mountPath ? `${st.mountPath} (${st.label || "USB"})` : "Connected";
-      }else{
-        mountSpan.textContent = "Not detected";
-      }
-    }
-    if(freeSpan){
-      freeSpan.textContent = st.connected ? `${formatBytes(st.freeBytes)} free` : "--";
-    }
-
-    if(!st.enabled){
-      badge.textContent = "Disabled";
-      badge.className = "pill";
-      if(statusText) statusText.textContent = "Disabled";
-    }else if(!st.connected){
-      badge.textContent = "Not detected";
-      badge.className = "pill";
-      if(statusText) statusText.textContent = "No USB drive detected (insert USB drive)";
-    }else if(st.lastStatus === "SUCCESS"){
-      badge.textContent = "Ready";
-      badge.className = "pill active";
-      if(statusText) statusText.textContent = `Connected (${st.label || "USB"})`;
-    }else if(st.lastStatus === "ERROR"){
-      badge.textContent = "Error";
-      badge.className = "pill danger";
-      if(statusText) statusText.textContent = "Error";
-    }else{
-      badge.textContent = "Connected";
-      badge.className = "pill active";
-      if(statusText) statusText.textContent = `Connected (${st.label || "USB"})`;
-    }
-
-    if(lastSpan){
-      lastSpan.textContent = st.lastBackup ? `${st.lastBackup} (${st.lastBackupName || ""})` : "Never";
-    }
-
-    if(errDiv){
-      if(st.lastError){
-        errDiv.style.display = "block";
-        errDiv.textContent = "Error: " + st.lastError;
-      }else{
-        errDiv.style.display = "none";
-        errDiv.textContent = "";
-      }
-    }
-
-    if(st.schedule) renderUsbSchedule(st.schedule);
-  }catch(e){
-    badge.textContent = "Unavailable";
-    badge.className = "pill danger";
-    if(statusText) statusText.textContent = "Error loading status";
-  }
-}
-
-function renderUsbSchedule(sched){
-  if(!$("usbSchedEnabled")) return;
-  const enabled = sched.enabled !== false;
-  $("usbSchedEnabled").checked = enabled;
-  if($("usbSchedTime")) $("usbSchedTime").value = sched.time || "18:30";
-  if($("usbSchedFreq")) $("usbSchedFreq").value = sched.frequency || "daily";
-  if($("usbSchedInterval")) $("usbSchedInterval").value = sched.intervalDays || 1;
-  
-  _usbActiveWeekdays = Array.isArray(sched.weekdays) ? [...sched.weekdays] : [0, 1, 2, 3, 4, 5, 6];
-  updateUsbScheduleVisibility();
-  updateUsbWeekdayButtons();
-}
-
-function updateUsbScheduleVisibility(){
-  const freq = $("usbSchedFreq") ? $("usbSchedFreq").value : "daily";
-  const intervalWrap = $("usbSchedIntervalWrap");
-  const daysWrap = $("usbSchedDaysWrap");
-  if(intervalWrap) intervalWrap.style.display = (freq === "interval") ? "block" : "none";
-  if(daysWrap) daysWrap.style.display = (freq === "weekdays") ? "block" : "none";
-}
-
-function updateUsbWeekdayButtons(){
-  const container = $("usbSchedDays");
-  if(!container) return;
-  const btns = container.querySelectorAll("button[data-day]");
-  btns.forEach(btn => {
-    const day = parseInt(btn.dataset.day, 10);
-    if(_usbActiveWeekdays.includes(day)){
-      btn.classList.add("primary");
-    } else {
-      btn.classList.remove("primary");
-    }
-  });
-}
-
-if($("usbSchedFreq")) $("usbSchedFreq").onchange = updateUsbScheduleVisibility;
-
-if($("usbSchedDays")) $("usbSchedDays").addEventListener("click", (e) => {
-  const btn = e.target.closest("button[data-day]");
-  if(!btn) return;
-  const day = parseInt(btn.dataset.day, 10);
-  if(_usbActiveWeekdays.includes(day)){
-    if(_usbActiveWeekdays.length > 1){
-      _usbActiveWeekdays = _usbActiveWeekdays.filter(d => d !== day);
-    }
-  } else {
-    _usbActiveWeekdays.push(day);
-  }
-  updateUsbWeekdayButtons();
-});
-
-if($("usbSchedSaveBtn")) $("usbSchedSaveBtn").onclick = async () => {
-  const btn = $("usbSchedSaveBtn");
-  const statusEl = $("usbSchedStatus");
-  try {
-    btn.disabled = true;
-    btn.textContent = "Saving…";
-    if(statusEl) statusEl.textContent = "";
-
-    const payload = {
-      enabled: $("usbSchedEnabled") ? $("usbSchedEnabled").checked : true,
-      time: $("usbSchedTime") ? $("usbSchedTime").value : "18:30",
-      frequency: $("usbSchedFreq") ? $("usbSchedFreq").value : "daily",
-      intervalDays: $("usbSchedInterval") ? parseInt($("usbSchedInterval").value, 10) || 1 : 1,
-      weekdays: _usbActiveWeekdays
-    };
-
-    const res = await api("/api/backup/usb/schedule", {
-      method: "POST",
-      body: JSON.stringify(payload)
-    });
-
-    if(res && res.ok){
-      if(statusEl) statusEl.textContent = "Schedule saved.";
-      setTimeout(() => { if(statusEl) statusEl.textContent = ""; }, 3000);
-      await loadUsbStatus();
-    } else {
-      alert((res && res.error) || "Failed to save schedule");
-    }
-  } catch(e){
-    alert("Save schedule failed: " + (e.message || (e.body && e.body.error) || "error"));
-  } finally {
-    btn.disabled = false;
-    btn.textContent = "Save Schedule";
-  }
-};
-
-if($("usbEnabledToggle")) $("usbEnabledToggle").onchange = async function(){
-  try{
-    await api("/api/backup/usb/toggle", {
-      method: "POST",
-      body: JSON.stringify({ enabled: this.checked })
-    });
-    await loadUsbStatus();
-  }catch(e){
-    alert("Failed to toggle USB backup: " + (e.message || "error"));
-    await loadUsbStatus();
-  }
-};
-
-if($("usbBackupNowBtn")) $("usbBackupNowBtn").onclick = async () => {
-  const btn = $("usbBackupNowBtn");
-  try{
-    btn.disabled = true; btn.textContent = "Backing up…";
-    const res = await api("/api/backup/usb/backup", { method: "POST" });
-    alert("Backup written to USB drive successfully: " + (res.name || ""));
-    await loadUsbStatus();
-  }catch(e){
-    alert("USB backup failed: " + (e.message || (e.body && e.body.error) || "error"));
-    await loadUsbStatus();
-  }finally{
-    btn.disabled = false; btn.textContent = "Backup to USB now";
-  }
-};
-
-if($("usbRefreshBtn")) $("usbRefreshBtn").onclick = async () => {
-  const btn = $("usbRefreshBtn");
-  try{
-    btn.disabled = true; btn.textContent = "Checking…";
-    await loadUsbStatus();
-  }finally{
-    btn.disabled = false; btn.textContent = "Check USB";
-  }
-};
-
-if($("usbClearStatusBtn")) $("usbClearStatusBtn").onclick = async () => {
-  try{
-    await api("/api/backup/usb/clear-status", { method: "POST" });
-    await loadUsbStatus();
-  }catch(e){
-    alert("Failed to clear status: " + (e.message || "error"));
-  }
-};
 if($("calSaveBtn")) $("calSaveBtn").onclick=async()=>{
   try{
     const el=(id)=>$(id);

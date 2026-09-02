@@ -1408,7 +1408,8 @@ def _gdrive_config():
             token_file = "/var/lib/atl/gdrive_token.json"
     folder_name = g_cfg.get("folderName") or "ATL-Attendance-Backups"
     schedule_time = g_cfg.get("scheduleTime") or "18:30"
-    enabled = g_cfg.get("enabled", True) if "enabled" in g_cfg else True
+    s = get_settings()
+    enabled = s.get("gdriveEnabled", g_cfg.get("enabled", True) if "enabled" in g_cfg else True)
     return {
         "enabled": bool(enabled),
         "client_id": str(client_id).strip(),
@@ -2225,6 +2226,21 @@ def gdrive_disconnect():
     _GDRIVE_STATE["last_status"] = "AUTH_REQUIRED"
     _GDRIVE_STATE["last_error"] = None
     return jsonify({"ok": True})
+
+@app.route("/api/backup/gdrive/toggle", methods=["POST"])
+@require_admin
+def gdrive_toggle():
+    try:
+        j = request.get_json(force=True) or {}
+        new_val = bool(j.get("enabled", False))
+        cur = get_settings()
+        cur["gdriveEnabled"] = new_val
+        save_settings(cur)
+        if isinstance(cfg.get("gdrive"), dict):
+            cfg["gdrive"]["enabled"] = new_val
+        return jsonify({"ok": True, "enabled": new_val})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
 
 @app.route("/api/backup/gdrive/backup", methods=["POST"])
 @require_admin

@@ -297,266 +297,160 @@ tr:hover td{background:var(--paper)}
       <!-- Backup -->
       <div class="admin-pane hidden" id="pane-backup">
         <div class="detail-scroll">
-          <div style="display:flex;gap:12px;flex-wrap:wrap">
-            <div class="detail-card" style="flex:1 1 360px">
-              <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:600;margin-bottom:12px">Backup & restore — local file</div>
-              <div style="font-size:11px;line-height:1.6;color:var(--ink-2);margin-bottom:12px">Full SQLite database backup. Includes students, attendance, calendar, holidays, overrides, settings, fingerprint mappings, classes, audit. Works offline. Restore validates SQLite header before replacing.</div>
-              <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="backupDownloadBtn">Download backup (DB)</button><label class="btn" style="cursor:pointer"><input type="file" id="backupFileInput" accept=".db,.sqlite,.sqlite3" style="display:none">Restore from file</label></div>
-              <div id="backupStatus" style="margin-top:12px;font-size:11px;color:var(--ink-2)"></div>
-              <div style="margin-top:18px"><div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;font-weight:600;margin-bottom:8px">What gets backed up</div><div style="font-size:11px;line-height:1.6">Students, Attendance, Calendar (global weekly schedule plus per-class and per-batch schedules, holidays, overrides), School settings, Classes, Fingerprint mappings, Audit history. Per-class and per-batch schedules are stored in the database and included in this backup.</div></div>
-            </div>
-            <div class="detail-card" style="flex:1 1 360px">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-                <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:600">Cloud backup — Google Drive</div>
-                <span id="gdriveBadge" class="pill" style="font-size:10px">Checking…</span>
+          <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start">
+            <!-- Unified Backup Manager Card -->
+            <div class="detail-card" style="flex:1 1 420px;max-width:540px" id="backupManagerCard">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+                <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:600">Backup Manager</div>
+                <button id="backupRefreshBtn" class="btn" style="padding:2px 8px;font-size:10px;display:flex;align-items:center;gap:4px">
+                  <span>↻</span> Refresh
+                </button>
               </div>
-              <div style="font-size:11px;line-height:1.6;color:var(--ink-2);margin-bottom:12px">
-                Automated offsite backup to your personal Google Drive (<code style="font-size:10px">ATL-Attendance-Backups</code> folder). Uses OAuth 2.0 Device Authorization Grant with least-privilege <code style="font-size:10px">drive.file</code> scope and resumable chunked upload.
-              </div>
-              <div id="gdriveAuthBox" style="display:none;margin-bottom:12px">
-                <div id="gdriveInitBox" style="margin-bottom:8px">
-                  <button id="gdriveDeviceStartBtn" class="btn primary">Connect Google Drive</button>
-                </div>
-                <div id="gdriveAuthNotice" style="font-size:11px;color:var(--ink-2);line-height:1.5">
-                  Authorizes directly with Google Device Flow. Works seamlessly from Android or PC without redirect URIs.
-                </div>
-                <div id="gdriveDeviceCodeBox" style="display:none;margin-top:10px;padding:12px;background:var(--paper);border:1px solid var(--line);border-radius:6px">
-                  <div style="font-size:12px;font-weight:600;margin-bottom:6px">Authorize Google Drive</div>
-                  <div style="font-size:11px;color:var(--ink-2);margin-bottom:6px">
-                    1. On your phone or PC, open: <a id="gdriveDeviceUrlLink" href="https://www.google.com/device" target="_blank" style="font-weight:600;text-decoration:underline;color:var(--ink)">google.com/device</a>
-                  </div>
-                  <div style="font-size:11px;color:var(--ink-2);margin-bottom:8px">
-                    2. Enter this code:
-                    <div id="gdriveUserCodeDisplay" style="font-family:ui-monospace,monospace;font-weight:700;font-size:17px;letter-spacing:3px;color:var(--ink);padding:6px 12px;background:var(--panel);border:1px solid var(--line);border-radius:4px;display:inline-block;margin-top:4px">----</div>
-                  </div>
-                  <div style="font-size:11px;color:var(--ink-2);margin-bottom:10px">
-                    3. Sign in to your Google Account and tap <b>Allow</b>.
-                  </div>
-                  <div style="display:flex;align-items:center;gap:10px">
-                    <span id="gdriveDevicePollStatus" style="font-size:11px;color:var(--ink-2)">Waiting for approval…</span>
-                    <button id="gdriveDeviceCancelBtn" class="btn" style="padding:2px 8px;font-size:10px">Cancel</button>
-                  </div>
-                </div>
-              </div>
-              <div id="gdriveActionBox" style="display:none">
-                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
-                  <button class="btn primary" id="gdriveBackupNowBtn">Backup to Drive now</button>
-                  <button class="btn" id="gdriveRefreshListBtn">Refresh cloud list</button>
-                  <button class="btn" id="gdriveDisconnectBtn" style="color:var(--danger)">Disconnect</button>
-                </div>
-                <div id="gdriveStatusMsg" style="font-size:11px;color:var(--ink-2);margin-bottom:12px"></div>
 
-                <!-- Schedule Configuration -->
-                <div style="border-top:1px solid var(--line);padding-top:12px;margin-bottom:14px">
-                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-                    <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;font-weight:600">Automatic Backup Schedule</div>
-                    <label style="display:flex;align-items:center;gap:6px;font-size:11px;cursor:pointer">
-                      <input type="checkbox" id="gdriveSchedEnabled" style="accent-color:var(--ink);cursor:pointer">
-                      <span>Enable</span>
+              <!-- Destinations Section -->
+              <div style="margin-bottom:14px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                  <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;font-weight:600;color:var(--ink-2)">Destinations</div>
+                  <button id="backupSelectAllBtn" class="btn" style="padding:1px 6px;font-size:10px">Select all</button>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:6px;background:var(--paper);border:1px solid var(--line);border-radius:4px;padding:8px 10px">
+                  <!-- Google Drive Destination -->
+                  <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0" id="destRowGdrive">
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:11px;font-weight:500">
+                      <input type="checkbox" id="destCheckGdrive" style="accent-color:var(--ink);cursor:pointer">
+                      <span>Google Drive</span>
                     </label>
+                    <div style="display:flex;align-items:center;gap:6px">
+                      <span id="destStatusGdrive" class="pill" style="font-size:10px">Checking…</span>
+                    </div>
                   </div>
-                  <div id="gdriveSchedBody" style="display:flex;flex-direction:column;gap:10px">
-                    <div style="display:flex;gap:12px;flex-wrap:wrap">
-                      <div style="flex:1 1 110px">
-                        <label style="display:block;font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:4px">Backup Time</label>
-                        <input type="time" id="gdriveSchedTime" value="18:30" style="width:100%;height:30px;border:1px solid var(--line);background:#fff;padding:0 8px;font-size:11px;outline:0">
+                  <!-- Google Drive Pairing Box (Device Flow) -->
+                  <div id="gdriveAuthBox" style="display:none;margin-top:4px;padding:8px;background:var(--panel);border:1px solid var(--line);border-radius:4px;font-size:11px">
+                    <div id="gdriveInitBox" style="display:flex;justify-content:space-between;align-items:center">
+                      <span style="color:var(--ink-2);font-size:10px">Authorization required</span>
+                      <button id="gdriveDeviceStartBtn" class="btn primary" style="padding:2px 8px;font-size:10px">Pair with Google</button>
+                    </div>
+                    <div id="gdriveDeviceCodeBox" style="display:none;margin-top:6px">
+                      <div style="font-size:10px;color:var(--ink-2);margin-bottom:4px">
+                        1. Visit <a id="gdriveDeviceUrlLink" href="https://www.google.com/device" target="_blank" style="text-decoration:underline;font-weight:600;color:var(--ink)">google.com/device</a>
                       </div>
-                      <div style="flex:1 1 140px">
-                        <label style="display:block;font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:4px">Frequency</label>
-                        <select id="gdriveSchedFreq" style="width:100%;height:30px;border:1px solid var(--line);background:#fff;padding:0 8px;font-size:11px;outline:0">
-                          <option value="daily">Daily</option>
-                          <option value="interval">Every N Days</option>
-                          <option value="weekdays">Specific Weekdays</option>
-                        </select>
+                      <div style="font-size:10px;color:var(--ink-2);margin-bottom:6px">
+                        2. Enter code:
+                        <div id="gdriveUserCodeDisplay" style="font-family:ui-monospace,monospace;font-weight:700;font-size:15px;letter-spacing:2px;color:var(--ink);padding:4px 8px;background:var(--paper);border:1px solid var(--line);border-radius:4px;display:inline-block;margin-left:4px">----</div>
                       </div>
-                      <div id="gdriveSchedIntervalWrap" style="flex:1 1 100px;display:none">
-                        <label style="display:block;font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:4px">Interval (Days)</label>
-                        <input type="number" id="gdriveSchedInterval" min="1" max="30" value="1" style="width:100%;height:30px;border:1px solid var(--line);background:#fff;padding:0 8px;font-size:11px;outline:0">
+                      <div style="display:flex;align-items:center;justify-content:space-between">
+                        <span id="gdriveDevicePollStatus" style="font-size:10px;color:var(--ink-2)">Waiting for approval…</span>
+                        <button id="gdriveDeviceCancelBtn" class="btn" style="padding:2px 6px;font-size:10px">Cancel</button>
                       </div>
                     </div>
-                    <div id="gdriveSchedDaysWrap" style="display:none">
-                      <label style="display:block;font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:6px">Active Weekdays</label>
-                      <div id="gdriveSchedDays" style="display:flex;gap:6px;flex-wrap:wrap">
-                        <button type="button" class="btn" data-day="1" style="padding:2px 8px;font-size:10px">Mon</button>
-                        <button type="button" class="btn" data-day="2" style="padding:2px 8px;font-size:10px">Tue</button>
-                        <button type="button" class="btn" data-day="3" style="padding:2px 8px;font-size:10px">Wed</button>
-                        <button type="button" class="btn" data-day="4" style="padding:2px 8px;font-size:10px">Thu</button>
-                        <button type="button" class="btn" data-day="5" style="padding:2px 8px;font-size:10px">Fri</button>
-                        <button type="button" class="btn" data-day="6" style="padding:2px 8px;font-size:10px">Sat</button>
-                        <button type="button" class="btn" data-day="0" style="padding:2px 8px;font-size:10px">Sun</button>
-                      </div>
+                  </div>
+
+                  <!-- Telegram Destination -->
+                  <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0" id="destRowTelegram">
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:11px;font-weight:500">
+                      <input type="checkbox" id="destCheckTelegram" style="accent-color:var(--ink);cursor:pointer">
+                      <span>Telegram</span>
+                    </label>
+                    <div style="display:flex;align-items:center;gap:6px">
+                      <span id="destStatusTelegram" class="pill" style="font-size:10px">Checking…</span>
                     </div>
-                    <div style="display:flex;align-items:center;gap:10px;margin-top:2px">
-                      <button class="btn" id="gdriveSchedSaveBtn" style="min-width:100px">Save Schedule</button>
-                      <span id="gdriveSchedStatus" style="font-size:11px;color:var(--ok)"></span>
+                  </div>
+
+                  <!-- USB Drive Destination -->
+                  <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0" id="destRowUsb">
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:11px;font-weight:500">
+                      <input type="checkbox" id="destCheckUsb" style="accent-color:var(--ink);cursor:pointer">
+                      <span>USB Drive</span>
+                    </label>
+                    <div style="display:flex;align-items:center;gap:6px">
+                      <span id="destStatusUsb" class="pill" style="font-size:10px">Checking…</span>
                     </div>
                   </div>
                 </div>
+              </div>
 
-                <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;font-weight:600;margin-bottom:6px">Available cloud snapshots</div>
-                <div class="table-wrap" style="max-height:160px;overflow-y:auto">
+              <!-- Shared Automatic Backup Scheduler -->
+              <div style="border-top:1px solid var(--line);padding-top:12px;margin-bottom:14px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                  <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;font-weight:600">Automatic backup</div>
+                  <label style="display:flex;align-items:center;gap:6px;font-size:11px;cursor:pointer">
+                    <input type="checkbox" id="backupSchedEnabled" style="accent-color:var(--ink);cursor:pointer">
+                    <span id="backupSchedToggleLabel" style="font-weight:600;font-size:10px;letter-spacing:0.08em;text-transform:uppercase">ON</span>
+                  </label>
+                </div>
+                <div id="backupSchedBody" style="display:flex;flex-direction:column;gap:10px">
+                  <div style="display:flex;gap:10px;flex-wrap:wrap">
+                    <div style="flex:1 1 110px">
+                      <label style="display:block;font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:4px">Time</label>
+                      <input type="time" id="backupSchedTime" value="18:30" style="width:100%;height:28px;border:1px solid var(--line);background:#fff;padding:0 8px;font-size:11px;outline:0">
+                    </div>
+                    <div style="flex:1 1 130px">
+                      <label style="display:block;font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:4px">Frequency</label>
+                      <select id="backupSchedFreq" style="width:100%;height:28px;border:1px solid var(--line);background:#fff;padding:0 8px;font-size:11px;outline:0">
+                        <option value="daily">Daily</option>
+                        <option value="interval">Every N Days</option>
+                        <option value="weekdays">Specific Weekdays</option>
+                      </select>
+                    </div>
+                    <div id="backupSchedIntervalWrap" style="flex:1 1 90px;display:none">
+                      <label style="display:block;font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:4px">Interval (Days)</label>
+                      <input type="number" id="backupSchedInterval" min="1" max="30" value="1" style="width:100%;height:28px;border:1px solid var(--line);background:#fff;padding:0 8px;font-size:11px;outline:0">
+                    </div>
+                  </div>
+                  <div id="backupSchedDaysWrap" style="display:none">
+                    <label style="display:block;font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:6px">Active Weekdays</label>
+                    <div id="backupSchedDays" style="display:flex;gap:4px;flex-wrap:wrap">
+                      <button type="button" class="btn" data-day="1" style="padding:2px 6px;font-size:10px">Mon</button>
+                      <button type="button" class="btn" data-day="2" style="padding:2px 6px;font-size:10px">Tue</button>
+                      <button type="button" class="btn" data-day="3" style="padding:2px 6px;font-size:10px">Wed</button>
+                      <button type="button" class="btn" data-day="4" style="padding:2px 6px;font-size:10px">Thu</button>
+                      <button type="button" class="btn" data-day="5" style="padding:2px 6px;font-size:10px">Fri</button>
+                      <button type="button" class="btn" data-day="6" style="padding:2px 6px;font-size:10px">Sat</button>
+                      <button type="button" class="btn" data-day="0" style="padding:2px 6px;font-size:10px">Sun</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Primary Action & Save Schedule Buttons -->
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+                <button class="btn primary" id="backupNowBtn" style="min-width:120px">Back Up Now</button>
+                <button class="btn" id="backupSchedSaveBtn">Save Schedule</button>
+                <span id="backupSchedStatus" style="font-size:11px;color:var(--ok)"></span>
+              </div>
+              <div id="backupNowStatus" style="font-size:11px;color:var(--ink-2);min-height:16px;margin-bottom:10px"></div>
+
+              <!-- Local File Actions & Last Backup Line -->
+              <div style="border-top:1px solid var(--line);padding-top:10px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;font-size:11px;color:var(--ink-2)">
+                <div id="backupLastInfo">Last backup: Never</div>
+                <div style="display:flex;gap:6px">
+                  <button class="btn" id="backupDownloadBtn" style="padding:2px 8px;font-size:10px">Download DB</button>
+                  <label class="btn" style="cursor:pointer;padding:2px 8px;font-size:10px">
+                    <input type="file" id="backupFileInput" accept=".db,.sqlite,.sqlite3" style="display:none">
+                    Restore DB
+                  </label>
+                </div>
+              </div>
+              <div id="backupStatus" style="font-size:11px;color:var(--ink-2);margin-top:4px"></div>
+            </div>
+
+            <!-- Audit History Card -->
+            <div class="detail-card" style="flex:2 1 460px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:600">Audit history — attendance is administrative record</div>
+                <div style="display:flex;gap:8px">
+                  <button class="btn" id="auditExportBtn">Export CSV</button>
+                  <button class="btn" id="auditClearBtn" title="Managed on backend" disabled style="opacity:0.5">Clear audit</button>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <div class="table-scroll large">
                   <table>
-                    <thead><tr><th>Date / Name</th><th>Size</th><th>Action</th></tr></thead>
-                    <tbody id="gdriveFilesBody"></tbody>
+                    <thead><tr><th>Time</th><th>Action</th><th>Details</th><th>By</th></tr></thead>
+                    <tbody id="auditBody"></tbody>
                   </table>
                 </div>
               </div>
-            </div>
-            <div class="detail-card" style="flex:1 1 360px" id="telegramCard">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-                <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:600">Secondary backup — Telegram</div>
-                <span id="telegramBadge" class="pill" style="font-size:10px">Checking…</span>
-              </div>
-              <div style="font-size:11px;line-height:1.6;color:var(--ink-2);margin-bottom:12px">
-                Sends verified SQLite backup snapshots directly to your Telegram chat or channel as a document via official Telegram Bot API.
-              </div>
-              <div style="display:flex;flex-direction:column;gap:10px">
-                <div style="display:flex;justify-content:space-between;align-items:center">
-                  <span style="font-size:11px;color:var(--ink-2)">Status: <b id="telegramStatusText" style="color:var(--ink)">Disabled</b></span>
-                  <label style="display:flex;align-items:center;gap:6px;font-size:11px;cursor:pointer">
-                    <input type="checkbox" id="telegramEnabledToggle" style="accent-color:var(--ink);cursor:pointer">
-                    <span>Enable</span>
-                  </label>
-                </div>
-                <div id="telegramDetailsBox" style="font-size:11px;line-height:1.5;color:var(--ink-2);background:var(--paper);padding:8px 10px;border-radius:4px;border:1px solid var(--line)">
-                  <div>Target Chat ID: <span id="telegramChatId" style="font-family:ui-monospace,monospace;font-weight:600;color:var(--ink)">Not configured</span></div>
-                  <div>Last backup: <span id="telegramLastBackup">Never</span></div>
-                  <div id="telegramLastError" style="color:var(--danger);display:none;margin-top:4px"></div>
-                </div>
-                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:2px">
-                  <button class="btn primary" id="telegramBackupNowBtn">Send backup now</button>
-                  <button class="btn" id="telegramClearStatusBtn">Clear status</button>
-                </div>
-
-                <!-- Telegram Schedule Configuration -->
-                <div style="border-top:1px solid var(--line);padding-top:12px;margin-top:4px">
-                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-                    <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;font-weight:600">Automatic Backup Schedule</div>
-                    <label style="display:flex;align-items:center;gap:6px;font-size:11px;cursor:pointer">
-                      <input type="checkbox" id="telegramSchedEnabled" style="accent-color:var(--ink);cursor:pointer">
-                      <span>Enable</span>
-                    </label>
-                  </div>
-                  <div id="telegramSchedBody" style="display:flex;flex-direction:column;gap:10px">
-                    <div style="display:flex;gap:12px;flex-wrap:wrap">
-                      <div style="flex:1 1 110px">
-                        <label style="display:block;font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:4px">Backup Time</label>
-                        <input type="time" id="telegramSchedTime" value="18:30" style="width:100%;height:30px;border:1px solid var(--line);background:#fff;padding:0 8px;font-size:11px;outline:0">
-                      </div>
-                      <div style="flex:1 1 140px">
-                        <label style="display:block;font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:4px">Frequency</label>
-                        <select id="telegramSchedFreq" style="width:100%;height:30px;border:1px solid var(--line);background:#fff;padding:0 8px;font-size:11px;outline:0">
-                          <option value="daily">Daily</option>
-                          <option value="interval">Every N Days</option>
-                          <option value="weekdays">Specific Weekdays</option>
-                        </select>
-                      </div>
-                      <div id="telegramSchedIntervalWrap" style="flex:1 1 100px;display:none">
-                        <label style="display:block;font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:4px">Interval (Days)</label>
-                        <input type="number" id="telegramSchedInterval" min="1" max="30" value="1" style="width:100%;height:30px;border:1px solid var(--line);background:#fff;padding:0 8px;font-size:11px;outline:0">
-                      </div>
-                    </div>
-                    <div id="telegramSchedDaysWrap" style="display:none">
-                      <label style="display:block;font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:6px">Active Weekdays</label>
-                      <div id="telegramSchedDays" style="display:flex;gap:6px;flex-wrap:wrap">
-                        <button type="button" class="btn" data-day="1" style="padding:2px 8px;font-size:10px">Mon</button>
-                        <button type="button" class="btn" data-day="2" style="padding:2px 8px;font-size:10px">Tue</button>
-                        <button type="button" class="btn" data-day="3" style="padding:2px 8px;font-size:10px">Wed</button>
-                        <button type="button" class="btn" data-day="4" style="padding:2px 8px;font-size:10px">Thu</button>
-                        <button type="button" class="btn" data-day="5" style="padding:2px 8px;font-size:10px">Fri</button>
-                        <button type="button" class="btn" data-day="6" style="padding:2px 8px;font-size:10px">Sat</button>
-                        <button type="button" class="btn" data-day="0" style="padding:2px 8px;font-size:10px">Sun</button>
-                      </div>
-                    </div>
-                    <div style="display:flex;align-items:center;gap:10px;margin-top:2px">
-                      <button class="btn" id="telegramSchedSaveBtn" style="min-width:100px">Save Schedule</button>
-                      <span id="telegramSchedStatus" style="font-size:11px;color:var(--ok)"></span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- USB Storage Card -->
-            <div class="detail-card" style="flex:1 1 360px" id="usbCard">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-                <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:600">Local storage — USB Drive</div>
-                <span id="usbBadge" class="pill" style="font-size:10px">Checking…</span>
-              </div>
-              <div style="font-size:11px;line-height:1.6;color:var(--ink-2);margin-bottom:12px">
-                Automatically or manually writes verified SQLite backup snapshots directly to an attached USB flash drive or external storage disk.
-              </div>
-              <div style="display:flex;flex-direction:column;gap:10px">
-                <div style="display:flex;justify-content:space-between;align-items:center">
-                  <span style="font-size:11px;color:var(--ink-2)">Status: <b id="usbStatusText" style="color:var(--ink)">Disabled</b></span>
-                  <label style="display:flex;align-items:center;gap:6px;font-size:11px;cursor:pointer">
-                    <input type="checkbox" id="usbEnabledToggle" style="accent-color:var(--ink);cursor:pointer">
-                    <span>Enable</span>
-                  </label>
-                </div>
-                <div id="usbDetailsBox" style="font-size:11px;line-height:1.5;color:var(--ink-2);background:var(--paper);padding:8px 10px;border-radius:4px;border:1px solid var(--line)">
-                  <div>Mount point: <span id="usbMountPath" style="font-family:ui-monospace,monospace;font-weight:600;color:var(--ink)">Not detected</span></div>
-                  <div>Storage space: <span id="usbFreeSpace">--</span></div>
-                  <div>Last backup: <span id="usbLastBackup">Never</span></div>
-                  <div id="usbLastError" style="color:var(--danger);display:none;margin-top:4px"></div>
-                </div>
-                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:2px">
-                  <button class="btn primary" id="usbBackupNowBtn">Backup to USB now</button>
-                  <button class="btn" id="usbRefreshBtn">Check USB</button>
-                  <button class="btn" id="usbClearStatusBtn">Clear status</button>
-                </div>
-
-                <!-- USB Schedule Configuration -->
-                <div style="border-top:1px solid var(--line);padding-top:12px;margin-top:4px">
-                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-                    <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;font-weight:600">Automatic Backup Schedule</div>
-                    <label style="display:flex;align-items:center;gap:6px;font-size:11px;cursor:pointer">
-                      <input type="checkbox" id="usbSchedEnabled" style="accent-color:var(--ink);cursor:pointer">
-                      <span>Enable</span>
-                    </label>
-                  </div>
-                  <div id="usbSchedBody" style="display:flex;flex-direction:column;gap:10px">
-                    <div style="display:flex;gap:12px;flex-wrap:wrap">
-                      <div style="flex:1 1 110px">
-                        <label style="display:block;font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:4px">Backup Time</label>
-                        <input type="time" id="usbSchedTime" value="18:30" style="width:100%;height:30px;border:1px solid var(--line);background:#fff;padding:0 8px;font-size:11px;outline:0">
-                      </div>
-                      <div style="flex:1 1 140px">
-                        <label style="display:block;font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:4px">Frequency</label>
-                        <select id="usbSchedFreq" style="width:100%;height:30px;border:1px solid var(--line);background:#fff;padding:0 8px;font-size:11px;outline:0">
-                          <option value="daily">Daily</option>
-                          <option value="interval">Every N Days</option>
-                          <option value="weekdays">Specific Weekdays</option>
-                        </select>
-                      </div>
-                      <div id="usbSchedIntervalWrap" style="flex:1 1 100px;display:none">
-                        <label style="display:block;font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:4px">Interval (Days)</label>
-                        <input type="number" id="usbSchedInterval" min="1" max="30" value="1" style="width:100%;height:30px;border:1px solid var(--line);background:#fff;padding:0 8px;font-size:11px;outline:0">
-                      </div>
-                    </div>
-                    <div id="usbSchedDaysWrap" style="display:none">
-                      <label style="display:block;font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:6px">Active Weekdays</label>
-                      <div id="usbSchedDays" style="display:flex;gap:6px;flex-wrap:wrap">
-                        <button type="button" class="btn" data-day="1" style="padding:2px 8px;font-size:10px">Mon</button>
-                        <button type="button" class="btn" data-day="2" style="padding:2px 8px;font-size:10px">Tue</button>
-                        <button type="button" class="btn" data-day="3" style="padding:2px 8px;font-size:10px">Wed</button>
-                        <button type="button" class="btn" data-day="4" style="padding:2px 8px;font-size:10px">Thu</button>
-                        <button type="button" class="btn" data-day="5" style="padding:2px 8px;font-size:10px">Fri</button>
-                        <button type="button" class="btn" data-day="6" style="padding:2px 8px;font-size:10px">Sat</button>
-                        <button type="button" class="btn" data-day="0" style="padding:2px 8px;font-size:10px">Sun</button>
-                      </div>
-                    </div>
-                    <div style="display:flex;align-items:center;gap:10px;margin-top:2px">
-                      <button class="btn" id="usbSchedSaveBtn" style="min-width:100px">Save Schedule</button>
-                      <span id="usbSchedStatus" style="font-size:11px;color:var(--ok)"></span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div class="detail-card" style="flex:2 1 480px">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:600">Audit history — attendance is administrative record</div><div style="display:flex;gap:8px"><button class="btn" id="auditExportBtn">Export CSV</button><button class="btn" id="auditClearBtn" title="Managed on backend" disabled style="opacity:0.5">Clear audit</button></div></div>
-              <div class="table-wrap"><div class="table-scroll large"><table><thead><tr><th>Time</th><th>Action</th><th>Details</th><th>By</th></tr></thead><tbody id="auditBody"></tbody></table></div></div>
             </div>
           </div>
         </div>

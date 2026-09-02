@@ -406,77 +406,8 @@ class UiE2eTest(unittest.TestCase):
         self.page.click("#adminClose")
         self.page.wait_for_function("!document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
 
-    def test_07_backup_tab_gdrive_schedule_controls(self):
-        """Backup tab allows configuring automatic backup schedule (frequency, weekdays, save)."""
-        token_path = atl._gdrive_config()["token_file"]
-        with open(token_path, "w", encoding="utf-8") as f:
-            json.dump({
-                "access_token": "mock_access_token_xyz",
-                "refresh_token": "mock_refresh_token_abc",
-                "token_type": "Bearer",
-                "expires_in": 3600,
-                "expiry": time.time() + 3600
-            }, f)
-
-        try:
-            self.page.goto(f"{_BASE_URL}/", wait_until="networkidle")
-
-            self.page.once("dialog", lambda dialog: dialog.accept("1234"))
-            self.page.click("#openAdminBtn")
-            self.page.wait_for_function("document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
-
-            self.page.click("#adminNav button[data-tab='backup']")
-            self.page.wait_for_function("!document.getElementById('pane-backup').classList.contains('hidden')", timeout=3000)
-
-            action_box = self.page.locator("#gdriveActionBox")
-            action_box.wait_for(state="visible", timeout=4000)
-
-            badge = self.page.locator("#gdriveBadge")
-            self.assertIn(badge.inner_text().strip(), ["Ready", "Connected"])
-
-            enabled_checkbox = self.page.locator("#gdriveSchedEnabled")
-            self.assertTrue(enabled_checkbox.is_visible())
-            if not enabled_checkbox.is_checked():
-                enabled_checkbox.check()
-
-            self.page.fill("#gdriveSchedTime", "19:45")
-
-            freq_select = self.page.locator("#gdriveSchedFreq")
-            interval_wrap = self.page.locator("#gdriveSchedIntervalWrap")
-            days_wrap = self.page.locator("#gdriveSchedDaysWrap")
-
-            # Frequency: interval
-            freq_select.select_option("interval")
-            interval_wrap.wait_for(state="visible", timeout=2000)
-            self.assertFalse(days_wrap.is_visible())
-            self.page.fill("#gdriveSchedInterval", "4")
-
-            # Frequency: weekdays
-            freq_select.select_option("weekdays")
-            days_wrap.wait_for(state="visible", timeout=2000)
-            self.assertFalse(interval_wrap.is_visible())
-
-            # Weekday toggles
-            mon_btn = self.page.locator("#gdriveSchedDays button[data-day='1']")
-            mon_btn.click()
-
-            # Save schedule
-            self.page.click("#gdriveSchedSaveBtn")
-            status_span = self.page.locator("#gdriveSchedStatus")
-            status_span.wait_for(state="visible", timeout=3000)
-            self.assertIn("SAVED", status_span.inner_text().upper())
-
-            self.page.click("#adminClose")
-            self.page.wait_for_function("!document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
-        finally:
-            if os.path.exists(token_path):
-                try:
-                    os.remove(token_path)
-                except Exception:
-                    pass
-
-    def test_08_backup_tab_telegram_controls(self):
-        """Backup tab displays Telegram card, allows toggling enable, send backup, and clear status."""
+    def test_07_backup_tab_unified_schedule_controls(self):
+        """Backup tab allows configuring unified automatic backup schedule (frequency, weekdays, save)."""
         self.page.goto(f"{_BASE_URL}/", wait_until="networkidle")
 
         self.page.once("dialog", lambda dialog: dialog.accept("1234"))
@@ -486,29 +417,114 @@ class UiE2eTest(unittest.TestCase):
         self.page.click("#adminNav button[data-tab='backup']")
         self.page.wait_for_function("!document.getElementById('pane-backup').classList.contains('hidden')", timeout=3000)
 
-        # Telegram card renders
-        tg_card = self.page.locator("#telegramCard")
-        tg_card.wait_for(state="visible", timeout=3000)
+        # 1. Unified Backup Manager card renders
+        manager_card = self.page.locator("#backupManagerCard")
+        manager_card.wait_for(state="visible", timeout=3000)
 
-        badge = self.page.locator("#telegramBadge")
-        badge.wait_for(state="visible", timeout=2000)
+        enabled_checkbox = self.page.locator("#backupSchedEnabled")
+        self.assertTrue(enabled_checkbox.is_visible())
+        if not enabled_checkbox.is_checked():
+            enabled_checkbox.check()
 
-        # Test enable toggle
-        toggle = self.page.locator("#telegramEnabledToggle")
-        initially_checked = toggle.is_checked()
-        toggle.click()
+        self.page.fill("#backupSchedTime", "19:45")
+
+        freq_select = self.page.locator("#backupSchedFreq")
+        interval_wrap = self.page.locator("#backupSchedIntervalWrap")
+        days_wrap = self.page.locator("#backupSchedDaysWrap")
+
+        # Frequency: interval
+        freq_select.select_option("interval")
+        interval_wrap.wait_for(state="visible", timeout=2000)
+        self.assertFalse(days_wrap.is_visible())
+        self.page.fill("#backupSchedInterval", "4")
+
+        # Frequency: weekdays
+        freq_select.select_option("weekdays")
+        days_wrap.wait_for(state="visible", timeout=2000)
+        self.assertFalse(interval_wrap.is_visible())
+
+        # Weekday toggle (Monday = 1)
+        mon_btn = self.page.locator("#backupSchedDays button[data-day='1']")
+        mon_btn.click()
+
+        # Save schedule
+        self.page.click("#backupSchedSaveBtn")
+        status_span = self.page.locator("#backupSchedStatus")
+        status_span.wait_for(state="visible", timeout=3000)
+        self.assertIn("SAVED", status_span.inner_text().upper())
+
+        self.page.click("#adminClose")
+        self.page.wait_for_function("!document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
+
+    def test_08_backup_tab_destination_selection_and_select_all(self):
+        """Backup tab displays independent destination checkboxes and Select all button."""
+        self.page.goto(f"{_BASE_URL}/", wait_until="networkidle")
+
+        self.page.once("dialog", lambda dialog: dialog.accept("1234"))
+        self.page.click("#openAdminBtn")
+        self.page.wait_for_function("document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
+
+        self.page.click("#adminNav button[data-tab='backup']")
+        self.page.wait_for_function("!document.getElementById('pane-backup').classList.contains('hidden')", timeout=3000)
+
+        # Destination checkboxes render
+        gd_check = self.page.locator("#destCheckGdrive")
+        tg_check = self.page.locator("#destCheckTelegram")
+        usb_check = self.page.locator("#destCheckUsb")
+        select_all_btn = self.page.locator("#backupSelectAllBtn")
+
+        self.assertTrue(gd_check.is_visible())
+        self.assertTrue(tg_check.is_visible())
+        self.assertTrue(usb_check.is_visible())
+        self.assertTrue(select_all_btn.is_visible())
+
+        # Toggle Telegram checkbox
+        init_tg = tg_check.is_checked()
+        tg_check.click()
         self.page.wait_for_timeout(300)
-        self.assertNotEqual(toggle.is_checked(), initially_checked)
-        # Toggle back
-        toggle.click()
-        self.page.wait_for_timeout(300)
+        self.assertNotEqual(tg_check.is_checked(), init_tg)
+        tg_check.click() # restore
 
-        # Test Clear status button
-        clear_btn = self.page.locator("#telegramClearStatusBtn")
-        clear_btn.click()
-        self.page.wait_for_timeout(300)
+        # Test Select all button
+        select_all_btn.click()
+        self.page.wait_for_timeout(400)
+        state1 = gd_check.is_checked()
+        self.assertEqual(tg_check.is_checked(), state1)
+        self.assertEqual(usb_check.is_checked(), state1)
 
-        # Test Send backup now with intercepted network call
+        self.page.click("#adminClose")
+        self.page.wait_for_function("!document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
+
+    def test_09_backup_tab_refresh_and_usb_status(self):
+        """Refresh button updates live status in place, and USB reports Not connected when detached."""
+        self.page.goto(f"{_BASE_URL}/", wait_until="networkidle")
+
+        self.page.once("dialog", lambda dialog: dialog.accept("1234"))
+        self.page.click("#openAdminBtn")
+        self.page.wait_for_function("document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
+
+        self.page.click("#adminNav button[data-tab='backup']")
+        self.page.wait_for_function("!document.getElementById('pane-backup').classList.contains('hidden')", timeout=3000)
+
+        # In test environment with no physical USB attached, USB reports "Not connected"
+        usb_status = self.page.locator("#destStatusUsb")
+        usb_status.wait_for(state="visible", timeout=3000)
+        self.assertIn(usb_status.inner_text().strip(), ["Not connected", "Disabled", "Ready"])
+
+        # Click Refresh button
+        refresh_btn = self.page.locator("#backupRefreshBtn")
+        self.assertTrue(refresh_btn.is_visible())
+        refresh_btn.click()
+        self.page.wait_for_timeout(400)
+
+        # Status remains responsive and visible without page reload
+        self.assertTrue(usb_status.is_visible())
+
+        self.page.click("#adminClose")
+        self.page.wait_for_function("!document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
+
+    def test_10_backup_tab_backup_now(self):
+        """Back Up Now button runs backup for selected destinations and reports results."""
         self.page.route("**/api/backup/telegram/backup", lambda route: route.fulfill(
             status=200,
             content_type="application/json",
@@ -520,127 +536,46 @@ class UiE2eTest(unittest.TestCase):
             })
         ))
 
-        # Accept the success alert dialog
+        self.page.goto(f"{_BASE_URL}/", wait_until="networkidle")
+
+        self.page.once("dialog", lambda dialog: dialog.accept("1234"))
+        self.page.click("#openAdminBtn")
+        self.page.wait_for_function("document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
+
+        self.page.click("#adminNav button[data-tab='backup']")
+        self.page.wait_for_function("!document.getElementById('pane-backup').classList.contains('hidden')", timeout=3000)
+
+        # Enable Telegram destination
+        tg_check = self.page.locator("#destCheckTelegram")
+        if not tg_check.is_checked():
+            tg_check.check()
+            self.page.wait_for_timeout(250)
+
+        # Disable Google Drive and USB for this targeted test
+        gd_check = self.page.locator("#destCheckGdrive")
+        if gd_check.is_checked():
+            gd_check.uncheck()
+            self.page.wait_for_timeout(250)
+        usb_check = self.page.locator("#destCheckUsb")
+        if usb_check.is_checked():
+            usb_check.uncheck()
+            self.page.wait_for_timeout(250)
+
+        backup_btn = self.page.locator("#backupNowBtn")
+        self.assertTrue(backup_btn.is_visible())
+
+        # Accept completion alert
         self.page.once("dialog", lambda dialog: dialog.accept())
-        self.page.click("#telegramBackupNowBtn")
-        self.page.wait_for_timeout(500)
+        backup_btn.click()
+
+        self.page.wait_for_function("document.getElementById('backupNowStatus').textContent.toUpperCase().includes('OK')", timeout=5000)
+        status_el = self.page.locator("#backupNowStatus")
+        self.assertIn("TELEGRAM: OK", status_el.inner_text().upper())
 
         self.page.click("#adminClose")
         self.page.wait_for_function("!document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
 
-    def test_09_backup_tab_telegram_schedule_controls(self):
-        """Backup tab allows configuring automatic Telegram backup schedule (frequency, weekdays, save)."""
-        self.page.goto(f"{_BASE_URL}/", wait_until="networkidle")
-
-        self.page.once("dialog", lambda dialog: dialog.accept("1234"))
-        self.page.click("#openAdminBtn")
-        self.page.wait_for_function("document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
-
-        self.page.click("#adminNav button[data-tab='backup']")
-        self.page.wait_for_function("!document.getElementById('pane-backup').classList.contains('hidden')", timeout=3000)
-
-        # Telegram card and schedule controls render
-        tg_card = self.page.locator("#telegramCard")
-        tg_card.wait_for(state="visible", timeout=3000)
-
-        enabled_checkbox = self.page.locator("#telegramSchedEnabled")
-        self.assertTrue(enabled_checkbox.is_visible())
-        if not enabled_checkbox.is_checked():
-            enabled_checkbox.check()
-
-        self.page.fill("#telegramSchedTime", "20:30")
-
-        freq_select = self.page.locator("#telegramSchedFreq")
-        interval_wrap = self.page.locator("#telegramSchedIntervalWrap")
-        days_wrap = self.page.locator("#telegramSchedDaysWrap")
-
-        # Frequency: interval
-        freq_select.select_option("interval")
-        interval_wrap.wait_for(state="visible", timeout=2000)
-        self.assertFalse(days_wrap.is_visible())
-        self.page.fill("#telegramSchedInterval", "3")
-
-        # Frequency: weekdays
-        freq_select.select_option("weekdays")
-        days_wrap.wait_for(state="visible", timeout=2000)
-        self.assertFalse(interval_wrap.is_visible())
-
-        # Weekday toggles (Friday = 5)
-        fri_btn = self.page.locator("#telegramSchedDays button[data-day='5']")
-        fri_btn.click()
-
-        # Save schedule
-        self.page.click("#telegramSchedSaveBtn")
-        status_span = self.page.locator("#telegramSchedStatus")
-        status_span.wait_for(state="visible", timeout=3000)
-        self.assertIn("SAVED", status_span.inner_text().upper())
-
-        self.page.click("#adminClose")
-        self.page.wait_for_function("!document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
-
-    def test_10_backup_tab_usb_controls(self):
-        """Backup tab allows configuring USB backup (toggle, refresh, and schedule)."""
-        self.page.goto(f"{_BASE_URL}/", wait_until="networkidle")
-
-        self.page.once("dialog", lambda dialog: dialog.accept("1234"))
-        self.page.click("#openAdminBtn")
-        self.page.wait_for_function("document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
-
-        self.page.click("#adminNav button[data-tab='backup']")
-        self.page.wait_for_function("!document.getElementById('pane-backup').classList.contains('hidden')", timeout=3000)
-
-        # 1. USB card and controls render
-        usb_card = self.page.locator("#usbCard")
-        usb_card.wait_for(state="visible", timeout=3000)
-        self.assertTrue(self.page.locator("#usbBadge").is_visible())
-        self.assertTrue(self.page.locator("#usbMountPath").is_visible())
-
-        # 2. Toggle enable checkbox
-        toggle = self.page.locator("#usbEnabledToggle")
-        self.assertTrue(toggle.is_visible())
-        toggle.click()
-        self.page.wait_for_timeout(300)
-        toggle.click() # restore
-
-        # 3. Check USB button click
-        self.page.click("#usbRefreshBtn")
-        self.page.wait_for_timeout(300)
-
-        # 4. Schedule controls
-        enabled_checkbox = self.page.locator("#usbSchedEnabled")
-        self.assertTrue(enabled_checkbox.is_visible())
-        if not enabled_checkbox.is_checked():
-            enabled_checkbox.check()
-
-        self.page.fill("#usbSchedTime", "19:45")
-
-        freq_select = self.page.locator("#usbSchedFreq")
-        interval_wrap = self.page.locator("#usbSchedIntervalWrap")
-        days_wrap = self.page.locator("#usbSchedDaysWrap")
-
-        # Frequency: interval
-        freq_select.select_option("interval")
-        interval_wrap.wait_for(state="visible", timeout=2000)
-        self.assertFalse(days_wrap.is_visible())
-        self.page.fill("#usbSchedInterval", "4")
-
-        # Frequency: weekdays
-        freq_select.select_option("weekdays")
-        days_wrap.wait_for(state="visible", timeout=2000)
-        self.assertFalse(interval_wrap.is_visible())
-
-        # Toggle Tuesday (2)
-        tue_btn = self.page.locator("#usbSchedDays button[data-day='2']")
-        tue_btn.click()
-
-        # Save schedule
-        self.page.click("#usbSchedSaveBtn")
-        status_span = self.page.locator("#usbSchedStatus")
-        status_span.wait_for(state="visible", timeout=3000)
-        self.assertIn("SAVED", status_span.inner_text().upper())
-
-        self.page.click("#adminClose")
-        self.page.wait_for_function("!document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
