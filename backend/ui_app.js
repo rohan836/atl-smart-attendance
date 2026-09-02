@@ -1061,43 +1061,58 @@ function renderScheduleTiming(){
   const presentInput = $("schedPresentCutoff");
   const lateInput = $("schedLateCutoff");
   const revertBtn = $("schedRevertTimingBtn");
-  if(!badge || !notice || !presentInput || !lateInput) return;
+  if(!notice || !presentInput || !lateInput) return;
 
   const timing = getScheduleTiming(ctx);
   presentInput.value = timing.presentCutoff;
   lateInput.value = timing.lateCutoff;
 
   if(ctx.type === "global"){
-    badge.textContent = "GLOBAL SCHEDULE";
-    badge.style.background = "var(--ink)";
-    badge.style.color = "#fff";
-    notice.textContent = "Default school-wide timings (fallback for all classes and batches unless overridden)";
+    if(badge){
+      badge.textContent = "GLOBAL SCHEDULE";
+      badge.style.background = "var(--ink)";
+      badge.style.color = "#fff";
+      badge.style.display = "inline-block";
+    }
+    notice.textContent = "Global fallback (configured in Attendance Rules)";
+    notice.style.background = "#fff";
+    notice.style.color = "var(--ink)";
     if(revertBtn) revertBtn.style.display = "none";
   } else if(ctx.type === "class"){
-    badge.textContent = `CLASS · ${ctx.name.toUpperCase()}`;
+    if(badge){
+      badge.textContent = `CLASS · ${ctx.name.toUpperCase()}`;
+      badge.style.background = timing.isInherited ? "" : "var(--ok)";
+      badge.style.color = timing.isInherited ? "" : "#fff";
+      badge.style.display = "inline-block";
+    }
     if(timing.isInherited){
-      badge.style.background = "";
-      badge.style.color = "";
       notice.textContent = `Inheriting global timings (${timing.presentCutoff} / ${timing.lateCutoff}) — edit below to override`;
+      notice.style.background = "#fff";
+      notice.style.color = "var(--ink)";
       if(revertBtn) revertBtn.style.display = "none";
     } else {
-      badge.style.background = "var(--ok)";
-      badge.style.color = "#fff";
-      notice.textContent = `Custom class timing active for ${ctx.name} — overrides global (${Settings.presentCutoff || "08:00"} / ${Settings.lateCutoff || "08:30"})`;
+      notice.textContent = `Custom class timing active for ${ctx.name} — overrides global`;
+      notice.style.background = "var(--ok)";
+      notice.style.color = "#fff";
       if(revertBtn) revertBtn.style.display = "inline-block";
     }
   } else if(ctx.type === "batch"){
-    badge.textContent = `BATCH · ${ctx.name.toUpperCase()}`;
+    if(badge){
+      badge.textContent = `BATCH · ${ctx.name.toUpperCase()}`;
+      badge.style.background = timing.isInherited ? "" : "var(--ok)";
+      badge.style.color = timing.isInherited ? "" : "#fff";
+      badge.style.display = "inline-block";
+    }
     if(timing.isInherited){
-      badge.style.background = "";
-      badge.style.color = "";
       const source = timing.level === "class" ? "class" : "global";
       notice.textContent = `Inheriting ${source} timings (${timing.presentCutoff} / ${timing.lateCutoff}) — edit below to override`;
+      notice.style.background = "#fff";
+      notice.style.color = "var(--ink)";
       if(revertBtn) revertBtn.style.display = "none";
     } else {
-      badge.style.background = "var(--ok)";
-      badge.style.color = "#fff";
       notice.textContent = `Custom batch timing active for ${ctx.name} — overrides class and global`;
+      notice.style.background = "var(--ok)";
+      notice.style.color = "#fff";
       if(revertBtn) revertBtn.style.display = "inline-block";
     }
   }
@@ -1114,26 +1129,52 @@ async function persistCalendar(){
   return false;
 }
 function renderHolidays(){
-  if(!Holidays.length){ holidayBody.innerHTML=`<tr><td colspan="6"><div class="empty"><b>No holidays configured</b>Add Independence Day, Diwali Vacation etc.</div></td></tr>`; return; }
-  holidayBody.innerHTML=Holidays.map(h=>`<tr><td>${esc(h.name)}</td><td>${esc(h.start)}</td><td>${esc(h.end)}</td><td></td><td><span class="badge">${esc(h.type)}</span></td><td><div style="display:flex;gap:6px"><button class="btn" data-edit-holiday="${esc(h.start)}">Edit</button><button class="btn danger" data-del-holiday="${esc(h.start)}">Remove</button></div></td></tr>`).join("");
+  const hBadge = $("holidayCountBadge"); if(hBadge) hBadge.textContent = Holidays.length;
+  if(!holidayBody) return;
+  if(!Holidays.length){
+    holidayBody.innerHTML=`<tr><td colspan="5"><div class="empty" style="padding:14px;border:1px dashed var(--line);background:var(--paper);border-radius:2px;font-size:11px;color:var(--ink-2)"><b>No holidays or vacations configured.</b>Click + Add holiday to schedule.</div></td></tr>`;
+    return;
+  }
+  holidayBody.innerHTML=Holidays.map(h=>`<tr><td>${esc(h.name)}</td><td>${esc(h.start)}</td><td>${esc(h.end)}</td><td><span class="badge">${esc(h.type)}</span></td><td style="text-align:right"><div style="display:flex;gap:6px;justify-content:flex-end"><button class="btn" data-edit-holiday="${esc(h.start)}" style="padding:2px 6px;font-size:9px">Edit</button><button class="btn danger" data-del-holiday="${esc(h.start)}" style="padding:2px 6px;font-size:9px">Remove</button></div></td></tr>`).join("");
 }
 function renderOverrides(){
-  if(!Overrides.length){ overrideBody.innerHTML=`<tr><td colspan="4"><div class="empty"><b>No date overrides</b></div></td></tr>`; return; }
-  overrideBody.innerHTML=Overrides.map(o=>`<tr><td>${esc(o.date)}</td><td>${o.isWorking?"Working":"Holiday"}</td><td>${esc(o.note)}</td><td><div style="display:flex;gap:6px"><button class="btn" data-edit-override="${esc(o.date)}">Edit</button><button class="btn danger" data-del-override="${esc(o.date)}">Remove</button></div></td></tr>`).join("");
+  const oBadge = $("overrideCountBadge"); if(oBadge) oBadge.textContent = Overrides.length;
+  if(!overrideBody) return;
+  if(!Overrides.length){
+    overrideBody.innerHTML=`<tr><td colspan="4"><div class="empty" style="padding:14px;border:1px dashed var(--line);background:var(--paper);border-radius:2px;font-size:11px;color:var(--ink-2)"><b>⚡ No date overrides configured.</b>Click + Add override for single-day exceptions.</div></td></tr>`;
+    return;
+  }
+  overrideBody.innerHTML=Overrides.map(o=>`<tr><td>${esc(o.date)}</td><td>${o.isWorking?"Working":"Holiday"}</td><td>${esc(o.note)}</td><td style="text-align:right"><div style="display:flex;gap:6px;justify-content:flex-end"><button class="btn" data-edit-override="${esc(o.date)}" style="padding:2px 6px;font-size:9px">Edit</button><button class="btn danger" data-del-override="${esc(o.date)}" style="padding:2px 6px;font-size:9px">Remove</button></div></td></tr>`).join("");
 }
 function renderWeekly(){
-  const tbody=document.querySelector("#weeklyTable tbody");
-  if(!tbody) return;
   const ctx = getScheduleContext();
   let wd = Settings.workingDays;
   if(ctx.type === "class") wd = getWorkingDaysForClass(ctx.name);
   else if(ctx.type === "batch") wd = getWorkingDaysForBatch(ctx.name);
 
-  const days=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
-  tbody.innerHTML=days.map((name,idx)=>{
-    const on=asBool(wd[idx] ?? wd[String(idx)]);
-    return `<tr><td>${name}</td><td><div class="toggle ${on?"on":""}" data-day="${idx}"></div></td></tr>`;
-  }).join("");
+  const shortDays=["SUN","MON","TUE","WED","THU","FRI","SAT"];
+  const fullDays=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+
+  const daysRow = $("weeklyDaysRow");
+  if(daysRow){
+    daysRow.innerHTML = shortDays.map((name, idx)=>{
+      const on = asBool(wd[idx] ?? wd[String(idx)]);
+      const cls = on ? "weekly-day-card working" : "weekly-day-card off";
+      const status = on ? "WORKING" : "OFF";
+      return `<div class="${cls}" data-day="${idx}">
+        <div class="w-name">${name}</div>
+        <div class="w-status">${status}</div>
+      </div>`;
+    }).join("");
+  }
+
+  const tbody = document.querySelector("#weeklyTable tbody");
+  if(tbody){
+    tbody.innerHTML = fullDays.map((name, idx)=>{
+      const on = asBool(wd[idx] ?? wd[String(idx)]);
+      return `<tr><td>${name}</td><td><div class="toggle ${on?"on":""}" data-day="${idx}"></div></td></tr>`;
+    }).join("");
+  }
 
   populateScheduleSelector();
   renderScheduleTiming();
@@ -1160,24 +1201,24 @@ function renderCalendarMonth(){
     }
   }
   const first=new Date(y,m,1).getDay(), last=new Date(y,m+1,0).getDate();
-  let html=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=>`<div class="calendar-cell head">${d}</div>`).join("");
-  for(let i=0;i<first;i++) html+=`<div class="calendar-cell"></div>`;
+  let html=['SUN','MON','TUE','WED','THU','FRI','SAT'].map(d=>`<div class="calendar-cell head">${d}</div>`).join("");
+  for(let i=0;i<first;i++) html+=`<div class="calendar-cell" style="background:#fff"></div>`;
   for(let d=1;d<=last;d++){
     const iso=toLocalISO(new Date(y,m,d));
     const hol=isHoliday(iso), ov=getOverride(iso), todayCls=iso===todayISO()?" today":"";
     const working = isWorkingDayForContext(iso, ctx);
-    const typeCls=ov?"override":(hol?(hol.type==="vacation"?"vacation":"holiday"):(working?"working":"holiday"));
-    const tag=ov?esc(ov.note):hol?esc(hol.name):(working?"Working":"Non-working");
+    const typeCls = ov ? "override" : (working ? "working" : "non-working");
+    const tag = ov ? esc(ov.note) : (hol ? esc(hol.name) : (working ? "WORKING" : "NON-WORKING"));
     html+=`<div class="calendar-cell ${typeCls}${todayCls}"><div class="day">${d}</div><div class="tag">${tag}</div></div>`;
   }
   calendarGrid.innerHTML=html;
 }
 function renderClasses(){
   if(!classBody) return;
-  if(!Classes.length){ classBody.innerHTML=`<tr><td colspan="3"><div class="empty"><b>No classes configured</b></div></td></tr>`; return; }
+  if(!Classes.length){ classBody.innerHTML=`<tr><td colspan="3"><div class="empty" style="padding:14px;font-size:10px"><b>No classes configured</b></div></td></tr>`; return; }
   classBody.innerHTML=Classes.map(c=>{
     const n=Students.filter(s=>s.class===c).length;
-    return `<tr><td>${esc(c)}</td><td>${n}</td><td><button class="btn" data-sched-class="${esc(c)}" style="padding:1px 6px;font-size:10px">Schedule →</button></td></tr>`;
+    return `<tr><td>${esc(c)}</td><td style="text-align:center">${n}</td><td style="text-align:right"><div style="display:flex;gap:4px;justify-content:flex-end"><button class="btn danger" data-del-class="${esc(c)}" style="padding:1px 6px;font-size:9px">DELETE</button><button class="btn" data-sched-class="${esc(c)}" style="padding:1px 6px;font-size:9px">Schedule →</button></div></td></tr>`;
   }).join("");
 }
 function renderBatches(){
@@ -1440,24 +1481,50 @@ async function openAdmin(){
       return;
     }
   }
-  const titles={students:"Students", today:"Today — Attendance", reports:"Reports", calendar:"Calendar — Schedule", settings:"Settings", backup:"Backup — Audit"};
+  const titles={students:"Students", today:"Today — Attendance", reports:"Reports", setup:"Setup — School Configuration & Schedule", calendar:"Setup — School Configuration & Schedule", settings:"Setup — School Configuration & Schedule", backup:"Backup — Audit"};
   if(adminTitle) adminTitle.textContent=titles[currentTab]||"Admin";
   // show loading briefly while data refreshes
-  const pane=document.getElementById("pane-"+currentTab);
+  let activeTabName = currentTab;
+  if(activeTabName === "calendar" || activeTabName === "settings") activeTabName = "setup";
+  const pane=document.getElementById("pane-"+activeTabName);
   if(pane) pane.style.opacity="0.6";
   pauseSensorScan(); adminLayer.classList.add("open"); renderAll();
   setTimeout(()=>{ if(pane) pane.style.opacity=""; updateTabs(); }, 80);
 }
 function updateTabs(){
   document.querySelectorAll(".admin-pane").forEach(p=>p.classList.add("hidden"));
-  const pane=document.getElementById("pane-"+currentTab); if(pane){ pane.classList.remove("hidden"); pane.style.opacity=""; }
-  const titles={students:"Students", today:"Today — Attendance", reports:"Reports", calendar:"Calendar — Schedule", settings:"Settings", backup:"Backup — Audit"};
-  if(adminTitle) adminTitle.textContent=titles[currentTab]||"Admin";
-  if(currentTab==="today") renderToday();
-  if(currentTab==="reports") renderReports();
-  if(currentTab==="calendar"){ populateScheduleSelector(); renderWeekly(); renderHolidays(); renderOverrides(); renderCalendarMonth(); }
-  if(currentTab==="settings"){ renderClasses(); renderBatches(); }
-  if(currentTab==="backup"){ renderAudit(); loadBackupManagerStatus(); }
+  let tab = currentTab;
+  if(tab === "calendar" || tab === "settings") tab = "setup";
+  const pane = document.getElementById("pane-" + tab);
+  if(pane){ pane.classList.remove("hidden"); pane.style.opacity = ""; }
+  const pCal = document.getElementById("pane-calendar");
+  const pSet = document.getElementById("pane-settings");
+  if(tab === "setup"){
+    if(pCal) pCal.classList.remove("hidden");
+    if(pSet) pSet.classList.remove("hidden");
+  }
+  const titles = {
+    students: "Students",
+    today: "Today — Attendance",
+    reports: "Reports",
+    setup: "Setup — School Configuration & Schedule",
+    calendar: "Setup — School Configuration & Schedule",
+    settings: "Setup — School Configuration & Schedule",
+    backup: "Backup — Audit"
+  };
+  if(adminTitle) adminTitle.textContent = titles[currentTab] || "Admin";
+  if(tab === "today") renderToday();
+  if(tab === "reports") renderReports();
+  if(tab === "setup"){
+    populateScheduleSelector();
+    renderClasses();
+    renderBatches();
+    renderWeekly();
+    renderHolidays();
+    renderOverrides();
+    renderCalendarMonth();
+  }
+  if(tab === "backup"){ renderAudit(); loadBackupManagerStatus(); }
 }
 document.getElementById("openAdminBtn").onclick=openAdmin;
 const _frontEnrollBtn=document.getElementById("openEnrollBtn"); if(_frontEnrollBtn) _frontEnrollBtn.onclick=openNewStudent;
@@ -1468,9 +1535,16 @@ document.getElementById("adminClose").onclick=()=>{
   resumeSensorScan();
 };
 adminNav.onclick=(e)=>{
-  if(e.target.tagName!=="BUTTON") return;
-  [...adminNav.children].forEach(b=>b.classList.remove("active")); e.target.classList.add("active");
-  currentTab=e.target.dataset.tab; updateTabs();
+  const btn = e.target.closest("button");
+  if(!btn) return;
+  [...adminNav.children].forEach(b=>b.classList.remove("active"));
+  btn.classList.add("active");
+  currentTab = btn.dataset.tab;
+  if(currentTab === "calendar" || currentTab === "settings"){
+    const setupBtn = adminNav.querySelector("button[data-tab='setup']");
+    if(setupBtn) setupBtn.classList.add("active");
+  }
+  updateTabs();
 };
 // CSV import (backend) — Import CSV beside Export CSV (static in HTML, dynamic fallback)
 (function(){
@@ -1663,7 +1737,7 @@ $("addOverrideBtn").onclick=()=>{
     if(await persistCalendar()){ closeModal(overrideModal); renderOverrides(); renderCalendarMonth(); }
   };
 };
-$("weeklyTable").addEventListener("click",async(e)=>{
+async function onDayToggleClick(e){
   const toggle=e.target.closest("[data-day]"); if(!toggle) return;
   const day=String(toggle.dataset.day);
   const ctx=getScheduleContext();
@@ -1693,7 +1767,9 @@ $("weeklyTable").addEventListener("click",async(e)=>{
     Settings.workingDays[String(day)]=Settings.workingDays[day];
     if(await persistCalendar()){ renderWeekly(); renderCalendarMonth(); renderToday(); renderReports(); }
   }
-});
+}
+if($("weeklyDaysRow")) $("weeklyDaysRow").addEventListener("click", onDayToggleClick);
+if($("weeklyTable")) $("weeklyTable").addEventListener("click", onDayToggleClick);
 if($("calClassSelect")) $("calClassSelect").onchange=()=>{ renderWeekly(); renderCalendarMonth(); if(currentTab==="today") renderToday(); };
 $("calResetWeekBtn").onclick=async()=>{
   const ctx=getScheduleContext();
@@ -1832,12 +1908,24 @@ $("overrideBody").addEventListener("click",async(e)=>{
   Overrides=Overrides.filter(o=>o.date!==btn.dataset.delOverride);
   if(await persistCalendar()){ renderOverrides(); renderCalendarMonth(); }
 });
-if(classBody) classBody.addEventListener("click", e=>{
+if(classBody) classBody.addEventListener("click", async e=>{
+  const delBtn = e.target.closest("[data-del-class]");
+  if(delBtn){
+    const c = delBtn.dataset.delClass;
+    if(!confirm(`Remove class "${c}"?`)) return;
+    try{
+      const next = Classes.filter(x=>x!==c);
+      await api("/api/settings",{method:"POST",body:JSON.stringify({classes:next})});
+      await loadClassesHolidaysSettings();
+      renderAll();
+    }catch(err){ alert("Failed to remove class: "+err.message); }
+    return;
+  }
   const btn = e.target.closest("[data-sched-class]");
   if(!btn) return;
   const c = btn.dataset.schedClass;
-  currentTab = "calendar";
-  [...adminNav.children].forEach(b=>b.classList.toggle("active", b.dataset.tab==="calendar"));
+  currentTab = "setup";
+  [...adminNav.children].forEach(b=>b.classList.toggle("active", b.dataset.tab==="setup"));
   updateTabs();
   const sel = $("calClassSelect");
   if(sel){
@@ -1848,12 +1936,24 @@ if(classBody) classBody.addEventListener("click", e=>{
   }
 });
 const batchBodyEl = $("batchBody");
-if(batchBodyEl) batchBodyEl.addEventListener("click", e=>{
+if(batchBodyEl) batchBodyEl.addEventListener("click", async e=>{
+  const delBtn = e.target.closest("[data-del-batch]");
+  if(delBtn){
+    const b = delBtn.dataset.delBatch;
+    if(!confirm(`Remove batch "${b}"?`)) return;
+    try{
+      const next = (Batches||[]).filter(x=>x!==b);
+      await api("/api/settings",{method:"POST",body:JSON.stringify({batches:next})});
+      await loadClassesHolidaysSettings();
+      renderAll();
+    }catch(err){ alert("Failed to remove batch: "+err.message); }
+    return;
+  }
   const btn = e.target.closest("[data-sched-batch]");
   if(!btn) return;
   const b = btn.dataset.schedBatch;
-  currentTab = "calendar";
-  [...adminNav.children].forEach(b=>b.classList.toggle("active", b.dataset.tab==="calendar"));
+  currentTab = "setup";
+  [...adminNav.children].forEach(b=>b.classList.toggle("active", b.dataset.tab==="setup"));
   updateTabs();
   const sel = $("calClassSelect");
   if(sel){

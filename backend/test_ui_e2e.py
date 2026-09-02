@@ -301,8 +301,8 @@ class UiE2eTest(unittest.TestCase):
         self.page.click("#adminClose")
         self.page.wait_for_function("!document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
 
-    def test_04_admin_navigation_all_six_tabs(self):
-        """Navigating through all 6 admin tabs correctly switches active panes and titles."""
+    def test_04_admin_navigation_unified_tabs(self):
+        """Navigating through all unified admin tabs correctly switches active panes and titles."""
         self.page.goto(f"{_BASE_URL}/", wait_until="networkidle")
 
         self.page.once("dialog", lambda dialog: dialog.accept("1234"))
@@ -313,8 +313,7 @@ class UiE2eTest(unittest.TestCase):
             ("students", "pane-students", "Students"),
             ("today", "pane-today", "Today — Attendance"),
             ("reports", "pane-reports", "Reports"),
-            ("calendar", "pane-calendar", "Calendar — Schedule"),
-            ("settings", "pane-settings", "Settings"),
+            ("setup", "pane-setup", "Setup — School Configuration & Schedule"),
             ("backup", "pane-backup", "Backup — Audit"),
         ]
 
@@ -704,11 +703,11 @@ class UiE2eTest(unittest.TestCase):
         self.page.click("#openAdminBtn")
         self.page.wait_for_function("document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
 
-        # Navigate to Settings first to ensure a test batch exists
-        self.page.click("#adminNav button[data-tab='settings']")
-        self.page.wait_for_function("!document.getElementById('pane-settings').classList.contains('hidden')", timeout=3000)
+        # Navigate to Setup tab to ensure test batch exists
+        self.page.click("#adminNav button[data-tab='setup']")
+        self.page.wait_for_function("!document.getElementById('pane-setup').classList.contains('hidden')", timeout=3000)
 
-        # Verify Batches card exists in Settings
+        # Verify Batches card exists in Setup
         batch_body = self.page.locator("#batchBody")
         self.assertTrue(batch_body.is_visible())
 
@@ -718,10 +717,6 @@ class UiE2eTest(unittest.TestCase):
         add_batch_btn = self.page.locator("#addBatchBtn")
         add_batch_btn.click()
         self.page.wait_for_function("document.getElementById('batchBody').innerText.includes('Robotics-A')", timeout=4000)
-
-        # Navigate to Calendar tab
-        self.page.click("#adminNav button[data-tab='calendar']")
-        self.page.wait_for_function("!document.getElementById('pane-calendar').classList.contains('hidden')", timeout=3000)
 
         # 1. Verify selector has Global, Classes, and Batches
         cal_select = self.page.locator("#calClassSelect")
@@ -764,7 +759,7 @@ class UiE2eTest(unittest.TestCase):
         revert_btn = self.page.locator("#schedRevertTimingBtn")
         self.assertTrue(revert_btn.is_visible())
         notice = self.page.locator("#schedInheritNotice")
-        self.assertIn("Custom class timing active", notice.inner_text())
+        self.assertIn("CUSTOM CLASS TIMING ACTIVE", notice.inner_text().upper())
 
         # 5. Switch to Batch context
         cal_select.select_option("batch:Robotics-A")
@@ -772,24 +767,21 @@ class UiE2eTest(unittest.TestCase):
 
         self.assertIn("BATCH · ROBOTICS-A", badge.inner_text().upper())
         self.assertIn("Batch: Robotics-A", month_label.inner_text())
-        self.assertIn("Inheriting", notice.inner_text())
+        self.assertIn("INHERITING", notice.inner_text().upper())
 
-        # 6. Toggle a working day in weekly table for this batch
-        sunday_toggle = self.page.locator("#weeklyTable tbody tr").first.locator(".toggle")
-        initially_on = "on" in (sunday_toggle.get_attribute("class") or "")
-        sunday_toggle.click()
+        # 6. Toggle a working day in weekly schedule for this batch
+        sunday_card = self.page.locator("#weeklyDaysRow .weekly-day-card").first
+        initially_working = "working" in (sunday_card.get_attribute("class") or "")
+        sunday_card.click()
         self.page.wait_for_timeout(400)
-        after_on = "on" in (sunday_toggle.get_attribute("class") or "")
-        self.assertNotEqual(initially_on, after_on)
+        after_working = "working" in (sunday_card.get_attribute("class") or "")
+        self.assertNotEqual(initially_working, after_working)
 
-        # 7. Test Quick Schedule jump button from Settings
-        self.page.click("#adminNav button[data-tab='settings']")
-        self.page.wait_for_function("!document.getElementById('pane-settings').classList.contains('hidden')", timeout=3000)
-
+        # 7. Test Quick Schedule jump button from Batches list
         sched_btn = self.page.locator("#batchBody [data-sched-batch='Robotics-A']")
         self.assertTrue(sched_btn.is_visible())
         sched_btn.click()
-        self.page.wait_for_function("!document.getElementById('pane-calendar').classList.contains('hidden')", timeout=3000)
+        self.page.wait_for_function("!document.getElementById('pane-setup').classList.contains('hidden')", timeout=3000)
 
         self.assertEqual(cal_select.input_value(), "batch:Robotics-A")
         self.assertIn("BATCH · ROBOTICS-A", badge.inner_text().upper())
