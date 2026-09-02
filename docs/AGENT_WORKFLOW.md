@@ -9,7 +9,7 @@ Every agent must follow this workflow. It keeps changes small, verifiable, and p
 3. **Inspect the actual current code before assuming.** Read `backend/app.py`, `gt511c3.py`, `gdrive_backup.py`, `schema.sql`, `ui_app.js`, `ATL-Smart-Attendance-Production.html` as needed. Evidence before synthesis.
 4. **Stay in Plan mode for investigation.** Explore and draft a plan without modifying files.
 5. **Separate confirmed bugs from suspected issues.** Confirmed reproduces with a test or log; suspected needs verification.
-6. **Give evidence, files, risks, tests, and rollback.** For each hypothesis state file/line, risk, covering test, and revert (current production `v1.0.1`, historical `v1.0.0`, `git revert`, or DB `.pre_restore.bak`).
+6. **Give evidence, files, risks, tests, and rollback.** For each hypothesis state file/line, risk, covering test, and revert (current production `v1.2.0`, historical `v1.1.0`/`v1.0.1`/`v1.0.0`, `git revert`, or DB `.pre_restore.bak`).
 7. **Wait for approval before Build.** Do not edit until plan is approved.
 8. **Implement only approved scope.** One task at a time; no bundled features or refactors.
 9. **Do not modify unrelated files or architecture.** Keep `ATL-Smart-Attendance-Production.html` (shell/CSS) + `backend/ui_app.js` (behavior). No `css/`/`js/`/`templates/`/components unless proven need.
@@ -28,7 +28,7 @@ Every agent must follow this workflow. It keeps changes small, verifiable, and p
 A task is done only when:
 
 - Requested behavior works as specified
-- Tests pass (`99/99` or current suite) and new regression coverage exists
+- Tests pass (`116/116` backend + `12/12` Playwright or current suite) and new regression coverage exists
 - Documentation is accurate and the relevant `docs/*.md` were updated
 - No unrelated changes are in the diff
 - Git diff was reviewed and no secrets or runtime data are included

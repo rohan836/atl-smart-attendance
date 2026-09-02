@@ -10,7 +10,7 @@ UI layering:
 - `backend/app.py` = Flask API (serves HTML with `ui_app.js` injected) + background reconciliation worker (`_reconcile_daemon`) + backup scheduler daemon (`_gdrive_backup_daemon` for Google Drive, Telegram, and USB)
 - `backend/gdrive_backup.py` = Google Drive cloud backup engine (Device Flow RFC 8628, SQLite Online Backup snapshot, resumable upload, GFS retention)
 - `backend/gt511c3.py` = driver (UART only)
-No working-tree backup HTML is kept — current production release is `v1.1.0` (`da89bdf`); Git tags `v1.0.1` and `v1.0.0` remain historical rollback points.
+No working-tree backup HTML is kept — current production release is `v1.2.0` (`bf575451`); Git tags `v1.1.0`, `v1.0.1` and `v1.0.0` remain historical rollback points.
 
 ```
 [GT-511C3 UART] ↔ [gt511c3.py] ↔ [app.py Flask :5000 + ReconcileDaemon + BackupDaemon] ↔ [SQLite]
@@ -36,4 +36,4 @@ Theme is light editorial: `bg #FCFBF7 panel #FFFFFF ink #0A0A0A ink-2 #6B6B6B in
 
 ## File map
 
-`ATL-Smart-Attendance-Production.html` UI shell, markup, CSS/layout (visual redesign here; includes Unified Backup Manager). `backend/ui_app.js` UI behavior/state/events/API. `backend/app.py` Flask API and serve logic (injects `ui_app.js` into HTML) + reconciliation and multi-destination backup workers. `backend/gdrive_backup.py` Google Drive cloud backup engine (OAuth Device Authorization Grant, SQLite Online Backup snapshot, resumable upload, GFS retention). `backend/gt511c3.py` fingerprint driver. `backend/schema.sql` schema and indexes. `backend/config.example.json` template. `pi/setup.sh` and `pi/atl-attendance.service` provisioning. `tools/deploy.ps1`/`deploy.sh` and `tools/led_test.py`. No working-tree backup HTML — current production release is `v1.1.0` (`da89bdf`); tags `v1.0.1` and `v1.0.0` remain historical rollback points. See `API.md` for endpoint contracts and `DATA_MODEL.md` for tables and scheduling. See `OPERATIONS.md` for hardware, service, and deployment.
+`ATL-Smart-Attendance-Production.html` UI shell, markup, CSS/layout (visual redesign here; includes Unified Backup Manager). `backend/ui_app.js` UI behavior/state/events/API. `backend/app.py` Flask API and serve logic (injects `ui_app.js` into HTML) + reconciliation and multi-destination backup workers. `backend/gdrive_backup.py` Google Drive cloud backup engine (OAuth Device Authorization Grant, SQLite Online Backup snapshot, resumable upload, GFS retention). `backend/gt511c3.py` fingerprint driver. `backend/schema.sql` schema and indexes. `backend/config.example.json` template. `pi/setup.sh` and `pi/atl-attendance.service` provisioning. `tools/deploy.ps1`/`deploy.sh` and `tools/led_test.py`. No working-tree backup HTML — current production release is `v1.2.0` (`bf575451`); tags `v1.1.0`, `v1.0.1` and `v1.0.0` remain historical rollback points. See `API.md` for endpoint contracts and `DATA_MODEL.md` for tables and scheduling. See `OPERATIONS.md` for hardware, service, and deployment.

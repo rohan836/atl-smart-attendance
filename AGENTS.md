@@ -2,7 +2,7 @@
 
 This file is the first source of rules for any coding agent. Read it before changing code. It points to the right doc for each task.
 
-Production release: `v1.1.0` (`da89bdf`). Current `main`: `36c6825` (Unified Backup Manager UI + Telegram secondary cloud backup + USB local storage backup + synchronized multi-destination scheduling + 116 backend tests + 12 Playwright E2E tests). Historical rollback tags: `v1.0.1` (`32e5ef7`), `v1.0.0` (`c0fe411`). For new work, start from current `main`. Never modify historical release tags. See `docs/VERSIONS.md`.
+Production release: `v1.2.0` (`bf575451`). Current `main`: `bf575451` (Unified Backup Manager UI + Telegram secondary cloud backup + USB local storage backup + synchronized multi-destination scheduling + 116 backend tests + 12 Playwright E2E tests). Historical rollback tags: `v1.1.0` (`da89bdf`), `v1.0.1` (`32e5ef7`), `v1.0.0` (`c0fe411`). For new work, start from current `main`. Never modify historical release tags. See `docs/VERSIONS.md`.
 
 ## What this project is
 
@@ -33,7 +33,7 @@ Fingerprint kiosk:
 ## Repo and source of truth
 
 - **Working dir:** `e:\sss` — do not probe other drives.
-- **UI architecture:** `ATL-Smart-Attendance-Production.html` = shell/markup/CSS/layout; `backend/ui_app.js` = behavior/state/events/API; `backend/app.py` = serves HTML with `ui_app.js` injected at `_serve_production()`; `backend/gt511c3.py` = sensor driver. No working-tree backup HTML is kept — current production release is `v1.1.0` (`da89bdf`); Git tags `v1.0.1` and `v1.0.0` remain historical rollback points (see `docs/VERSIONS.md`). Theme `bg #FCFBF7 panel #FFFFFF ink #0A0A0A ink-2 #6B6B6B ink-3 #A8A5A0 line #E9E6E0 paper #F6F4EF ok #2F5D34 danger #8A3A3A` + `Inter/Newsreader/ui-monospace`. Idle `PLACE YOUR FINGER` 11px 0.22em + `Admin` bottom-middle. No `css/ js/ templates/` unless proven need; keep simple architecture.
+- **UI architecture:** `ATL-Smart-Attendance-Production.html` = shell/markup/CSS/layout; `backend/ui_app.js` = behavior/state/events/API; `backend/app.py` = serves HTML with `ui_app.js` injected at `_serve_production()`; `backend/gt511c3.py` = sensor driver. No working-tree backup HTML is kept — current production release is `v1.2.0` (`bf575451`); Git tags `v1.1.0`, `v1.0.1` and `v1.0.0` remain historical rollback points (see `docs/VERSIONS.md`). Theme `bg #FCFBF7 panel #FFFFFF ink #0A0A0A ink-2 #6B6B6B ink-3 #A8A5A0 line #E9E6E0 paper #F6F4EF ok #2F5D34 danger #8A3A3A` + `Inter/Newsreader/ui-monospace`. Idle `PLACE YOUR FINGER` 11px 0.22em + `Admin` bottom-middle. No `css/ js/ templates/` unless proven need; keep simple architecture.
 - **Stack:** `backend/app.py` + `backend/gt511c3.py` + `backend/schema.sql` + `backend/config.json` (`sensor real`, `uart /dev/serial0`, `baud 9600`, `db /var/lib/atl/attendance.db`, `host 0.0.0.0:5000`). Windows fallback `backend/attendance.db` + `backend/uploads/`. Template `backend/config.example.json`.
 - **Structure:** `ATL-Smart-Attendance-Production.html` (prod) · `AGENTS.md README.md API.md` · `docs/*.md` · `assets/images/{admin,diagrams,students,ui}` · `backend/{app.py,gt511c3.py,gdrive_backup.py,schema.sql,config.example.json,requirements.txt,ui_app.js,test_app.py,test_ui_e2e.py}` · `pi/{setup.sh,atl-attendance.service}` · `tools/{deploy.ps1,deploy.sh,led_test.py}`
 
