@@ -1389,6 +1389,11 @@ def restore_db():
 # ---------------------------------------------------------------------------
 # Google Drive Backup Integration (OAuth 2.0 Resumable Backup)
 # ---------------------------------------------------------------------------
+try:
+    import backend.gdrive_backup as gb
+except ImportError:
+    import gdrive_backup as gb
+
 def _gdrive_config():
     g_cfg = cfg.get("gdrive") if isinstance(cfg.get("gdrive"), dict) else {}
     client_id = os.environ.get("ATL_GDRIVE_CLIENT_ID") or g_cfg.get("clientId", "")
@@ -1422,7 +1427,6 @@ _gdrive_stop_event = threading.Event()
 _gdrive_thread = None
 
 def run_gdrive_backup(trigger="AUTO"):
-    import backend.gdrive_backup as gb
     gc = _gdrive_config()
     if not gc["enabled"]:
         return {"ok": False, "error": "Google Drive backup is disabled in configuration"}
@@ -1498,36 +1502,39 @@ def run_gdrive_backup(trigger="AUTO"):
 @app.route("/api/backup/gdrive/status", methods=["GET"])
 @require_admin
 def gdrive_status():
-    import backend.gdrive_backup as gb
-    gc = _gdrive_config()
-    client = gb.GDriveClient(gc, gc["token_file"])
-    is_conf = client.is_configured()
-    is_auth = client.is_authenticated()
-    status_label = _GDRIVE_STATE["last_status"]
-    if not gc["enabled"]:
-        status_label = "DISABLED"
-    elif not is_conf:
-        status_label = "NOT_CONFIGURED"
-    elif not is_auth:
-        status_label = "AUTH_REQUIRED"
+    try:
+        gc = _gdrive_config()
+        client = gb.GDriveClient(gc, gc["token_file"])
+        is_conf = client.is_configured()
+        is_auth = client.is_authenticated()
+        status_label = _GDRIVE_STATE["last_status"]
+        if not gc["enabled"]:
+            status_label = "DISABLED"
+        elif not is_conf:
+            status_label = "NOT_CONFIGURED"
+        elif not is_auth:
+            status_label = "AUTH_REQUIRED"
 
-    return jsonify({
-        "enabled": gc["enabled"],
-        "configured": is_conf,
-        "authenticated": is_auth,
-        "lastBackup": _GDRIVE_STATE["last_backup_time"],
-        "lastBackupName": _GDRIVE_STATE["last_backup_name"],
-        "lastStatus": status_label,
-        "lastError": _GDRIVE_STATE["last_error"],
-        "inProgress": _GDRIVE_STATE["in_progress"],
-        "folderName": gc["folder_name"],
-        "scheduleTime": gc["schedule_time"],
-    })
+        return jsonify({
+            "enabled": gc["enabled"],
+            "configured": is_conf,
+            "authenticated": is_auth,
+            "lastBackup": _GDRIVE_STATE["last_backup_time"],
+            "lastBackupName": _GDRIVE_STATE["last_backup_name"],
+            "lastStatus": status_label,
+            "lastError": _GDRIVE_STATE["last_error"],
+            "inProgress": _GDRIVE_STATE["in_progress"],
+            "folderName": gc["folder_name"],
+            "scheduleTime": gc["schedule_time"],
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
 
 @app.route("/api/backup/gdrive/auth-url", methods=["GET"])
 @require_admin
 def gdrive_auth_url():
-    import backend.gdrive_backup as gb
     gc = _gdrive_config()
     client = gb.GDriveClient(gc, gc["token_file"])
     try:
@@ -1543,7 +1550,6 @@ def gdrive_authorize():
     code = j.get("code", "").strip()
     if not code:
         return jsonify({"error": "code required"}), 400
-    import backend.gdrive_backup as gb
     gc = _gdrive_config()
     client = gb.GDriveClient(gc, gc["token_file"])
     try:
@@ -1557,7 +1563,6 @@ def gdrive_authorize():
 @app.route("/api/backup/gdrive/disconnect", methods=["POST"])
 @require_admin
 def gdrive_disconnect():
-    import backend.gdrive_backup as gb
     gc = _gdrive_config()
     client = gb.GDriveClient(gc, gc["token_file"])
     client.disconnect()
@@ -1577,7 +1582,6 @@ def gdrive_manual_backup():
 @app.route("/api/backup/gdrive/list", methods=["GET"])
 @require_admin
 def gdrive_list():
-    import backend.gdrive_backup as gb
     gc = _gdrive_config()
     client = gb.GDriveClient(gc, gc["token_file"])
     if not client.is_authenticated():
@@ -1598,7 +1602,6 @@ def gdrive_restore():
         if not file_id:
             return jsonify({"error": "fileId required"}), 400
 
-        import backend.gdrive_backup as gb
         gc = _gdrive_config()
         client = gb.GDriveClient(gc, gc["token_file"])
         if not client.is_authenticated():
