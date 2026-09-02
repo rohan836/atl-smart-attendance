@@ -2026,7 +2026,7 @@ def run_usb_backup(trigger: str = "MANUAL") -> dict:
 
         # 4. Copy snapshot to USB drive with buffer copy and sync
         import shutil
-        shutil.copy2(staging_path, dest_path)
+        shutil.copyfile(staging_path, dest_path)
         if hasattr(os, "sync"):
             try: os.sync()
             except Exception: pass

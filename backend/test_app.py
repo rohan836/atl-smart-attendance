@@ -2920,6 +2920,30 @@ class ApiTest(unittest.TestCase):
             atl.cfg["gdrive"] = orig_gd
             atl.cfg["telegram"] = orig_tg
 
+    def test_usb_backup_fat32_nonposix_filesystem_regression(self):
+        """Regression test proving USB backup succeeds on non-POSIX / FAT32 filesystems where copystat/metadata preservation raises OSError(1, 'Operation not permitted')."""
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory(prefix="atl_usb_fat32_") as mock_usb:
+            os.environ["ATL_USB_MOUNT_PATH"] = mock_usb
+            orig_usb = atl.cfg.get("usb")
+            try:
+                atl.cfg["usb"] = {"enabled": True}
+                # Even if shutil.copystat raises Errno 1 Operation not permitted, run_usb_backup succeeds via copyfile
+                with patch("shutil.copystat", side_effect=OSError(1, "Operation not permitted")):
+                    res = atl.run_usb_backup(trigger="MANUAL")
+                    self.assertTrue(res.get("ok"), f"Expected success but got: {res}")
+                    dest_file = os.path.join(mock_usb, "ATL-Attendance-Backups", res["name"])
+                    self.assertTrue(os.path.exists(dest_file))
+                    self.assertGreater(os.path.getsize(dest_file), 0)
+
+                    # Verify SQLite integrity
+                    conn = sqlite3.connect(dest_file)
+                    self.assertEqual(conn.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+                    conn.close()
+            finally:
+                os.environ.pop("ATL_USB_MOUNT_PATH", None)
+                atl.cfg["usb"] = orig_usb
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 
