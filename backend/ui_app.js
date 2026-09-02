@@ -1861,14 +1861,11 @@ if($("backupSchedSaveBtn")) $("backupSchedSaveBtn").onclick = async () => {
       weekdays: _unifiedActiveWeekdays
     };
 
-    const isGd = $("destCheckGdrive") ? $("destCheckGdrive").checked : true;
-    const isTg = $("destCheckTelegram") ? $("destCheckTelegram").checked : true;
-    const isUsb = $("destCheckUsb") ? $("destCheckUsb").checked : true;
-
-    const saves = [];
-    if(isGd) saves.push(api("/api/backup/gdrive/schedule", { method: "POST", body: JSON.stringify(payload) }));
-    if(isTg) saves.push(api("/api/backup/telegram/schedule", { method: "POST", body: JSON.stringify(payload) }));
-    if(isUsb) saves.push(api("/api/backup/usb/schedule", { method: "POST", body: JSON.stringify(payload) }));
+    const saves = [
+      api("/api/backup/gdrive/schedule", { method: "POST", body: JSON.stringify(payload) }),
+      api("/api/backup/telegram/schedule", { method: "POST", body: JSON.stringify(payload) }),
+      api("/api/backup/usb/schedule", { method: "POST", body: JSON.stringify(payload) })
+    ];
 
     await Promise.allSettled(saves);
 
