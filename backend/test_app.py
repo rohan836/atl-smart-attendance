@@ -2810,5 +2810,116 @@ class ApiTest(unittest.TestCase):
         clean_low = atl._clean_usb_schedule({"intervalDays": -10})
         self.assertEqual(clean_low["intervalDays"], 1)
 
+    def test_concurrent_multidestination_backups_staging_isolation(self):
+        """Verifies concurrent multi-destination backups execute with strictly isolated staging paths and no collisions."""
+        import threading
+        import tempfile
+        import shutil
+        from unittest.mock import patch
+        from backend import gdrive_backup as gb
+
+        # Configure all three destinations
+        td = tempfile.mkdtemp(prefix="atl_test_dest_")
+        usb_dir = os.path.join(td, "usb_mount")
+        os.makedirs(usb_dir, exist_ok=True)
+
+        orig_gd = atl.cfg.get("gdrive")
+        orig_tg = atl.cfg.get("telegram")
+        orig_usb = atl.cfg.get("usb")
+
+        atl.cfg["gdrive"] = {
+            "enabled": True, "clientId": "test_id", "clientSecret": "test_sec",
+            "folderName": "TestBackups", "token_file": os.path.join(td, "tok.json")
+        }
+        atl.cfg["telegram"] = {
+            "enabled": True, "botToken": "123456:ABCDEF", "chatId": "-10012345"
+        }
+        atl.cfg["usb"] = {
+            "enabled": True, "mountPath": usb_dir
+        }
+
+        staging_paths_captured = []
+        lock = threading.Lock()
+        orig_create_snapshot = gb.create_online_snapshot
+
+        def capturing_snapshot(src, dest, db_lock=None):
+            with lock:
+                staging_paths_captured.append(dest)
+            return orig_create_snapshot(src, dest, db_lock=db_lock)
+
+        try:
+            with patch("backend.gdrive_backup.create_online_snapshot", side_effect=capturing_snapshot), \
+                 patch.object(atl, "_send_telegram_document", return_value={"message_id": 123}), \
+                 patch("backend.gdrive_backup.GDriveClient.is_authenticated", return_value=True), \
+                 patch("backend.gdrive_backup.GDriveStorage.get_or_create_backup_folder", return_value="folder_xyz"), \
+                 patch("backend.gdrive_backup.GDriveStorage.upload_snapshot_resumable", return_value={"fileId": "f123", "name": "snap.db", "size": 1024, "sha256": "abcdef"}), \
+                 patch("backend.gdrive_backup.GDriveStorage.prune_retention", return_value=[]):
+
+                results = {}
+                def run_gd():
+                    results["gdrive"] = atl.run_gdrive_backup(trigger="MANUAL")
+                def run_tg():
+                    results["telegram"] = atl.run_telegram_backup(trigger="MANUAL")
+                def run_usb():
+                    results["usb"] = atl.run_usb_backup(trigger="MANUAL")
+
+                t1 = threading.Thread(target=run_gd)
+                t2 = threading.Thread(target=run_tg)
+                t3 = threading.Thread(target=run_usb)
+
+                t1.start(); t2.start(); t3.start()
+                t1.join(); t2.join(); t3.join()
+
+                self.assertTrue(results["gdrive"].get("ok"), f"GDrive failed: {results.get('gdrive')}")
+                self.assertTrue(results["telegram"].get("ok"), f"Telegram failed: {results.get('telegram')}")
+                self.assertTrue(results["usb"].get("ok"), f"USB failed: {results.get('usb')}")
+
+                # Verify exactly 3 distinct staging paths were used
+                self.assertEqual(len(staging_paths_captured), 3)
+                self.assertEqual(len(set(staging_paths_captured)), 3, "Staging paths must be 100% unique")
+
+                # Verify each staging path was in a distinct subfolder
+                dirs = [os.path.dirname(p) for p in staging_paths_captured]
+                self.assertEqual(len(set(dirs)), 3, "Staging parent directories must be distinct")
+
+                # Verify staging cleanup: none of the staging paths or parent dirs should remain
+                for p in staging_paths_captured:
+                    self.assertFalse(os.path.exists(p), f"Staging file {p} should be cleaned up")
+                    self.assertFalse(os.path.exists(os.path.dirname(p)), f"Staging dir {os.path.dirname(p)} should be cleaned up")
+
+        finally:
+            atl.cfg["gdrive"] = orig_gd
+            atl.cfg["telegram"] = orig_tg
+            atl.cfg["usb"] = orig_usb
+            shutil.rmtree(td, ignore_errors=True)
+
+    def test_gdrive_backup_does_not_invoke_telegram_backup(self):
+        """Verifies run_gdrive_backup does not invoke run_telegram_backup internally."""
+        from unittest.mock import patch
+        orig_gd = atl.cfg.get("gdrive")
+        orig_tg = atl.cfg.get("telegram")
+        try:
+            atl.cfg["gdrive"] = {
+                "enabled": True, "clientId": "test_id", "clientSecret": "test_sec",
+                "folderName": "TestBackups", "token_file": "/tmp/nonexistent.json"
+            }
+            atl.cfg["telegram"] = {
+                "enabled": True, "botToken": "123456:ABCDEF", "chatId": "-10012345"
+            }
+
+            with patch("backend.app.run_telegram_backup") as mock_tg, \
+                 patch("backend.gdrive_backup.GDriveClient.is_authenticated", return_value=True), \
+                 patch("backend.gdrive_backup.GDriveStorage.get_or_create_backup_folder", return_value="f1"), \
+                 patch("backend.gdrive_backup.GDriveStorage.upload_snapshot_resumable", return_value={"fileId": "f1", "name": "snap.db", "size": 100, "sha256": "abc"}), \
+                 patch("backend.gdrive_backup.GDriveStorage.prune_retention", return_value=[]):
+
+                res = atl.run_gdrive_backup(trigger="MANUAL")
+                self.assertTrue(res.get("ok"))
+                mock_tg.assert_not_called()
+        finally:
+            atl.cfg["gdrive"] = orig_gd
+            atl.cfg["telegram"] = orig_tg
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+

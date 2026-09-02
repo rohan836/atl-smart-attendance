@@ -1539,15 +1539,6 @@ def run_gdrive_backup(trigger="AUTO"):
         except Exception:
             pass
 
-        # Secondary Telegram backup (if enabled) - non-blocking failure mode
-        try:
-            tc = _telegram_config()
-            if tc.get("enabled"):
-                run_telegram_backup(staging_path=snap_info["path"], trigger=trigger)
-        except Exception as tg_ex:
-            _TELEGRAM_STATE["last_status"] = "ERROR"
-            _TELEGRAM_STATE["last_error"] = _sanitize_telegram_error(str(tg_ex))
-
         return {
             "ok": True,
             "fileId": upload_res.get("fileId"),
@@ -1843,7 +1834,7 @@ def detect_usb_mount() -> dict:
         }
 
     # 2. Config static mountPath
-    cfg_path = cfg.get("usb", {}).get("mountPath")
+    cfg_path = (cfg.get("usb") or {}).get("mountPath")
     if cfg_path and os.path.isdir(cfg_path) and os.access(cfg_path, os.W_OK):
         try:
             free_b = shutil.disk_usage(cfg_path).free

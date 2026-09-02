@@ -1745,18 +1745,23 @@ async function loadBackupManagerStatus(){
     const gdCheck = $("destCheckGdrive");
     const gdStatus = $("destStatusGdrive");
     const gdAuthBox = $("gdriveAuthBox");
+    const gdActionBox = $("gdriveActionBox");
     if(gdCheck && gd) gdCheck.checked = gd.enabled !== false;
     if(gdStatus){
       if(!gd){
         gdStatus.textContent = "Offline"; gdStatus.className = "pill";
+        if(gdActionBox) gdActionBox.style.display = "none";
       } else if(!gd.enabled){
         gdStatus.textContent = "Disabled"; gdStatus.className = "pill";
         if(gdAuthBox) gdAuthBox.style.display = "none";
+        if(gdActionBox) gdActionBox.style.display = "none";
       } else if(!gd.configured){
         gdStatus.textContent = "Disabled"; gdStatus.className = "pill";
         if(gdAuthBox) gdAuthBox.style.display = "none";
+        if(gdActionBox) gdActionBox.style.display = "none";
       } else if(!gd.authenticated){
         gdStatus.textContent = "Not paired"; gdStatus.className = "pill danger";
+        if(gdActionBox) gdActionBox.style.display = "none";
         if(gdAuthBox) gdAuthBox.style.display = "block";
         if(gd.deviceFlow){
           renderDeviceCodeBox(gd.deviceFlow);
@@ -1767,6 +1772,10 @@ async function loadBackupManagerStatus(){
       } else {
         gdStatus.textContent = "Ready"; gdStatus.className = "pill active";
         if(gdAuthBox) gdAuthBox.style.display = "none";
+        if(gdActionBox){
+          gdActionBox.style.display = "block";
+          loadGDriveList();
+        }
       }
     }
 
@@ -1787,6 +1796,18 @@ async function loadBackupManagerStatus(){
         tgStatus.textContent = "Ready"; tgStatus.className = "pill active";
       }
     }
+    if($("telegramChatId")){
+      $("telegramChatId").textContent = (tg && tg.chatId) ? tg.chatId : "Not configured";
+    }
+    if($("telegramLastError")){
+      if(tg && tg.lastError){
+        $("telegramLastError").textContent = tg.lastError;
+        $("telegramLastError").style.display = "block";
+      } else {
+        $("telegramLastError").textContent = "";
+        $("telegramLastError").style.display = "none";
+      }
+    }
 
     // 3. USB Row
     const usbCheck = $("destCheckUsb");
@@ -1803,6 +1824,21 @@ async function loadBackupManagerStatus(){
         usbStatus.textContent = "Error"; usbStatus.className = "pill danger";
       } else {
         usbStatus.textContent = "Ready"; usbStatus.className = "pill active";
+      }
+    }
+    if($("usbMountPath")){
+      $("usbMountPath").textContent = (usb && usb.mountPath) ? usb.mountPath : "Not detected";
+    }
+    if($("usbFreeSpace")){
+      $("usbFreeSpace").textContent = (usb && usb.freeBytes) ? (usb.freeBytes / (1024*1024*1024)).toFixed(1) + " GB free" : "--";
+    }
+    if($("usbLastError")){
+      if(usb && usb.lastError){
+        $("usbLastError").textContent = usb.lastError;
+        $("usbLastError").style.display = "block";
+      } else {
+        $("usbLastError").textContent = "";
+        $("usbLastError").style.display = "none";
       }
     }
 
@@ -2013,6 +2049,141 @@ if($("backupRefreshBtn")) $("backupRefreshBtn").onclick = async () => {
 // Google Device Flow Event Listeners
 if($("gdriveDeviceStartBtn")) $("gdriveDeviceStartBtn").onclick = startDeviceFlow;
 if($("gdriveDeviceCancelBtn")) $("gdriveDeviceCancelBtn").onclick = cancelDeviceFlow;
+
+// Google Drive Management
+if($("gdriveDisconnectBtn")) {
+  $("gdriveDisconnectBtn").onclick = async () => {
+    if(!confirm("Disconnect Google Drive cloud backup?")) return;
+    try {
+      await api("/api/backup/gdrive/disconnect", {method: "POST"});
+      await loadBackupManagerStatus();
+    } catch(e) {
+      alert("Disconnect failed: " + (e.message || "error"));
+    }
+  };
+}
+
+if($("gdriveRefreshListBtn")) {
+  $("gdriveRefreshListBtn").onclick = () => loadGDriveList();
+}
+
+async function loadGDriveList() {
+  const tbody = $("gdriveFilesBody");
+  if(!tbody) return;
+  try {
+    const res = await api("/api/backup/gdrive/list");
+    const files = (res && res.files) || [];
+    if(!files.length) {
+      tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--ink-3);padding:6px;font-size:10px">No cloud snapshots found</td></tr>';
+      return;
+    }
+    tbody.innerHTML = files.map(f => {
+      const sz = f.size ? `${(f.size / 1024).toFixed(1)} KB` : "";
+      return `<tr>
+        <td style="font-size:10px;padding:3px 6px">${esc(f.name)}</td>
+        <td style="font-size:10px;color:var(--ink-2);padding:3px 6px">${sz}</td>
+        <td style="padding:3px 6px"><button class="btn" style="padding:1px 6px;font-size:9px" data-gdrive-restore="${esc(f.id)}" data-gdrive-name="${esc(f.name)}">Restore</button></td>
+      </tr>`;
+    }).join("");
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="3" style="color:var(--danger);padding:6px;font-size:10px">Failed to list: ${esc(e.message || "error")}</td></tr>`;
+  }
+}
+
+if($("gdriveFilesBody")) {
+  $("gdriveFilesBody").onclick = async (e) => {
+    const btn = e.target.closest("button[data-gdrive-restore]");
+    if(!btn) return;
+    const fileId = btn.dataset.gdriveRestore;
+    const name = btn.dataset.gdriveName || "cloud backup";
+    if(!confirm(`Restore database from cloud backup "${name}"?\n\nWARNING: Current database will be safely backed up to .pre_restore.bak before replacement.`)) return;
+    try {
+      btn.disabled = true;
+      btn.textContent = "Restoring…";
+      await api("/api/backup/gdrive/restore", {method: "POST", body: JSON.stringify({fileId: fileId})});
+      alert(`Database restored successfully from "${name}". Page will now reload.`);
+      window.location.reload();
+    } catch(err) {
+      alert("Restore failed: " + (err.message || "error"));
+      btn.disabled = false;
+      btn.textContent = "Restore";
+    }
+  };
+}
+
+// Telegram Management
+if($("telegramBackupNowBtn")) {
+  $("telegramBackupNowBtn").onclick = async () => {
+    const btn = $("telegramBackupNowBtn");
+    try {
+      btn.disabled = true;
+      btn.textContent = "Sending…";
+      const res = await api("/api/backup/telegram/backup", {method: "POST"});
+      alert("Backup sent to Telegram successfully: " + (res.name || "complete"));
+      await loadBackupManagerStatus();
+    } catch(e) {
+      alert("Telegram backup failed: " + (e.message || "error"));
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Send backup now";
+    }
+  };
+}
+
+if($("telegramClearStatusBtn")) {
+  $("telegramClearStatusBtn").onclick = async () => {
+    try {
+      await api("/api/backup/telegram/clear-status", {method: "POST"});
+      await loadBackupManagerStatus();
+    } catch(e) {
+      alert("Failed to clear status: " + (e.message || "error"));
+    }
+  };
+}
+
+// USB Management
+if($("usbBackupNowBtn")) {
+  $("usbBackupNowBtn").onclick = async () => {
+    const btn = $("usbBackupNowBtn");
+    try {
+      btn.disabled = true;
+      btn.textContent = "Backing up…";
+      const res = await api("/api/backup/usb/backup", {method: "POST"});
+      alert("Backup written to USB drive successfully: " + (res.name || "complete"));
+      await loadBackupManagerStatus();
+    } catch(e) {
+      alert("USB backup failed: " + (e.message || "error"));
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Backup to USB now";
+    }
+  };
+}
+
+if($("usbRefreshBtn")) {
+  $("usbRefreshBtn").onclick = async () => {
+    const btn = $("usbRefreshBtn");
+    try {
+      btn.disabled = true;
+      btn.textContent = "Checking…";
+      await loadBackupManagerStatus();
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Check USB";
+    }
+  };
+}
+
+if($("usbClearStatusBtn")) {
+  $("usbClearStatusBtn").onclick = async () => {
+    try {
+      await api("/api/backup/usb/clear-status", {method: "POST"});
+      await loadBackupManagerStatus();
+    } catch(e) {
+      alert("Failed to clear status: " + (e.message || "error"));
+    }
+  };
+}
 
 // Window Focus & Routing
 function checkAdminRoute(){

@@ -578,6 +578,123 @@ class UiE2eTest(unittest.TestCase):
         self.page.click("#adminClose")
         self.page.wait_for_function("!document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
 
+    def test_11_backup_tab_destination_specific_controls_and_actions(self):
+        """Destination-specific management actions (Telegram, USB) are accessible and functional."""
+        self.page.goto(f"{_BASE_URL}/", wait_until="networkidle")
+
+        self.page.once("dialog", lambda dialog: dialog.accept("1234"))
+        self.page.click("#openAdminBtn")
+        self.page.wait_for_function("document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
+
+        self.page.click("#adminNav button[data-tab='backup']")
+        self.page.wait_for_function("!document.getElementById('pane-backup').classList.contains('hidden')", timeout=3000)
+        self.page.wait_for_function("document.getElementById('destStatusTelegram').textContent !== 'Checking…'", timeout=5000)
+
+        # 1. Telegram Controls
+        tg_details = self.page.locator("#telegramDetailsBox")
+        self.assertTrue(tg_details.is_visible())
+        chat_el = self.page.locator("#telegramChatId")
+        self.assertTrue(chat_el.is_visible())
+        send_tg_btn = self.page.locator("#telegramBackupNowBtn")
+        self.assertTrue(send_tg_btn.is_visible())
+        clear_tg_btn = self.page.locator("#telegramClearStatusBtn")
+        self.assertTrue(clear_tg_btn.is_visible())
+
+        # Test Clear Telegram Status action
+        clear_called = []
+        self.page.route("**/api/backup/telegram/clear-status", lambda route: (clear_called.append(True), route.fulfill(
+            status=200, content_type="application/json", body=json.dumps({"ok": True})
+        )))
+        clear_tg_btn.click()
+        self.page.wait_for_timeout(300)
+        self.assertTrue(len(clear_called) > 0)
+
+        # 2. USB Controls
+        usb_details = self.page.locator("#usbDetailsBox")
+        self.assertTrue(usb_details.is_visible())
+        mount_el = self.page.locator("#usbMountPath")
+        self.assertTrue(mount_el.is_visible())
+        usb_bk_btn = self.page.locator("#usbBackupNowBtn")
+        self.assertTrue(usb_bk_btn.is_visible())
+        usb_ref_btn = self.page.locator("#usbRefreshBtn")
+        self.assertTrue(usb_ref_btn.is_visible())
+        usb_clear_btn = self.page.locator("#usbClearStatusBtn")
+        self.assertTrue(usb_clear_btn.is_visible())
+
+        # Test Check USB button
+        usb_ref_btn.click()
+        self.page.wait_for_timeout(300)
+        self.assertTrue(usb_ref_btn.is_enabled())
+
+        self.page.click("#adminClose")
+        self.page.wait_for_function("!document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
+
+    def test_12_backup_tab_gdrive_connected_and_disconnect(self):
+        """Google Drive shows action box when connected, allowing list refresh and disconnect."""
+        # Mock authenticated Google Drive status
+        self.page.route("**/api/backup/gdrive/status", lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({
+                "enabled": True,
+                "configured": True,
+                "authenticated": True,
+                "folderName": "ATL-Attendance-Backups",
+                "folderId": "mock_folder_123",
+                "lastBackup": "2026-09-03 01:00:00",
+                "lastBackupName": "atl_backup_20260903_010000.db",
+                "lastStatus": "SUCCESS",
+                "schedule": {"enabled": True, "time": "18:30", "frequency": "daily", "weekdays": [0,1,2,3,4,5,6]}
+            })
+        ))
+        self.page.route("**/api/backup/gdrive/list", lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({
+                "ok": True,
+                "files": [
+                    {"id": "file_1", "name": "atl_backup_20260903_010000.db", "size": 819200}
+                ]
+            })
+        ))
+
+        disconnect_called = []
+        self.page.route("**/api/backup/gdrive/disconnect", lambda route: (disconnect_called.append(True), route.fulfill(
+            status=200, content_type="application/json", body=json.dumps({"ok": True})
+        )))
+
+        self.page.goto(f"{_BASE_URL}/", wait_until="networkidle")
+
+        self.page.once("dialog", lambda dialog: dialog.accept("1234"))
+        self.page.click("#openAdminBtn")
+        self.page.wait_for_function("document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
+
+        self.page.click("#adminNav button[data-tab='backup']")
+        self.page.wait_for_function("!document.getElementById('pane-backup').classList.contains('hidden')", timeout=3000)
+
+        # Google Drive status is Ready and Action Box is visible
+        action_box = self.page.locator("#gdriveActionBox")
+        action_box.wait_for(state="visible", timeout=4000)
+
+        refresh_list_btn = self.page.locator("#gdriveRefreshListBtn")
+        self.assertTrue(refresh_list_btn.is_visible())
+
+        # Cloud snapshots table has populated row
+        tbody = self.page.locator("#gdriveFilesBody")
+        tbody.wait_for(state="visible", timeout=3000)
+        self.assertIn("atl_backup_20260903_010000.db", tbody.inner_text())
+
+        # Click Disconnect (accept confirmation dialog)
+        disconnect_btn = self.page.locator("#gdriveDisconnectBtn")
+        self.assertTrue(disconnect_btn.is_visible())
+        self.page.once("dialog", lambda dialog: dialog.accept())
+        disconnect_btn.click()
+        self.page.wait_for_timeout(400)
+        self.assertTrue(len(disconnect_called) > 0)
+
+        self.page.click("#adminClose")
+        self.page.wait_for_function("!document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

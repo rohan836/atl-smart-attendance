@@ -315,55 +315,105 @@ tr:hover td{background:var(--paper)}
                 </div>
                 <div style="display:flex;flex-direction:column;gap:6px;background:var(--paper);border:1px solid var(--line);border-radius:4px;padding:8px 10px">
                   <!-- Google Drive Destination -->
-                  <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0" id="destRowGdrive">
-                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:11px;font-weight:500">
-                      <input type="checkbox" id="destCheckGdrive" style="accent-color:var(--ink);cursor:pointer">
-                      <span>Google Drive</span>
-                    </label>
-                    <div style="display:flex;align-items:center;gap:6px">
-                      <span id="destStatusGdrive" class="pill" style="font-size:10px">Checking…</span>
-                    </div>
-                  </div>
-                  <!-- Google Drive Pairing Box (Device Flow) -->
-                  <div id="gdriveAuthBox" style="display:none;margin-top:4px;padding:8px;background:var(--panel);border:1px solid var(--line);border-radius:4px;font-size:11px">
-                    <div id="gdriveInitBox" style="display:flex;justify-content:space-between;align-items:center">
-                      <span style="color:var(--ink-2);font-size:10px">Authorization required</span>
-                      <button id="gdriveDeviceStartBtn" class="btn primary" style="padding:2px 8px;font-size:10px">Pair with Google</button>
-                    </div>
-                    <div id="gdriveDeviceCodeBox" style="display:none;margin-top:6px">
-                      <div style="font-size:10px;color:var(--ink-2);margin-bottom:4px">
-                        1. Visit <a id="gdriveDeviceUrlLink" href="https://www.google.com/device" target="_blank" style="text-decoration:underline;font-weight:600;color:var(--ink)">google.com/device</a>
+                  <div style="padding:4px 0" id="destRowGdrive">
+                    <div style="display:flex;justify-content:space-between;align-items:center">
+                      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:11px;font-weight:500">
+                        <input type="checkbox" id="destCheckGdrive" style="accent-color:var(--ink);cursor:pointer">
+                        <span>Google Drive</span>
+                      </label>
+                      <div style="display:flex;align-items:center;gap:6px">
+                        <span id="destStatusGdrive" class="pill" style="font-size:10px">Checking…</span>
                       </div>
-                      <div style="font-size:10px;color:var(--ink-2);margin-bottom:6px">
-                        2. Enter code:
-                        <div id="gdriveUserCodeDisplay" style="font-family:ui-monospace,monospace;font-weight:700;font-size:15px;letter-spacing:2px;color:var(--ink);padding:4px 8px;background:var(--paper);border:1px solid var(--line);border-radius:4px;display:inline-block;margin-left:4px">----</div>
+                    </div>
+                    <!-- Google Drive Pairing Box (Device Flow) -->
+                    <div id="gdriveAuthBox" style="display:none;margin-top:6px;padding:8px;background:var(--panel);border:1px solid var(--line);border-radius:4px;font-size:11px">
+                      <div id="gdriveInitBox" style="display:flex;justify-content:space-between;align-items:center">
+                        <span style="color:var(--ink-2);font-size:10px">Authorization required</span>
+                        <button id="gdriveDeviceStartBtn" class="btn primary" style="padding:2px 8px;font-size:10px">Pair with Google</button>
                       </div>
-                      <div style="display:flex;align-items:center;justify-content:space-between">
-                        <span id="gdriveDevicePollStatus" style="font-size:10px;color:var(--ink-2)">Waiting for approval…</span>
-                        <button id="gdriveDeviceCancelBtn" class="btn" style="padding:2px 6px;font-size:10px">Cancel</button>
+                      <div id="gdriveDeviceCodeBox" style="display:none;margin-top:6px">
+                        <div style="font-size:10px;color:var(--ink-2);margin-bottom:4px">
+                          1. Visit <a id="gdriveDeviceUrlLink" href="https://www.google.com/device" target="_blank" style="text-decoration:underline;font-weight:600;color:var(--ink)">google.com/device</a>
+                        </div>
+                        <div style="font-size:10px;color:var(--ink-2);margin-bottom:6px">
+                          2. Enter code:
+                          <div id="gdriveUserCodeDisplay" style="font-family:ui-monospace,monospace;font-weight:700;font-size:15px;letter-spacing:2px;color:var(--ink);padding:4px 8px;background:var(--paper);border:1px solid var(--line);border-radius:4px;display:inline-block;margin-left:4px">----</div>
+                        </div>
+                        <div style="display:flex;align-items:center;justify-content:space-between">
+                          <span id="gdriveDevicePollStatus" style="font-size:10px;color:var(--ink-2)">Waiting for approval…</span>
+                          <button id="gdriveDeviceCancelBtn" class="btn" style="padding:2px 6px;font-size:10px">Cancel</button>
+                        </div>
+                      </div>
+                    </div>
+                    <!-- Google Drive Connected Management Box -->
+                    <div id="gdriveActionBox" style="display:none;margin-top:6px;padding:8px;background:var(--panel);border:1px solid var(--line);border-radius:4px;font-size:11px">
+                      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:6px">
+                        <span style="font-size:10px;color:var(--ink-2)">Cloud Storage (ATL-Attendance-Backups)</span>
+                        <div style="display:flex;gap:6px">
+                          <button class="btn" id="gdriveRefreshListBtn" style="padding:2px 6px;font-size:10px">Refresh list</button>
+                          <button class="btn" id="gdriveDisconnectBtn" style="padding:2px 6px;font-size:10px;color:var(--danger)">Disconnect</button>
+                        </div>
+                      </div>
+                      <div id="gdriveStatusMsg" style="font-size:10px;color:var(--ink-2);margin-bottom:4px"></div>
+                      <div class="table-wrap" style="max-height:110px;overflow-y:auto;border:1px solid var(--line);border-radius:3px">
+                        <table style="font-size:10px">
+                          <thead><tr><th style="padding:3px 6px">Snapshot</th><th style="padding:3px 6px">Size</th><th style="padding:3px 6px">Action</th></tr></thead>
+                          <tbody id="gdriveFilesBody"></tbody>
+                        </table>
                       </div>
                     </div>
                   </div>
 
                   <!-- Telegram Destination -->
-                  <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0" id="destRowTelegram">
-                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:11px;font-weight:500">
-                      <input type="checkbox" id="destCheckTelegram" style="accent-color:var(--ink);cursor:pointer">
-                      <span>Telegram</span>
-                    </label>
-                    <div style="display:flex;align-items:center;gap:6px">
-                      <span id="destStatusTelegram" class="pill" style="font-size:10px">Checking…</span>
+                  <div style="padding:4px 0" id="destRowTelegram">
+                    <div style="display:flex;justify-content:space-between;align-items:center">
+                      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:11px;font-weight:500">
+                        <input type="checkbox" id="destCheckTelegram" style="accent-color:var(--ink);cursor:pointer">
+                        <span>Telegram</span>
+                      </label>
+                      <div style="display:flex;align-items:center;gap:6px">
+                        <span id="destStatusTelegram" class="pill" style="font-size:10px">Checking…</span>
+                      </div>
+                    </div>
+                    <!-- Telegram Details & Actions Box -->
+                    <div id="telegramDetailsBox" style="margin-top:6px;padding:6px 8px;background:var(--panel);border:1px solid var(--line);border-radius:4px;font-size:10px;color:var(--ink-2)">
+                      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px">
+                        <div>Target Chat: <span id="telegramChatId" style="font-family:ui-monospace,monospace;font-weight:600;color:var(--ink)">--</span></div>
+                        <div style="display:flex;gap:6px">
+                          <button class="btn" id="telegramBackupNowBtn" style="padding:2px 6px;font-size:10px">Send backup now</button>
+                          <button class="btn" id="telegramClearStatusBtn" style="padding:2px 6px;font-size:10px">Clear status</button>
+                        </div>
+                      </div>
+                      <div id="telegramLastError" style="color:var(--danger);display:none;margin-top:4px;font-size:10px"></div>
                     </div>
                   </div>
 
                   <!-- USB Drive Destination -->
-                  <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0" id="destRowUsb">
-                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:11px;font-weight:500">
-                      <input type="checkbox" id="destCheckUsb" style="accent-color:var(--ink);cursor:pointer">
-                      <span>USB Drive</span>
-                    </label>
-                    <div style="display:flex;align-items:center;gap:6px">
-                      <span id="destStatusUsb" class="pill" style="font-size:10px">Checking…</span>
+                  <div style="padding:4px 0" id="destRowUsb">
+                    <div style="display:flex;justify-content:space-between;align-items:center">
+                      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:11px;font-weight:500">
+                        <input type="checkbox" id="destCheckUsb" style="accent-color:var(--ink);cursor:pointer">
+                        <span>USB Drive</span>
+                      </label>
+                      <div style="display:flex;align-items:center;gap:6px">
+                        <span id="destStatusUsb" class="pill" style="font-size:10px">Checking…</span>
+                      </div>
+                    </div>
+                    <!-- USB Details & Actions Box -->
+                    <div id="usbDetailsBox" style="margin-top:6px;padding:6px 8px;background:var(--panel);border:1px solid var(--line);border-radius:4px;font-size:10px;color:var(--ink-2)">
+                      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px">
+                        <div>
+                          Mount: <span id="usbMountPath" style="font-family:ui-monospace,monospace;font-weight:600;color:var(--ink)">Not detected</span>
+                          <span style="margin:0 4px;color:var(--line)">|</span>
+                          Space: <span id="usbFreeSpace" style="color:var(--ink)">--</span>
+                        </div>
+                        <div style="display:flex;gap:6px">
+                          <button class="btn" id="usbBackupNowBtn" style="padding:2px 6px;font-size:10px">Backup to USB now</button>
+                          <button class="btn" id="usbRefreshBtn" style="padding:2px 6px;font-size:10px">Check USB</button>
+                          <button class="btn" id="usbClearStatusBtn" style="padding:2px 6px;font-size:10px">Clear status</button>
+                        </div>
+                      </div>
+                      <div id="usbLastError" style="color:var(--danger);display:none;margin-top:4px;font-size:10px"></div>
                     </div>
                   </div>
                 </div>
