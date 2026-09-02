@@ -2,7 +2,7 @@
 
 This file is the first source of rules for any coding agent. Read it before changing code. It points to the right doc for each task.
 
-Production release: `v1.0.1` (`32e5ef7`). Current `main`: `d5c5462` (automated Google Drive cloud backup via Device Flow RFC 8628 + automated daily reconciliation). Historical rollback tag: `v1.0.0` (`c0fe411`). For new work, start from current `main`. Never modify historical release tags. See `docs/VERSIONS.md`.
+Production release: `v1.0.1` (`32e5ef7`). Current `main`: `1b4339a` (versatile Google Drive backup scheduling + automated Device Flow cloud backup + automated daily reconciliation). Historical rollback tag: `v1.0.0` (`c0fe411`). For new work, start from current `main`. Never modify historical release tags. See `docs/VERSIONS.md`.
 
 ## What this project is
 

@@ -23,3 +23,4 @@ backend/config.json
 *gdrive*.json
 *gdrive*.token
 *.staging.db
+artifacts/

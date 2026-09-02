@@ -12,6 +12,30 @@ python -m unittest backend.test_app -v
 
 Coverage (99 tests) includes health (`db_ok` and `sensor` mode), production page `__ATL_BRIDGE__`/`renderWeekly`/`sensorScanLoop` splice, settings whitelist, student create/list and `photo` handling, scan `PRESENT` then `DUPLICATE`, `GET /api/scan/last` whitelist `source='GT511C3'` and `CORRECTION`/`RECONCILE` exclusion, no-event `NO_FINGER`, fingerprint-to-student mapping on fakes, audit and reconcile (including before-cutoff rejection, after-cutoff absence marking, unscheduled safety, durable SQLite state and daemon tick resolution, dynamic lateCutoff shifting, and exception resilience), Google Drive cloud backup (unconfigured rejection, Device Authorization Grant user-code and verification URL generation, polling status tracking, pending authorization, successful grant with token persistence and 0600 permissions, denial and cancellation handling, SQLite Online Backup snapshot creation and PRAGMA integrity_check validation, corrupt header rejection, resumable chunked upload protocol, network retry resilience, Grandfather-Father-Son retention pruning, endpoint PIN gating, atomic cloud restore flow with pre-restore backup, background daemon startup/shutdown, and versatile schedule configuration/sanitization/tick evaluation), calendar priority with holiday ranges and `toLocalISO` local-date fix, `classSchedules`/`batchSchedules` `NOT_SCHEDULED`, KPIs and windowed reports `?start&end` with `eligible` scheduled-only, `POST /api/correction` with `DB_LOCK` atomicity, `sensor_audit` `missing_estimate`/`orphans_estimate` and `reenroll` retry, CSV import/export with `batch/section/parent` and `photo` column, image single-write/dedup/delete, indexes, roll case `roll#d{id}`, `is_press_finger` NACK, `DB_LOCK`/`SENSOR_LOCK` ordering, backup/restore PIN `X-Admin-Pin` header-only and `health` `adminPin` strip, `export`/`audit` PIN gates, and `admin` bridge `adminLayer` guard. The suite is the contract — failures indicate a behavioral regression, not a test flaw.
 
+## Browser integration tests (Playwright)
+
+End-to-end browser tests run Playwright with headless Chromium against a live, isolated test instance of `backend/app.py` (simulated sensor mode, temporary SQLite DB, mock Google Drive token).
+
+Prerequisites:
+```bash
+pip install playwright
+python -m playwright install chromium
+```
+
+Run from repository root:
+```bash
+python -m unittest backend.test_ui_e2e -v
+```
+
+Coverage (7 scenarios) includes:
+1. Kiosk idle presentation: `#terminal`, `PLACE YOUR FINGER` prompt reveal, and Admin trigger button.
+2. Real-time scan display lifecycle: Simulated scan event triggers student profile card display (`#identityLayer.visible`, student name, roll, class, status), followed by automatic fade-out back to idle prompt after hold timeout.
+3. Admin security gate: PIN challenge modal on click, rejection and lock on invalid PIN (`0000`), and unlock on valid PIN (`1234`).
+4. Tab navigation across all 6 Admin panes (Students, Today, Reports, Calendar, Settings, Backup) verifying active panes and titles.
+5. Student enrollment modal workflow: form open, empty submit validation error (`#nsErr`), field population, and safe cancellation.
+6. Google Drive Device Authorization Flow pairing UI: unauthenticated state renders `#gdriveDeviceStartBtn`, clicking initiates pairing and displays user code (`#gdriveUserCodeDisplay`), and cancellation resets the UI.
+7. Google Drive automatic backup schedule controls: authenticated state renders frequency selector (`daily`, `interval`, `weekdays`), weekday toggle buttons, interval input, time selector, and schedule save confirmation (`#gdriveSchedStatus`).
+
 ## Integration testing
 
 Two scan paths are exercised: the active loop `POST /api/scan {waitSec:2}` and the bridge `GET /api/scan/last`. Tests fake the sensor (`FakeSensor.identify → NO_FINGER` creates no event, `→ 42 OK` writes an event with a real `seq`). Verify that `SENSOR_LOCK` serializes enroll versus scan and that enrollment progress via `GET /api/sensor/progress` reports `state title detail timeout_sec remain_sec`.

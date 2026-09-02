@@ -2,7 +2,7 @@
 
 ## Production baselines
 
-- **Current main:** `d5c5462` — Automated Google Drive cloud backup via Device Flow (RFC 8628, `drive.file` scope, resumable chunked upload, GFS retention) + automated daily attendance reconciliation background worker (`_reconcile_daemon`). Verified on physical Raspberry Pi 3 (`lancer@192.168.1.8`) + real GT-511C3 hardware + live Google Drive API. Tests: `98/98` passing (`python -m unittest backend.test_app -v`). (Note: Google Drive cloud backup work is on `main` and currently untagged; `v1.0.1` remains the latest production release tag).
+- **Current main:** `1b4339a` — Versatile Google Drive backup scheduling (daily, N-day intervals, specific weekdays) in Admin Backup UI + automated Google Drive cloud backup via Device Flow (RFC 8628, `drive.file` scope, resumable chunked upload, GFS retention) + automated daily attendance reconciliation background worker (`_reconcile_daemon`). Verified on physical Raspberry Pi 3 (`lancer@192.168.1.8`) + real GT-511C3 hardware + live Google Drive API. Tests: `99/99` backend API tests + `7/7` Playwright E2E browser tests passing. (Note: Google Drive cloud backup and schedule work is on `main` and currently untagged; `v1.0.1` remains the latest production release tag).
 - **v1.0.1:** `32e5ef79b2c13275122dab31652a76605fc481e7` (`32e5ef7`) — Production release tag `v1.0.1`. Pi setup resilience, deployment fail-fast error checking, and verified live hardware scan/duplicate matching. Tests: `79/79` passing.
 - **v1.0.0:** `c0fe411fe9fccd82ba4f0a004f64961d4247e054` (`c0fe411`) — Tag `v1.0.0` (annotated: "First verified production release"). Verified on real Raspberry Pi 3 + GT-511C3 UART 9600. Tests: `38/38` passing. Immutable historical release tag.
 
@@ -12,7 +12,7 @@ Never modify or rewrite a historical production tag. Tags are immutable checkpoi
 
 ## Where to start new work
 
-For new work, start from current `main` (`d5c5462`). Unless a task explicitly requires another historical version, `main` is the baseline.
+For new work, start from current `main` (`1b4339a`). Unless a task explicitly requires another historical version, `main` is the baseline.
 
 If an agent needs the historical `v1.0.0` release tag:
 
@@ -24,7 +24,7 @@ git checkout -b fix/xyz v1.0.0
 
 ## main vs commit vs tag
 
-- **main** — movable branch pointer to the latest intended production/committed work (`d5c5462`). Moves forward with every `git commit` + `push`.
+- **main** — movable branch pointer to the latest intended production/committed work (`1b4339a`). Moves forward with every `git commit` + `push`.
 - **commit** — immutable snapshot identified by SHA (`d5c5462...`, `32e5ef7...`, `c0fe411...`). Every change creates a new commit.
 - **tag** — human name pinned to one commit (`v1.0.1 → 32e5ef7`, `v1.0.0 → c0fe411`). Annotated tags store author, date, and message and are pushed explicitly (`git push origin v1.0.1`). A tag never moves unless forcibly overwritten — which is forbidden for production tags.
 
