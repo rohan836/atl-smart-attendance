@@ -311,17 +311,31 @@ tr:hover td{background:var(--paper)}
                 <span id="gdriveBadge" class="pill" style="font-size:10px">Checking…</span>
               </div>
               <div style="font-size:11px;line-height:1.6;color:var(--ink-2);margin-bottom:12px">
-                Automated offsite backup to your personal Google Drive (<code style="font-size:10px">ATL-Attendance-Backups</code> folder). Uses OAuth 2.0 with least-privilege <code style="font-size:10px">drive.file</code> scope and resumable chunked upload.
+                Automated offsite backup to your personal Google Drive (<code style="font-size:10px">ATL-Attendance-Backups</code> folder). Uses OAuth 2.0 Device Authorization Grant with least-privilege <code style="font-size:10px">drive.file</code> scope and resumable chunked upload.
               </div>
               <div id="gdriveAuthBox" style="display:none;margin-bottom:12px">
-                <div style="font-size:11px;margin-bottom:6px">1. Authorize access in your Google account:</div>
-                <div style="display:flex;gap:8px;margin-bottom:8px">
-                  <a id="gdriveAuthLink" href="#" target="_blank" class="btn primary">Open Google Login</a>
+                <div id="gdriveInitBox" style="margin-bottom:8px">
+                  <button id="gdriveDeviceStartBtn" class="btn primary">Connect Google Drive</button>
                 </div>
-                <div style="font-size:11px;margin-bottom:4px">2. Paste authorization code here:</div>
-                <div style="display:flex;gap:8px">
-                  <input type="text" id="gdriveAuthCodeInput" class="input" placeholder="Paste Google auth code" style="flex:1">
-                  <button class="btn" id="gdriveConnectBtn">Connect</button>
+                <div id="gdriveAuthNotice" style="font-size:11px;color:var(--ink-2);line-height:1.5">
+                  Authorizes directly with Google Device Flow. Works seamlessly from Android or PC without redirect URIs.
+                </div>
+                <div id="gdriveDeviceCodeBox" style="display:none;margin-top:10px;padding:12px;background:var(--paper);border:1px solid var(--line);border-radius:6px">
+                  <div style="font-size:12px;font-weight:600;margin-bottom:6px">Authorize Google Drive</div>
+                  <div style="font-size:11px;color:var(--ink-2);margin-bottom:6px">
+                    1. On your phone or PC, open: <a id="gdriveDeviceUrlLink" href="https://www.google.com/device" target="_blank" style="font-weight:600;text-decoration:underline;color:var(--ink)">google.com/device</a>
+                  </div>
+                  <div style="font-size:11px;color:var(--ink-2);margin-bottom:8px">
+                    2. Enter this code:
+                    <div id="gdriveUserCodeDisplay" style="font-family:ui-monospace,monospace;font-weight:700;font-size:17px;letter-spacing:3px;color:var(--ink);padding:6px 12px;background:var(--panel);border:1px solid var(--line);border-radius:4px;display:inline-block;margin-top:4px">----</div>
+                  </div>
+                  <div style="font-size:11px;color:var(--ink-2);margin-bottom:10px">
+                    3. Sign in to your Google Account and tap <b>Allow</b>.
+                  </div>
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <span id="gdriveDevicePollStatus" style="font-size:11px;color:var(--ink-2)">Waiting for approval…</span>
+                    <button id="gdriveDeviceCancelBtn" class="btn" style="padding:2px 8px;font-size:10px">Cancel</button>
+                  </div>
                 </div>
               </div>
               <div id="gdriveActionBox" style="display:none">

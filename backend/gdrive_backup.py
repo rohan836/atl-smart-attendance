@@ -17,12 +17,11 @@ import urllib.error
 
 # Dedicated folder name in user's Google Drive
 DEFAULT_FOLDER_NAME = "ATL-Attendance-Backups"
-OAUTH_AUTH_URI = "https://accounts.google.com/o/oauth2/v2/auth"
+OAUTH_DEVICE_CODE_URI = "https://oauth2.googleapis.com/device/code"
 OAUTH_TOKEN_URI = "https://oauth2.googleapis.com/token"
 DRIVE_API_BASE = "https://www.googleapis.com/drive/v3"
 DRIVE_UPLOAD_BASE = "https://www.googleapis.com/upload/drive/v3"
 DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file"
-REDIRECT_URI_OOB = "urn:ietf:wg:oauth:2.0:oob"
 
 CHUNK_SIZE = 1024 * 1024  # 1 MB chunk for resumable upload
 
@@ -187,46 +186,85 @@ class GDriveClient:
             except Exception:
                 pass
 
-    def get_authorization_url(self, redirect_uri=REDIRECT_URI_OOB) -> str:
-        """Builds the OAuth consent URL for the operator."""
+    def start_device_flow(self) -> dict:
+        """Requests a device code and user code from Google Device Authorization endpoint."""
         if not self.is_configured():
             raise GDriveAuthError("Google OAuth Client ID and Secret are not configured.")
-        params = {
+        data = urllib.parse.urlencode({
             "client_id": self.client_id,
-            "redirect_uri": redirect_uri,
-            "response_type": "code",
-            "scope": DRIVE_SCOPE,
-            "access_type": "offline",
-            "prompt": "consent"
-        }
-        return f"{OAUTH_AUTH_URI}?{urllib.parse.urlencode(params)}"
+            "scope": DRIVE_SCOPE
+        }).encode("utf-8")
+        req = urllib.request.Request(OAUTH_DEVICE_CODE_URI, data=data, method="POST")
+        req.add_header("Content-Type", "application/x-www-form-urlencoded")
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                res = json.loads(resp.read().decode("utf-8"))
+                user_code = res.get("user_code", "")
+                v_url = res.get("verification_url", "https://www.google.com/device")
+                v_url_complete = res.get("verification_url_complete") or f"{v_url}?user_code={user_code}"
+                return {
+                    "device_code": res.get("device_code", ""),
+                    "user_code": user_code,
+                    "verification_url": v_url,
+                    "verification_url_complete": v_url_complete,
+                    "expires_in": res.get("expires_in", 1800),
+                    "interval": max(int(res.get("interval", 5)), 5)
+                }
+        except urllib.error.HTTPError as e:
+            try:
+                err_body = json.loads(e.read().decode("utf-8"))
+                msg = err_body.get("error_description") or err_body.get("error") or str(e)
+            except Exception:
+                msg = str(e)
+            raise GDriveAuthError(f"Google Device Authorization error ({e.code}): {msg}")
+        except urllib.error.URLError as e:
+            raise GDriveNetworkError(f"Network error contacting Google: {e.reason}")
 
-    def exchange_code(self, code: str, redirect_uri=REDIRECT_URI_OOB) -> dict:
-        """Exchanges an authorization code for access and refresh tokens."""
+    def poll_device_flow(self, device_code: str) -> dict:
+        """
+        Polls Google token endpoint for device authorization grant completion.
+        Returns {"status": "pending"} | {"status": "slow_down"} | {"status": "success", "tokens": ...}
+        Raises GDriveAuthError on denial or expiration.
+        """
         if not self.is_configured():
             raise GDriveAuthError("Google OAuth Client ID and Secret are not configured.")
         data = urllib.parse.urlencode({
             "client_id": self.client_id,
             "client_secret": self.client_secret,
-            "code": code.strip(),
-            "grant_type": "authorization_code",
-            "redirect_uri": redirect_uri
+            "device_code": device_code.strip(),
+            "grant_type": "urn:ietf:params:oauth:grant-type:device_code"
         }).encode("utf-8")
         req = urllib.request.Request(OAUTH_TOKEN_URI, data=data, method="POST")
         req.add_header("Content-Type", "application/x-www-form-urlencoded")
         try:
             with urllib.request.urlopen(req, timeout=15) as resp:
-                token_data = json.loads(resp.read().decode("utf-8"))
+                res = json.loads(resp.read().decode("utf-8"))
+                tokens = {
+                    "access_token": res["access_token"],
+                    "refresh_token": res.get("refresh_token") or (self.tokens.get("refresh_token") if self.tokens else ""),
+                    "expires_at": int(time.time()) + int(res.get("expires_in", 3600)),
+                    "token_type": res.get("token_type", "Bearer"),
+                    "scope": res.get("scope", DRIVE_SCOPE)
+                }
+                self._save_tokens(tokens)
+                return {"status": "success", "tokens": tokens}
         except urllib.error.HTTPError as e:
-            err_body = e.read().decode("utf-8", errors="ignore")
-            raise GDriveAuthError(f"OAuth code exchange failed ({e.code}): {err_body}")
-        except Exception as e:
-            raise GDriveNetworkError(f"Network error during code exchange: {e}")
-
-        expires_in = token_data.get("expires_in", 3600)
-        token_data["expires_at"] = int(time.time()) + expires_in
-        self._save_tokens(token_data)
-        return token_data
+            try:
+                err_body = json.loads(e.read().decode("utf-8"))
+                err_code = err_body.get("error", "")
+            except Exception:
+                err_code = ""
+            if err_code == "authorization_pending":
+                return {"status": "pending"}
+            elif err_code == "slow_down":
+                return {"status": "slow_down"}
+            elif err_code in ("expired_token", "access_denied"):
+                raise GDriveAuthError(f"Google authorization {err_code.replace('_', ' ')}.")
+            else:
+                msg = err_body.get("error_description") or err_code or str(e)
+                raise GDriveAuthError(f"Google authorization failed ({e.code}): {msg}")
+        except urllib.error.URLError as e:
+            raise GDriveNetworkError(f"Network error contacting Google: {e.reason}")
 
     def get_valid_access_token(self) -> str:
         """Returns a valid access token, automatically refreshing if expired."""

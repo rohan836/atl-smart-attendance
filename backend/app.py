@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ATL Smart Attendance — Flask backend (GT-511C3 UART + SQLite). Offline-first."""
-import os, json, sqlite3, time, uuid, pathlib, datetime, re, threading, base64
-from flask import Flask, request, jsonify, send_from_directory, g, Response, has_app_context
+import os, json, sqlite3, time, uuid, pathlib, datetime, re, threading, base64, secrets
+from flask import Flask, request, jsonify, send_from_directory, g, Response, has_app_context, redirect
 from flask_cors import CORS
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -1423,6 +1423,15 @@ _GDRIVE_STATE = {
     "last_error": None,
     "in_progress": False,
 }
+_GDRIVE_DEVICE_FLOW = {
+    "device_code": None,
+    "user_code": None,
+    "verification_url": None,
+    "verification_url_complete": None,
+    "expires_at": 0,
+    "interval": 5,
+    "lock": threading.Lock()
+}
 _gdrive_stop_event = threading.Event()
 _gdrive_thread = None
 
@@ -1446,7 +1455,8 @@ def run_gdrive_backup(trigger="AUTO"):
     _GDRIVE_STATE["last_status"] = "IN_PROGRESS"
 
     staging_dir = "/tmp" if os.name != "nt" else os.environ.get("TEMP", str(ROOT / "backend"))
-    staging_name = f"atl_backup_{today_ist()}_{now_ist().replace(':','')}.staging.db"
+    ts_safe = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30))).strftime("%Y%m%d_%H%M%S")
+    staging_name = f"atl_backup_{ts_safe}.db"
     staging_path = os.path.join(staging_dir, staging_name)
 
     try:
@@ -1515,10 +1525,23 @@ def gdrive_status():
         elif not is_auth:
             status_label = "AUTH_REQUIRED"
 
+        with _GDRIVE_DEVICE_FLOW["lock"]:
+            if _GDRIVE_DEVICE_FLOW["expires_at"] > time.time() and _GDRIVE_DEVICE_FLOW["user_code"]:
+                device_flow_info = {
+                    "userCode": _GDRIVE_DEVICE_FLOW["user_code"],
+                    "verificationUrl": _GDRIVE_DEVICE_FLOW["verification_url"],
+                    "verificationUrlComplete": _GDRIVE_DEVICE_FLOW["verification_url_complete"],
+                    "expiresIn": int(_GDRIVE_DEVICE_FLOW["expires_at"] - time.time()),
+                    "interval": _GDRIVE_DEVICE_FLOW["interval"]
+                }
+            else:
+                device_flow_info = None
+
         return jsonify({
             "enabled": gc["enabled"],
             "configured": is_conf,
             "authenticated": is_auth,
+            "deviceFlow": device_flow_info,
             "lastBackup": _GDRIVE_STATE["last_backup_time"],
             "lastBackupName": _GDRIVE_STATE["last_backup_name"],
             "lastStatus": status_label,
@@ -1532,33 +1555,78 @@ def gdrive_status():
         traceback.print_exc()
         return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
 
-@app.route("/api/backup/gdrive/auth-url", methods=["GET"])
+@app.route("/api/backup/gdrive/device-start", methods=["GET", "POST"])
 @require_admin
-def gdrive_auth_url():
+def gdrive_device_start():
     gc = _gdrive_config()
     client = gb.GDriveClient(gc, gc["token_file"])
+    if not client.is_configured():
+        return jsonify({"error": "Google OAuth Client ID and Secret are not configured in backend config.json"}), 400
     try:
-        url = client.get_authorization_url()
-        return jsonify({"authUrl": url})
-    except gb.GDriveAuthError as e:
-        return jsonify({"error": str(e)}), 400
-
-@app.route("/api/backup/gdrive/authorize", methods=["POST"])
-@require_admin
-def gdrive_authorize():
-    j = request.get_json(silent=True) or {}
-    code = j.get("code", "").strip()
-    if not code:
-        return jsonify({"error": "code required"}), 400
-    gc = _gdrive_config()
-    client = gb.GDriveClient(gc, gc["token_file"])
-    try:
-        client.exchange_code(code)
-        _GDRIVE_STATE["last_status"] = "IDLE"
-        _GDRIVE_STATE["last_error"] = None
-        return jsonify({"ok": True})
+        res = client.start_device_flow()
+        with _GDRIVE_DEVICE_FLOW["lock"]:
+            _GDRIVE_DEVICE_FLOW["device_code"] = res["device_code"]
+            _GDRIVE_DEVICE_FLOW["user_code"] = res["user_code"]
+            _GDRIVE_DEVICE_FLOW["verification_url"] = res["verification_url"]
+            _GDRIVE_DEVICE_FLOW["verification_url_complete"] = res["verification_url_complete"]
+            _GDRIVE_DEVICE_FLOW["expires_at"] = time.time() + res.get("expires_in", 1800)
+            _GDRIVE_DEVICE_FLOW["interval"] = res.get("interval", 5)
+        return jsonify({
+            "ok": True,
+            "userCode": res["user_code"],
+            "verificationUrl": res["verification_url"],
+            "verificationUrlComplete": res["verification_url_complete"],
+            "expiresIn": res.get("expires_in", 1800),
+            "interval": res.get("interval", 5)
+        })
     except (gb.GDriveAuthError, gb.GDriveNetworkError) as e:
         return jsonify({"error": str(e)}), 400
+
+@app.route("/api/backup/gdrive/device-poll", methods=["POST"])
+@require_admin
+def gdrive_device_poll():
+    gc = _gdrive_config()
+    client = gb.GDriveClient(gc, gc["token_file"])
+    with _GDRIVE_DEVICE_FLOW["lock"]:
+        device_code = _GDRIVE_DEVICE_FLOW.get("device_code")
+        expires_at = _GDRIVE_DEVICE_FLOW.get("expires_at", 0)
+
+    if not device_code or time.time() > expires_at:
+        return jsonify({"status": "expired", "error": "Authorization session has expired. Please restart."}), 400
+
+    try:
+        res = client.poll_device_flow(device_code)
+        if res.get("status") == "success":
+            with _GDRIVE_DEVICE_FLOW["lock"]:
+                _GDRIVE_DEVICE_FLOW["device_code"] = None
+                _GDRIVE_DEVICE_FLOW["user_code"] = None
+                _GDRIVE_DEVICE_FLOW["expires_at"] = 0
+            _GDRIVE_STATE["last_status"] = "IDLE"
+            _GDRIVE_STATE["last_error"] = None
+            return jsonify({"status": "success", "authenticated": True})
+        elif res.get("status") in ("pending", "slow_down"):
+            return jsonify({"status": res["status"]})
+        else:
+            return jsonify(res)
+    except gb.GDriveAuthError as e:
+        with _GDRIVE_DEVICE_FLOW["lock"]:
+            _GDRIVE_DEVICE_FLOW["device_code"] = None
+            _GDRIVE_DEVICE_FLOW["user_code"] = None
+            _GDRIVE_DEVICE_FLOW["expires_at"] = 0
+        _GDRIVE_STATE["last_status"] = "AUTH_REQUIRED"
+        _GDRIVE_STATE["last_error"] = str(e)
+        return jsonify({"status": "error", "error": str(e)}), 400
+    except gb.GDriveNetworkError as e:
+        return jsonify({"status": "network_error", "error": str(e)}), 503
+
+@app.route("/api/backup/gdrive/device-cancel", methods=["POST"])
+@require_admin
+def gdrive_device_cancel():
+    with _GDRIVE_DEVICE_FLOW["lock"]:
+        _GDRIVE_DEVICE_FLOW["device_code"] = None
+        _GDRIVE_DEVICE_FLOW["user_code"] = None
+        _GDRIVE_DEVICE_FLOW["expires_at"] = 0
+    return jsonify({"ok": True})
 
 @app.route("/api/backup/gdrive/disconnect", methods=["POST"])
 @require_admin

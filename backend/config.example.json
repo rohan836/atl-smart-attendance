@@ -30,8 +30,8 @@
   "port": 5000,
   "gdrive": {
     "enabled": false,
-    "clientId": "YOUR_OAUTH_CLIENT_ID.apps.googleusercontent.com",
-    "clientSecret": "YOUR_OAUTH_CLIENT_SECRET",
+    "clientId": "YOUR_DEVICE_OAUTH_CLIENT_ID.apps.googleusercontent.com",
+    "clientSecret": "YOUR_DEVICE_OAUTH_CLIENT_SECRET",
     "folderName": "ATL-Attendance-Backups",
     "scheduleTime": "18:30"
   }

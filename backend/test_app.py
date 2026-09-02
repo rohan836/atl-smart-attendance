@@ -6,6 +6,7 @@ Run from repo root:
 or
     python backend/test_app.py
 """
+import urllib
 import os, sys, json, tempfile, pathlib, unittest, sqlite3
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -1903,35 +1904,153 @@ class ApiTest(unittest.TestCase):
         self.assertIn("authenticated", j)
         self.assertIn("lastStatus", j)
 
-    def test_gdrive_auth_url_and_code_exchange(self):
-        """Tests OAuth URL generation and code exchange token persistence with mock."""
+    def test_gdrive_device_flow_unconfigured(self):
+        """When Google OAuth is unconfigured, start_device_flow and /api/backup/gdrive/device-start reject with 400."""
         import backend.gdrive_backup as gb
-        import io, urllib.response, tempfile, shutil
+        unconf_client = gb.GDriveClient({}, "")
+        self.assertFalse(unconf_client.is_configured())
+        with self.assertRaises(gb.GDriveAuthError):
+            unconf_client.start_device_flow()
+
+        old_cfg = atl.cfg.get("gdrive")
+        atl.cfg["gdrive"] = {"enabled": True, "clientId": "", "clientSecret": ""}
+        try:
+            r = self.client.post("/api/backup/gdrive/device-start")
+            self.assertEqual(r.status_code, 400)
+            self.assertIn("not configured", r.get_json().get("error", "").lower())
+        finally:
+            if old_cfg is None: atl.cfg.pop("gdrive", None)
+            else: atl.cfg["gdrive"] = old_cfg
+
+    def test_gdrive_device_flow_start_and_status(self):
+        """Tests device flow start returns user_code, verification_url, and populates deviceFlow in status."""
+        import backend.gdrive_backup as gb
+        import io, urllib.response, unittest.mock as mock
+
+        mock_device_resp = json.dumps({
+            "device_code": "dev_code_abc123",
+            "user_code": "WDJK-9942",
+            "verification_url": "https://www.google.com/device",
+            "verification_url_complete": "https://www.google.com/device?user_code=WDJK-9942",
+            "expires_in": 1800,
+            "interval": 5
+        }).encode("utf-8")
+
+        def mock_urlopen(req, *a, **kw):
+            return urllib.response.addinfourl(io.BytesIO(mock_device_resp), {"content-type": "application/json"}, req.full_url, code=200)
+
+        old_cfg = atl.cfg.get("gdrive")
+        atl.cfg["gdrive"] = {"enabled": True, "clientId": "real_cid_123", "clientSecret": "real_sec_456"}
+        try:
+            with mock.patch("urllib.request.urlopen", side_effect=mock_urlopen):
+                r = self.client.post("/api/backup/gdrive/device-start")
+                self.assertEqual(r.status_code, 200)
+                j = r.get_json()
+                self.assertTrue(j.get("ok"))
+                self.assertEqual(j.get("userCode"), "WDJK-9942")
+                self.assertEqual(j.get("verificationUrl"), "https://www.google.com/device")
+                self.assertIn("WDJK-9942", j.get("verificationUrlComplete"))
+
+                # Check /api/backup/gdrive/status includes active deviceFlow
+                st = self.client.get("/api/backup/gdrive/status").get_json()
+                self.assertIsNotNone(st.get("deviceFlow"))
+                self.assertEqual(st["deviceFlow"]["userCode"], "WDJK-9942")
+        finally:
+            if old_cfg is None: atl.cfg.pop("gdrive", None)
+            else: atl.cfg["gdrive"] = old_cfg
+
+    def test_gdrive_device_flow_poll_pending_and_success(self):
+        """Tests device-poll handles authorization_pending then success with token persistence and 0600 permissions."""
+        import backend.gdrive_backup as gb
+        import io, urllib.response, tempfile, shutil, unittest.mock as mock, time
 
         tdir = tempfile.mkdtemp()
+        old_cfg = atl.cfg.get("gdrive")
+        atl.cfg["gdrive"] = {"enabled": True, "clientId": "cid", "clientSecret": "csec"}
+        test_token = os.path.join(tdir, "device_token.json")
+
+        pending_err = urllib.error.HTTPError(
+            "https://oauth2.googleapis.com/token", 400, "Bad Request", {},
+            io.BytesIO(json.dumps({"error": "authorization_pending"}).encode("utf-8"))
+        )
+        success_resp = json.dumps({
+            "access_token": "dev_acc_tok_111",
+            "refresh_token": "dev_ref_tok_222",
+            "expires_in": 3600,
+            "token_type": "Bearer"
+        }).encode("utf-8")
+
         try:
-            test_token_file = os.path.join(tdir, "test_gdrive_token.json")
-            client = gb.GDriveClient({"client_id": "mock_cid", "client_secret": "mock_sec"}, test_token_file)
-            self.assertTrue(client.is_configured())
-            self.assertFalse(client.is_authenticated())
+            with mock.patch.dict(os.environ, {"ATL_GDRIVE_TOKEN_FILE": test_token}):
+                # Set up active device session
+                with atl._GDRIVE_DEVICE_FLOW["lock"]:
+                    atl._GDRIVE_DEVICE_FLOW["device_code"] = "dev_session_123"
+                    atl._GDRIVE_DEVICE_FLOW["user_code"] = "CODE-1234"
+                    atl._GDRIVE_DEVICE_FLOW["expires_at"] = time.time() + 1800
 
-            url = client.get_authorization_url()
-            self.assertIn("client_id=mock_cid", url)
-            self.assertIn("scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.file", url)
+                # 1. Pending poll
+                with mock.patch("urllib.request.urlopen", side_effect=pending_err):
+                    r_pending = self.client.post("/api/backup/gdrive/device-poll")
+                    self.assertEqual(r_pending.status_code, 200)
+                    self.assertEqual(r_pending.get_json().get("status"), "pending")
 
-            mock_resp_data = json.dumps({"access_token": "mock_tok_123", "refresh_token": "mock_ref_456", "expires_in": 3600}).encode("utf-8")
-            def mock_urlopen(req, *a, **kw):
-                return urllib.response.addinfourl(io.BytesIO(mock_resp_data), {"content-type": "application/json"}, req.full_url, code=200)
+                # 2. Successful poll
+                def mock_success_urlopen(req, *a, **kw):
+                    return urllib.response.addinfourl(io.BytesIO(success_resp), {"content-type": "application/json"}, req.full_url, code=200)
 
-            import unittest.mock as mock
-            with mock.patch("urllib.request.urlopen", side_effect=mock_urlopen):
-                tokens = client.exchange_code("mock_auth_code_789")
-                self.assertEqual(tokens.get("access_token"), "mock_tok_123")
-                self.assertEqual(tokens.get("refresh_token"), "mock_ref_456")
-                self.assertTrue(client.is_authenticated())
-                self.assertTrue(os.path.exists(test_token_file))
+                with mock.patch("urllib.request.urlopen", side_effect=mock_success_urlopen):
+                    r_success = self.client.post("/api/backup/gdrive/device-poll")
+                    self.assertEqual(r_success.status_code, 200)
+                    j = r_success.get_json()
+                    self.assertEqual(j.get("status"), "success")
+                    self.assertTrue(j.get("authenticated"))
+
+                    # Tokens persisted
+                    self.assertTrue(os.path.exists(test_token))
+                    with open(test_token, "r") as f:
+                        saved = json.load(f)
+                    self.assertEqual(saved.get("refresh_token"), "dev_ref_tok_222")
+                    if hasattr(os, "stat") and os.name != "nt":
+                        mode = os.stat(test_token).st_mode & 0o777
+                        self.assertEqual(mode, 0o600)
+
+                    # Device session cleared
+                    self.assertIsNone(atl._GDRIVE_DEVICE_FLOW["device_code"])
         finally:
             shutil.rmtree(tdir, ignore_errors=True)
+            if old_cfg is None: atl.cfg.pop("gdrive", None)
+            else: atl.cfg["gdrive"] = old_cfg
+
+    def test_gdrive_device_flow_poll_denial_and_cancel(self):
+        """Tests device-poll handles access_denied gracefully, and device-cancel clears session."""
+        import io, unittest.mock as mock, time
+
+        denied_err = urllib.error.HTTPError(
+            "https://oauth2.googleapis.com/token", 400, "Bad Request", {},
+            io.BytesIO(json.dumps({"error": "access_denied"}).encode("utf-8"))
+        )
+
+        with atl._GDRIVE_DEVICE_FLOW["lock"]:
+            atl._GDRIVE_DEVICE_FLOW["device_code"] = "dev_session_denial"
+            atl._GDRIVE_DEVICE_FLOW["user_code"] = "DENY-1234"
+            atl._GDRIVE_DEVICE_FLOW["expires_at"] = time.time() + 1800
+
+        with mock.patch("urllib.request.urlopen", side_effect=denied_err):
+            r_deny = self.client.post("/api/backup/gdrive/device-poll")
+            self.assertEqual(r_deny.status_code, 400)
+            self.assertEqual(r_deny.get_json().get("status"), "error")
+            self.assertEqual(atl._GDRIVE_STATE["last_status"], "AUTH_REQUIRED")
+            self.assertIsNone(atl._GDRIVE_DEVICE_FLOW["device_code"])
+
+        # Test cancel
+        with atl._GDRIVE_DEVICE_FLOW["lock"]:
+            atl._GDRIVE_DEVICE_FLOW["device_code"] = "dev_session_cancel"
+            atl._GDRIVE_DEVICE_FLOW["user_code"] = "CANCEL-1234"
+            atl._GDRIVE_DEVICE_FLOW["expires_at"] = time.time() + 1800
+
+        r_cancel = self.client.post("/api/backup/gdrive/device-cancel")
+        self.assertEqual(r_cancel.status_code, 200)
+        self.assertIsNone(atl._GDRIVE_DEVICE_FLOW["device_code"])
 
     def test_gdrive_online_snapshot_creation_and_integrity(self):
         """Tests SQLite Online Backup snapshot creation, PRAGMA integrity_check, tables, and SHA-256."""
@@ -2071,11 +2190,14 @@ class ApiTest(unittest.TestCase):
             r1_ok = self.client.get("/api/backup/gdrive/status", headers={"X-Admin-Pin": "4321"})
             self.assertEqual(r1_ok.status_code, 200)
 
-            r2 = self.client.get("/api/backup/gdrive/auth-url")
+            r2 = self.client.post("/api/backup/gdrive/device-start")
             self.assertEqual(r2.status_code, 401)
 
-            r3 = self.client.post("/api/backup/gdrive/authorize", json={"code": "123"})
+            r3 = self.client.post("/api/backup/gdrive/device-poll")
             self.assertEqual(r3.status_code, 401)
+
+            r3_cancel = self.client.post("/api/backup/gdrive/device-cancel")
+            self.assertEqual(r3_cancel.status_code, 401)
 
             r4 = self.client.post("/api/backup/gdrive/disconnect")
             self.assertEqual(r4.status_code, 401)

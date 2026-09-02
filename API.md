@@ -38,9 +38,10 @@ Base: `http://192.168.1.8:5000` (Pi) or `http://127.0.0.1:5000` (local). Server:
 | GET | `/api/export` | header only | JSON `{settings, students, events 5000, daily 5000}` (`daily` now bounded 5000). |
 | GET | `/api/backup` | header only | `PRAGMA wal_checkpoint TRUNCATE` → `send_file` DB `atl_backup_YYYY-MM-DD.db` (includes students/daily/events/settings incl. `classSchedules/batchSchedules/holidays/overrides` + audit + `images` table, but not `IMAGES_DIR` filesystem files nor GT-511C3 flash). `api(...,responseType:"blob")` sends `X-Admin-Pin` header, no `?pin=`. |
 | POST | `/api/restore` | header only | `file` or raw body ≥100B must start `SQLite format 3\x00` → `.incoming` → `PRAGMA integrity_check` + required tables → `SENSOR_LOCK` then `DB_LOCK` 30s → `.pre_restore.bak` rotation → `os.replace` atomic (Windows retry). `api(...,body:FormData)` header-only, no `?pin=`. |
-| GET | `/api/backup/gdrive/status` | header only | Cloud backup status `{enabled, configured, authenticated, inProgress, lastBackup, lastBackupName, lastStatus, lastError}`. |
-| GET | `/api/backup/gdrive/auth-url` | header only | Generate OAuth 2.0 consent URL for personal Google Drive (`drive.file` scope). |
-| POST | `/api/backup/gdrive/authorize` | header only | Exchange authorization code for OAuth tokens: `POST {code}`. Persists tokens with 0600 permissions. |
+| GET | `/api/backup/gdrive/status` | header only | Cloud backup status `{enabled, configured, authenticated, deviceFlow, inProgress, lastBackup, lastBackupName, lastStatus, lastError}`. |
+| POST/GET | `/api/backup/gdrive/device-start` | header only | Start Google Device Authorization Grant (RFC 8628): requests `user_code` and `verification_url` from Google with `drive.file` scope. |
+| POST | `/api/backup/gdrive/device-poll` | header only | Poll Google token endpoint for device authorization completion: returns `{status: "pending"|"slow_down"|"success"|"error"}`. Saves tokens with 0600 permissions upon approval. |
+| POST | `/api/backup/gdrive/device-cancel` | header only | Cancel active device authorization session. |
 | POST | `/api/backup/gdrive/disconnect` | header only | Disconnect Google Drive integration and delete stored token file. |
 | POST | `/api/backup/gdrive/backup` | header only | Trigger manual Google Drive backup now. Takes online SQLite snapshot under lock, checks integrity, uploads in resumable chunks, prunes retention. |
 | GET | `/api/backup/gdrive/list` | header only | List available cloud backup snapshots in dedicated Drive folder. |

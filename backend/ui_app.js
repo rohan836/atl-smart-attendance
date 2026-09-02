@@ -1567,7 +1567,93 @@ if($("auditExportBtn")) $("auditExportBtn").onclick=()=>{
 };
 $("auditClearBtn").onclick=()=>alert("Clear audit is managed on the backend.");
 
-// Google Drive Cloud Backup
+// Google Drive Cloud Backup (Device Flow)
+let _gdrivePollTimer = null;
+
+function stopGDrivePolling(){
+  if(_gdrivePollTimer){
+    clearInterval(_gdrivePollTimer);
+    _gdrivePollTimer = null;
+  }
+}
+
+function renderDeviceCodeBox(df){
+  const codeBox = $("gdriveDeviceCodeBox");
+  const initBox = $("gdriveInitBox");
+  if(!codeBox) return;
+  if(df && df.userCode){
+    if(initBox) initBox.style.display = "none";
+    codeBox.style.display = "block";
+    if($("gdriveUserCodeDisplay")) $("gdriveUserCodeDisplay").textContent = df.userCode;
+    const link = $("gdriveDeviceUrlLink");
+    if(link){
+      link.href = df.verificationUrlComplete || df.verificationUrl || "https://www.google.com/device";
+    }
+    if($("gdriveDevicePollStatus")) $("gdriveDevicePollStatus").textContent = "Waiting for approval…";
+  } else {
+    if(initBox) initBox.style.display = "block";
+    codeBox.style.display = "none";
+  }
+}
+
+function startGDrivePolling(intervalSec){
+  stopGDrivePolling();
+  const pollInterval = Math.max((intervalSec || 5) * 1000, 3000);
+  _gdrivePollTimer = setInterval(async () => {
+    try {
+      const res = await api("/api/backup/gdrive/device-poll", { method: "POST" });
+      if(res && res.status === "success"){
+        stopGDrivePolling();
+        renderDeviceCodeBox(null);
+        alert("Connected to Google Drive successfully!");
+        await loadGDriveStatus();
+      } else if(res && (res.status === "pending" || res.status === "slow_down")){
+        if($("gdriveDevicePollStatus")) $("gdriveDevicePollStatus").textContent = "Waiting for approval…";
+      } else if(res && res.status === "expired"){
+        stopGDrivePolling();
+        renderDeviceCodeBox(null);
+        if($("gdriveDevicePollStatus")) $("gdriveDevicePollStatus").textContent = "Session expired.";
+        await loadGDriveStatus();
+      }
+    } catch(e){
+      stopGDrivePolling();
+      const m = (e.body && e.body.error) || e.message || "Polling stopped";
+      if($("gdriveDevicePollStatus")) $("gdriveDevicePollStatus").textContent = m;
+    }
+  }, pollInterval);
+}
+
+async function startDeviceFlow(){
+  const btn = $("gdriveDeviceStartBtn");
+  try {
+    if(btn){ btn.disabled = true; btn.textContent = "Connecting…"; }
+    const res = await api("/api/backup/gdrive/device-start", { method: "POST" });
+    if(res && res.ok){
+      renderDeviceCodeBox(res);
+      startGDrivePolling(res.interval || 5);
+      if(res.verificationUrlComplete){
+        window.open(res.verificationUrlComplete, "_blank");
+      }
+    } else {
+      alert((res && res.error) || "Failed to start Google authorization");
+    }
+  } catch(err){
+    const m = (err.body && err.body.error) || err.message || "Failed to start Google authorization";
+    alert("Google Drive: " + m);
+  } finally {
+    if(btn){ btn.disabled = false; btn.textContent = "Connect Google Drive"; }
+  }
+}
+
+async function cancelDeviceFlow(){
+  stopGDrivePolling();
+  renderDeviceCodeBox(null);
+  try {
+    await api("/api/backup/gdrive/device-cancel", { method: "POST" });
+  } catch(_){}
+  await loadGDriveStatus();
+}
+
 async function loadGDriveStatus(){
   if(!$("gdriveBadge")) return;
   try{
@@ -1580,23 +1666,39 @@ async function loadGDriveStatus(){
       badge.textContent="Disabled"; badge.className="pill";
       if(authBox) authBox.style.display="none";
       if(actionBox) actionBox.style.display="none";
+      stopGDrivePolling();
     }else if(!st.configured){
       badge.textContent="Not configured"; badge.className="pill";
-      if(authBox) authBox.style.display="none";
+      if(authBox) authBox.style.display="block";
       if(actionBox) actionBox.style.display="none";
+      renderDeviceCodeBox(null);
+      stopGDrivePolling();
+      if($("gdriveAuthNotice")) $("gdriveAuthNotice").textContent="OAuth Client ID and Secret must be configured in backend config.json before connecting.";
+      if($("gdriveDeviceStartBtn")) $("gdriveDeviceStartBtn").onclick=(e)=>{
+        e.preventDefault();
+        alert("Google Drive backup is not configured yet.\n\nPlease enter your Google OAuth Client ID and Secret (TVs and Limited Input devices) in backend config.json first.");
+      };
     }else if(!st.authenticated){
       badge.textContent="Auth required"; badge.className="pill danger";
       if(authBox) authBox.style.display="block";
       if(actionBox) actionBox.style.display="none";
-      try{
-        const u = await api("/api/backup/gdrive/auth-url");
-        if(u.authUrl && $("gdriveAuthLink")) $("gdriveAuthLink").href=u.authUrl;
-      }catch(_u){}
+      if($("gdriveAuthNotice")) $("gdriveAuthNotice").textContent="Authorizes directly with Google Device Flow. Works seamlessly from Android or PC without redirect URIs.";
+      if($("gdriveDeviceStartBtn")) $("gdriveDeviceStartBtn").onclick = startDeviceFlow;
+      if($("gdriveDeviceCancelBtn")) $("gdriveDeviceCancelBtn").onclick = cancelDeviceFlow;
+
+      if(st.deviceFlow){
+        renderDeviceCodeBox(st.deviceFlow);
+        if(!_gdrivePollTimer) startGDrivePolling(st.deviceFlow.interval || 5);
+      } else {
+        renderDeviceCodeBox(null);
+        stopGDrivePolling();
+      }
     }else{
       badge.textContent=st.inProgress?"Uploading…":(st.lastStatus==="SUCCESS"?"Connected":"Ready");
       badge.className=st.lastStatus==="SUCCESS"?"pill ok":"pill";
       if(authBox) authBox.style.display="none";
       if(actionBox) actionBox.style.display="block";
+      stopGDrivePolling();
       let info = st.lastBackup ? `Last backup: ${st.lastBackup} (${st.lastBackupName||""})` : "No backups created yet.";
       if(st.lastError) info += ` | Error: ${st.lastError}`;
       if(msg) msg.textContent=info;
@@ -1606,6 +1708,28 @@ async function loadGDriveStatus(){
     if($("gdriveBadge")) { $("gdriveBadge").textContent="Offline"; $("gdriveBadge").className="pill"; }
   }
 }
+
+function checkAdminRoute(){
+  const h = window.location.hash || "";
+  const s = window.location.search || "";
+  if(h.includes("admin=backup") || s.includes("admin=backup")){
+    openAdmin();
+    const btn = document.querySelector('nav.admin-nav button[data-tab="backup"]');
+    if(btn){
+      [...adminNav.children].forEach(b=>b.classList.remove("active"));
+      btn.classList.add("active");
+      currentTab="backup";
+      updateTabs();
+    }
+  }
+}
+window.addEventListener("load", checkAdminRoute);
+window.addEventListener("hashchange", checkAdminRoute);
+window.addEventListener("focus", ()=>{
+  if(currentTab==="backup" && adminLayer && adminLayer.classList.contains("open")){
+    loadGDriveStatus();
+  }
+});
 
 async function loadGDriveList(){
   const tbody = $("gdriveFilesBody");
@@ -1629,22 +1753,6 @@ async function loadGDriveList(){
     tbody.innerHTML=`<tr><td colspan="3" style="color:var(--danger);padding:8px">Failed to list: ${esc(e.message||"error")}</td></tr>`;
   }
 }
-
-if($("gdriveConnectBtn")) $("gdriveConnectBtn").onclick=async()=>{
-  const code = ($("gdriveAuthCodeInput").value||"").trim();
-  if(!code) return alert("Please enter the authorization code");
-  try{
-    $("gdriveConnectBtn").disabled=true; $("gdriveConnectBtn").textContent="Connecting…";
-    await api("/api/backup/gdrive/authorize", {method:"POST", body:JSON.stringify({code})});
-    $("gdriveAuthCodeInput").value="";
-    alert("Connected to Google Drive successfully.");
-    await loadGDriveStatus();
-  }catch(e){
-    alert("Authorization failed: "+(e.message||(e.body&&e.body.error)||"error"));
-  }finally{
-    $("gdriveConnectBtn").disabled=false; $("gdriveConnectBtn").textContent="Connect";
-  }
-};
 
 if($("gdriveBackupNowBtn")) $("gdriveBackupNowBtn").onclick=async()=>{
   const btn = $("gdriveBackupNowBtn");
