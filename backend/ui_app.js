@@ -1219,7 +1219,7 @@ function updateTabs(){
   if(currentTab==="reports") renderReports();
   if(currentTab==="calendar"){ renderHolidays(); renderOverrides(); renderCalendarMonth(); }
   if(currentTab==="settings") renderClasses();
-  if(currentTab==="backup"){ renderAudit(); loadGDriveStatus(); }
+  if(currentTab==="backup"){ renderAudit(); loadGDriveStatus(); loadTelegramStatus(); }
 }
 document.getElementById("openAdminBtn").onclick=openAdmin;
 const _frontEnrollBtn=document.getElementById("openEnrollBtn"); if(_frontEnrollBtn) _frontEnrollBtn.onclick=openNewStudent;
@@ -1820,6 +1820,7 @@ window.addEventListener("hashchange", checkAdminRoute);
 window.addEventListener("focus", ()=>{
   if(currentTab==="backup" && adminLayer && adminLayer.classList.contains("open")){
     loadGDriveStatus();
+    loadTelegramStatus();
   }
 });
 
@@ -1887,6 +1888,100 @@ if($("gdriveFilesBody")) $("gdriveFilesBody").addEventListener("click", async(e)
     btn.disabled=false; btn.textContent="Restore";
   }
 });
+
+// --- Secondary Backup — Telegram ---
+async function loadTelegramStatus(){
+  const badge = $("telegramBadge");
+  const statusText = $("telegramStatusText");
+  const toggle = $("telegramEnabledToggle");
+  const chatSpan = $("telegramChatId");
+  const lastSpan = $("telegramLastBackup");
+  const errDiv = $("telegramLastError");
+  if(!badge) return;
+
+  try{
+    const st = await api("/api/backup/telegram/status");
+    if(toggle) toggle.checked = !!st.enabled;
+    if(chatSpan) chatSpan.textContent = st.chatId || "Not configured";
+
+    if(!st.configured){
+      badge.textContent = "Not configured";
+      badge.className = "pill";
+      if(statusText) statusText.textContent = "Not configured (set botToken in config)";
+    }else if(!st.enabled){
+      badge.textContent = "Disabled";
+      badge.className = "pill";
+      if(statusText) statusText.textContent = "Disabled";
+    }else if(st.lastStatus === "SUCCESS"){
+      badge.textContent = "Connected";
+      badge.className = "pill active";
+      if(statusText) statusText.textContent = "Ready / Active";
+    }else if(st.lastStatus === "ERROR"){
+      badge.textContent = "Error";
+      badge.className = "pill danger";
+      if(statusText) statusText.textContent = "Error";
+    }else{
+      badge.textContent = "Ready";
+      badge.className = "pill active";
+      if(statusText) statusText.textContent = "Ready / Active";
+    }
+
+    if(lastSpan){
+      lastSpan.textContent = st.lastBackup ? `${st.lastBackup} (${st.lastBackupName || ""})` : "Never";
+    }
+
+    if(errDiv){
+      if(st.lastError){
+        errDiv.style.display = "block";
+        errDiv.textContent = "Error: " + st.lastError;
+      }else{
+        errDiv.style.display = "none";
+        errDiv.textContent = "";
+      }
+    }
+  }catch(e){
+    badge.textContent = "Unavailable";
+    badge.className = "pill danger";
+    if(statusText) statusText.textContent = "Error loading status";
+  }
+}
+
+if($("telegramEnabledToggle")) $("telegramEnabledToggle").onchange = async function(){
+  try{
+    await api("/api/backup/telegram/toggle", {
+      method: "POST",
+      body: JSON.stringify({ enabled: this.checked })
+    });
+    await loadTelegramStatus();
+  }catch(e){
+    alert("Failed to toggle Telegram backup: " + (e.message || "error"));
+    await loadTelegramStatus();
+  }
+};
+
+if($("telegramBackupNowBtn")) $("telegramBackupNowBtn").onclick = async () => {
+  const btn = $("telegramBackupNowBtn");
+  try{
+    btn.disabled = true; btn.textContent = "Sending…";
+    const res = await api("/api/backup/telegram/backup", { method: "POST" });
+    alert("Backup sent to Telegram successfully: " + (res.name || ""));
+    await loadTelegramStatus();
+  }catch(e){
+    alert("Telegram backup failed: " + (e.message || (e.body && e.body.error) || "error"));
+    await loadTelegramStatus();
+  }finally{
+    btn.disabled = false; btn.textContent = "Send backup now";
+  }
+};
+
+if($("telegramClearStatusBtn")) $("telegramClearStatusBtn").onclick = async () => {
+  try{
+    await api("/api/backup/telegram/clear-status", { method: "POST" });
+    await loadTelegramStatus();
+  }catch(e){
+    alert("Failed to clear status: " + (e.message || "error"));
+  }
+};
 if($("calSaveBtn")) $("calSaveBtn").onclick=async()=>{
   try{
     const el=(id)=>$(id);

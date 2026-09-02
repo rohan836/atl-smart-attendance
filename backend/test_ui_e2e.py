@@ -12,6 +12,7 @@ Covers:
   5. Student enrollment modal: required field validation, form submission, and cancel/close.
   6. Backup tab: Google Drive Device Flow pairing display (unauthenticated state).
   7. Backup tab: Google Drive schedule configuration controls (authenticated state, frequency, weekdays, save).
+  8. Backup tab: Telegram secondary backup card and interactive controls (status, toggle, send backup, clear status).
 
 Run via:
     python -m unittest backend.test_ui_e2e -v
@@ -473,6 +474,59 @@ class UiE2eTest(unittest.TestCase):
                     os.remove(token_path)
                 except Exception:
                     pass
+
+    def test_08_backup_tab_telegram_controls(self):
+        """Backup tab displays Telegram card, allows toggling enable, send backup, and clear status."""
+        self.page.goto(f"{_BASE_URL}/", wait_until="networkidle")
+
+        self.page.once("dialog", lambda dialog: dialog.accept("1234"))
+        self.page.click("#openAdminBtn")
+        self.page.wait_for_function("document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
+
+        self.page.click("#adminNav button[data-tab='backup']")
+        self.page.wait_for_function("!document.getElementById('pane-backup').classList.contains('hidden')", timeout=3000)
+
+        # Telegram card renders
+        tg_card = self.page.locator("#telegramCard")
+        tg_card.wait_for(state="visible", timeout=3000)
+
+        badge = self.page.locator("#telegramBadge")
+        badge.wait_for(state="visible", timeout=2000)
+
+        # Test enable toggle
+        toggle = self.page.locator("#telegramEnabledToggle")
+        initially_checked = toggle.is_checked()
+        toggle.click()
+        self.page.wait_for_timeout(300)
+        self.assertNotEqual(toggle.is_checked(), initially_checked)
+        # Toggle back
+        toggle.click()
+        self.page.wait_for_timeout(300)
+
+        # Test Clear status button
+        clear_btn = self.page.locator("#telegramClearStatusBtn")
+        clear_btn.click()
+        self.page.wait_for_timeout(300)
+
+        # Test Send backup now with intercepted network call
+        self.page.route("**/api/backup/telegram/backup", lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({
+                "ok": True,
+                "name": "atl_backup_mock.db",
+                "messageId": 12345,
+                "size": 729000
+            })
+        ))
+
+        # Accept the success alert dialog
+        self.page.once("dialog", lambda dialog: dialog.accept())
+        self.page.click("#telegramBackupNowBtn")
+        self.page.wait_for_timeout(500)
+
+        self.page.click("#adminClose")
+        self.page.wait_for_function("!document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
 
 
 if __name__ == "__main__":

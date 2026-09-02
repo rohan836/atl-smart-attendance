@@ -7,7 +7,7 @@ or
     python backend/test_app.py
 """
 import urllib
-import os, sys, json, tempfile, pathlib, unittest, sqlite3
+import os, sys, json, tempfile, pathlib, unittest, sqlite3, io
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -2335,6 +2335,188 @@ class ApiTest(unittest.TestCase):
         atl.start_gdrive_daemon()
         self.assertTrue(atl._gdrive_thread.is_alive() if atl._gdrive_thread else False)
         atl.stop_gdrive_daemon(timeout=2)
+
+    # -----------------------------------------------------------------------
+    # Telegram Secondary Cloud Backup Tests
+    # -----------------------------------------------------------------------
+
+    def test_telegram_status_never_exposes_token(self):
+        """Telegram status endpoint returns configuration status but never exposes botToken."""
+        atl.cfg["telegram"] = {
+            "enabled": True,
+            "botToken": "SECRET_BOT_TOKEN_12345",
+            "chatId": "-100987654321"
+        }
+        res = self.client.get("/api/backup/telegram/status")
+        self.assertEqual(res.status_code, 200)
+        d = res.get_json()
+        self.assertTrue(d.get("enabled"))
+        self.assertTrue(d.get("configured"))
+        self.assertEqual(d.get("chatId"), "-100987654321")
+        self.assertNotIn("botToken", d)
+        self.assertNotIn("bot_token", d)
+        self.assertNotIn("SECRET_BOT_TOKEN_12345", res.get_data(as_text=True))
+
+    def test_telegram_backup_disabled(self):
+        """Telegram backup returns skipped when disabled."""
+        atl.cfg["telegram"] = {
+            "enabled": False,
+            "botToken": "mock_token_123",
+            "chatId": "-100123"
+        }
+        with atl.app.app_context():
+            cur = atl.get_settings()
+            cur.pop("telegramEnabled", None)
+            atl.save_settings(cur)
+
+        res = self.client.post("/api/backup/telegram/backup")
+        self.assertEqual(res.status_code, 400)
+        d = res.get_json()
+        self.assertFalse(d.get("ok"))
+        self.assertTrue(d.get("skipped"))
+        self.assertIn("disabled", d.get("error", "").lower())
+
+    def test_telegram_backup_missing_config(self):
+        """Telegram backup returns error when enabled but token or chatId is missing."""
+        atl.cfg["telegram"] = {
+            "enabled": True,
+            "botToken": "",
+            "chatId": ""
+        }
+        res = self.client.post("/api/backup/telegram/backup")
+        self.assertEqual(res.status_code, 500)
+        d = res.get_json()
+        self.assertFalse(d.get("ok"))
+        self.assertIn("not configured", d.get("error", "").lower())
+
+        st = self.client.get("/api/backup/telegram/status").get_json()
+        self.assertEqual(st.get("lastStatus"), "NOT_CONFIGURED")
+
+    def test_telegram_backup_success_mocked(self):
+        """Simulates successful Telegram sendDocument upload, verifying audit entry and status."""
+        atl.cfg["telegram"] = {
+            "enabled": True,
+            "botToken": "8999732328:TEST_TOKEN_XYZ",
+            "chatId": "-100192837465"
+        }
+        mock_resp_data = json.dumps({
+            "ok": True,
+            "result": {
+                "message_id": 4321,
+                "document": {
+                    "file_name": "atl_backup_test.db",
+                    "file_size": 12345
+                }
+            }
+        }).encode("utf-8")
+
+        mock_http_resp = unittest.mock.MagicMock()
+        mock_http_resp.read.return_value = mock_resp_data
+        mock_http_resp.__enter__.return_value = mock_http_resp
+        mock_http_resp.__exit__.return_value = False
+
+        with unittest.mock.patch("urllib.request.urlopen", return_value=mock_http_resp) as mock_urlopen:
+            res = self.client.post("/api/backup/telegram/backup")
+            self.assertEqual(res.status_code, 200)
+            d = res.get_json()
+            self.assertTrue(d.get("ok"))
+            self.assertEqual(d.get("messageId"), 4321)
+
+            # Verify urlopen was called with Telegram API endpoint
+            self.assertTrue(mock_urlopen.called)
+            req = mock_urlopen.call_args[0][0]
+            self.assertIn("https://api.telegram.org/bot8999732328:TEST_TOKEN_XYZ/sendDocument", req.full_url)
+
+            # Verify status updated
+            st = self.client.get("/api/backup/telegram/status").get_json()
+            self.assertEqual(st.get("lastStatus"), "SUCCESS")
+            self.assertIsNotNone(st.get("lastBackup"))
+
+            # Verify audit entry recorded
+            with atl.app.app_context():
+                db = atl.get_db()
+                audit_row = db.execute("SELECT details FROM audit WHERE action='TELEGRAM_BACKUP' ORDER BY at DESC LIMIT 1").fetchone()
+                self.assertIsNotNone(audit_row)
+                self.assertIn("msg_id: 4321", audit_row[0])
+                # Confirm token was never stored in audit log
+                self.assertNotIn("TEST_TOKEN_XYZ", audit_row[0])
+
+    def test_telegram_backup_api_error_mocked_and_sanitized(self):
+        """Simulates Telegram API 400 Bad Request and confirms token is redacted in error messages."""
+        token = "8999732328:SECRET_LEAK_TARGET"
+        atl.cfg["telegram"] = {
+            "enabled": True,
+            "botToken": token,
+            "chatId": "-100999"
+        }
+
+        err_body = io.BytesIO(b'{"ok": false, "error_code": 400, "description": "Bad Request: chat not found"}')
+        http_err = urllib.error.HTTPError(
+            url=f"https://api.telegram.org/bot{token}/sendDocument",
+            code=400,
+            msg="Bad Request",
+            hdrs={},
+            fp=err_body
+        )
+
+        with unittest.mock.patch("urllib.request.urlopen", side_effect=http_err):
+            res = self.client.post("/api/backup/telegram/backup")
+            self.assertEqual(res.status_code, 500)
+            d = res.get_json()
+            self.assertFalse(d.get("ok"))
+            self.assertIn("chat not found", d.get("error", ""))
+            # Token must NOT leak into error
+            self.assertNotIn(token, d.get("error", ""))
+            self.assertNotIn("SECRET_LEAK_TARGET", res.get_data(as_text=True))
+
+            st = self.client.get("/api/backup/telegram/status").get_json()
+            self.assertEqual(st.get("lastStatus"), "ERROR")
+            self.assertNotIn(token, st.get("lastError", ""))
+
+    def test_telegram_toggle_and_clear_status(self):
+        """Tests enabling/disabling Telegram via /toggle and clearing error status via /clear-status."""
+        # Toggle enabled True
+        r1 = self.client.post("/api/backup/telegram/toggle", data=json.dumps({"enabled": True}), content_type="application/json")
+        self.assertEqual(r1.status_code, 200)
+        self.assertTrue(r1.get_json().get("enabled"))
+        self.assertTrue(atl.get_settings().get("telegramEnabled"))
+
+        # Toggle enabled False
+        r2 = self.client.post("/api/backup/telegram/toggle", data=json.dumps({"enabled": False}), content_type="application/json")
+        self.assertEqual(r2.status_code, 200)
+        self.assertFalse(r2.get_json().get("enabled"))
+        self.assertFalse(atl.get_settings().get("telegramEnabled"))
+
+        # Clear status
+        atl._TELEGRAM_STATE["last_error"] = "Simulated error"
+        atl._TELEGRAM_STATE["last_status"] = "ERROR"
+
+        r3 = self.client.post("/api/backup/telegram/clear-status")
+        self.assertEqual(r3.status_code, 200)
+        self.assertTrue(r3.get_json().get("ok"))
+        self.assertIsNone(atl._TELEGRAM_STATE["last_error"])
+        self.assertEqual(atl._TELEGRAM_STATE["last_status"], "IDLE")
+
+    def test_telegram_endpoints_pin_gating(self):
+        """When adminPin is configured, Telegram management endpoints require PIN header."""
+        atl.cfg["adminPin"] = "4321"
+        try:
+            # Without PIN -> 401
+            self.assertEqual(self.client.get("/api/backup/telegram/status").status_code, 401)
+            self.assertEqual(self.client.post("/api/backup/telegram/backup").status_code, 401)
+            self.assertEqual(self.client.post("/api/backup/telegram/toggle").status_code, 401)
+            self.assertEqual(self.client.post("/api/backup/telegram/clear-status").status_code, 401)
+
+            # With wrong PIN -> 401
+            headers_bad = {"X-Admin-Pin": "0000"}
+            self.assertEqual(self.client.get("/api/backup/telegram/status", headers=headers_bad).status_code, 401)
+
+            # With correct PIN -> 200
+            headers_ok = {"X-Admin-Pin": "4321"}
+            self.assertEqual(self.client.get("/api/backup/telegram/status", headers=headers_ok).status_code, 200)
+            self.assertEqual(self.client.post("/api/backup/telegram/clear-status", headers=headers_ok).status_code, 200)
+        finally:
+            atl.cfg["adminPin"] = ""
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

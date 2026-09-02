@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """ATL Smart Attendance — Flask backend (GT-511C3 UART + SQLite). Offline-first."""
-import os, json, sqlite3, time, uuid, pathlib, datetime, re, threading, base64, secrets
+import os, json, sqlite3, time, uuid, pathlib, datetime, re, threading, base64, secrets, urllib.request, urllib.error
 # pyrefly: ignore [missing-import]
 from flask import Flask, request, jsonify, send_from_directory, g, Response, has_app_context, redirect
 from flask_cors import CORS
@@ -258,7 +258,7 @@ def save_settings(new_cfg):
 def public_settings():
     """Return UI-safe settings without deployment/hardware connection fields."""
     s = dict(get_settings())
-    for k in ("sensor", "uart", "baud", "db", "host", "port", "imagesDir", "adminPin"):
+    for k in ("sensor", "uart", "baud", "db", "host", "port", "imagesDir", "adminPin", "telegram", "telegramBotToken", "botToken"):
         s.pop(k, None)
     return s
 
@@ -1536,6 +1536,15 @@ def run_gdrive_backup(trigger="AUTO"):
         except Exception:
             pass
 
+        # Secondary Telegram backup (if enabled) - non-blocking failure mode
+        try:
+            tc = _telegram_config()
+            if tc.get("enabled"):
+                run_telegram_backup(staging_path=snap_info["path"], trigger=trigger)
+        except Exception as tg_ex:
+            _TELEGRAM_STATE["last_status"] = "ERROR"
+            _TELEGRAM_STATE["last_error"] = _sanitize_telegram_error(str(tg_ex))
+
         return {
             "ok": True,
             "fileId": upload_res.get("fileId"),
@@ -1560,6 +1569,189 @@ def run_gdrive_backup(trigger="AUTO"):
         _GDRIVE_STATE["in_progress"] = False
         if os.path.exists(staging_path):
             try: os.remove(staging_path)
+            except Exception: pass
+
+# ---------------------------------------------------------------------------
+# Telegram Secondary Cloud Backup Engine (Bot API sendDocument)
+# ---------------------------------------------------------------------------
+
+_TELEGRAM_STATE = {
+    "last_backup_time": None,
+    "last_backup_name": None,
+    "last_status": "IDLE",
+    "last_error": None,
+    "in_progress": False,
+}
+
+def _telegram_config() -> dict:
+    """Retrieve effective Telegram backup configuration."""
+    t_cfg = cfg.get("telegram") if isinstance(cfg.get("telegram"), dict) else {}
+    env_enabled = os.environ.get("ATL_TELEGRAM_ENABLED")
+    if env_enabled is not None:
+        enabled = env_enabled.lower() in ("1", "true", "yes")
+    else:
+        try:
+            s = get_settings()
+            if "telegramEnabled" in s:
+                enabled = bool(s.get("telegramEnabled"))
+            else:
+                enabled = bool(t_cfg.get("enabled", False))
+        except Exception:
+            enabled = bool(t_cfg.get("enabled", False))
+
+    bot_token = os.environ.get("ATL_TELEGRAM_BOT_TOKEN") or t_cfg.get("botToken", "")
+    chat_id = os.environ.get("ATL_TELEGRAM_CHAT_ID") or t_cfg.get("chatId", "")
+    return {
+        "enabled": enabled,
+        "bot_token": str(bot_token).strip(),
+        "chat_id": str(chat_id).strip()
+    }
+
+def _sanitize_telegram_error(err_str: str, bot_token: str = None) -> str:
+    """Ensure bot token never leaks into error logs or API responses."""
+    if not err_str:
+        return ""
+    sanitized = str(err_str)
+    if bot_token and bot_token in sanitized:
+        sanitized = sanitized.replace(bot_token, "[REDACTED_TOKEN]")
+    sanitized = re.sub(r"bot\d+:[a-zA-Z0-9_-]+", "bot[REDACTED]", sanitized)
+    sanitized = re.sub(r"\d{8,12}:[a-zA-Z0-9_-]{30,50}", "[REDACTED_TOKEN]", sanitized)
+    return sanitized
+
+def _send_telegram_document(bot_token: str, chat_id: str, file_path: str, caption: str = "") -> dict:
+    """
+    Sends a file to Telegram using the official sendDocument Bot API.
+    Uses pure Python standard library (urllib.request) with multipart/form-data.
+    """
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"Backup file not found: {file_path}")
+
+    filename = os.path.basename(file_path)
+    with open(file_path, "rb") as f:
+        file_bytes = f.read()
+
+    boundary = f"----WebKitFormBoundary{uuid.uuid4().hex}"
+    parts = []
+
+    # chat_id
+    parts.append(f"--{boundary}\r\nContent-Disposition: form-data; name=\"chat_id\"\r\n\r\n{chat_id}\r\n".encode("utf-8"))
+
+    # caption (optional)
+    if caption:
+        parts.append(f"--{boundary}\r\nContent-Disposition: form-data; name=\"caption\"\r\n\r\n{caption}\r\n".encode("utf-8"))
+
+    # document file
+    parts.append(
+        f"--{boundary}\r\nContent-Disposition: form-data; name=\"document\"; filename=\"{filename}\"\r\n"
+        f"Content-Type: application/octet-stream\r\n\r\n".encode("utf-8")
+    )
+    parts.append(file_bytes)
+    parts.append(f"\r\n--{boundary}--\r\n".encode("utf-8"))
+
+    payload = b"".join(parts)
+    url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
+
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "User-Agent": "ATL-Smart-Attendance/1.1.0"
+        },
+        method="POST"
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = resp.read().decode("utf-8")
+            res_json = json.loads(data)
+            if not res_json.get("ok"):
+                desc = res_json.get("description", "Unknown Telegram API error")
+                raise RuntimeError(f"Telegram API error: {desc}")
+            return res_json.get("result", {})
+    except urllib.error.HTTPError as he:
+        body = ""
+        try:
+            body = he.read().decode("utf-8")
+            err_obj = json.loads(body)
+            desc = err_obj.get("description", str(he))
+        except Exception:
+            desc = str(he)
+        raise RuntimeError(_sanitize_telegram_error(f"HTTP {he.code}: {desc}", bot_token))
+    except Exception as ex:
+        raise RuntimeError(_sanitize_telegram_error(f"Network error: {ex}", bot_token))
+
+def run_telegram_backup(staging_path: str = None, trigger: str = "MANUAL") -> dict:
+    """
+    Executes Telegram secondary backup upload.
+    Sends the verified SQLite backup snapshot as a document.
+    """
+    tc = _telegram_config()
+    if not tc["enabled"]:
+        return {"ok": False, "skipped": True, "error": "Telegram backup is disabled"}
+    if not tc["bot_token"] or not tc["chat_id"]:
+        _TELEGRAM_STATE["last_status"] = "CONFIG_ERROR"
+        _TELEGRAM_STATE["last_error"] = "Telegram bot token or chat ID not configured"
+        return {"ok": False, "error": "Telegram bot token or chat ID not configured"}
+
+    if _TELEGRAM_STATE["in_progress"]:
+        return {"ok": False, "error": "Telegram backup already in progress"}
+
+    _TELEGRAM_STATE["in_progress"] = True
+    _TELEGRAM_STATE["last_status"] = "IN_PROGRESS"
+
+    created_staging = False
+    active_path = staging_path
+
+    try:
+        if not active_path or not os.path.exists(active_path):
+            staging_dir = "/tmp" if os.name != "nt" else os.environ.get("TEMP", str(ROOT / "backend"))
+            ts_safe = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30))).strftime("%Y%m%d_%H%M%S")
+            active_path = os.path.join(staging_dir, f"atl_backup_{ts_safe}.db")
+            gb.create_online_snapshot(DB_PATH, active_path, db_lock=DB_LOCK)
+            created_staging = True
+
+        filename = os.path.basename(active_path)
+        size = os.path.getsize(active_path)
+        caption = f"ATL Smart Attendance Backup\nDate: {today_ist()} {now_ist()}\nFile: {filename}\nSize: {size:,} bytes\nTrigger: {trigger}"
+
+        result = _send_telegram_document(tc["bot_token"], tc["chat_id"], active_path, caption)
+        msg_id = result.get("message_id") if isinstance(result, dict) else None
+
+        now_str = now_ist()
+        _TELEGRAM_STATE["last_backup_time"] = f"{today_ist()} {now_str}"
+        _TELEGRAM_STATE["last_backup_name"] = filename
+        _TELEGRAM_STATE["last_status"] = "SUCCESS"
+        _TELEGRAM_STATE["last_error"] = None
+
+        try:
+            db = get_db()
+            with DB_LOCK:
+                db.execute(
+                    "INSERT INTO audit (id, at, action, details) VALUES (?, ?, ?, ?)",
+                    (str(uuid.uuid4()), f"{today_ist()} {now_str}", "TELEGRAM_BACKUP",
+                     f"Uploaded {filename} ({size} bytes, chat: {tc['chat_id']}, msg_id: {msg_id}, trigger: {trigger})")
+                )
+                db.commit()
+        except Exception:
+            pass
+
+        return {
+            "ok": True,
+            "messageId": msg_id,
+            "name": filename,
+            "size": size,
+            "chatId": tc["chat_id"]
+        }
+    except Exception as e:
+        err_msg = _sanitize_telegram_error(str(e), tc["bot_token"])
+        _TELEGRAM_STATE["last_status"] = "ERROR"
+        _TELEGRAM_STATE["last_error"] = err_msg
+        return {"ok": False, "error": err_msg}
+    finally:
+        _TELEGRAM_STATE["in_progress"] = False
+        if created_staging and active_path and os.path.exists(active_path):
+            try: os.remove(active_path)
             except Exception: pass
 
 @app.route("/api/backup/gdrive/status", methods=["GET"])
@@ -1844,6 +2036,65 @@ def gdrive_restore():
             except: pass
     except Exception as e:
         return jsonify({"error": f"FAIL {e}"}), 500
+
+# ---------------------------------------------------------------------------
+# Telegram Secondary Backup Endpoints
+# ---------------------------------------------------------------------------
+
+@app.route("/api/backup/telegram/status", methods=["GET"])
+@require_admin
+def telegram_status():
+    try:
+        tc = _telegram_config()
+        is_conf = bool(tc["bot_token"] and tc["chat_id"])
+        status_label = _TELEGRAM_STATE["last_status"]
+        if not tc["enabled"]:
+            status_label = "DISABLED"
+        elif not is_conf:
+            status_label = "NOT_CONFIGURED"
+
+        return jsonify({
+            "enabled": tc["enabled"],
+            "configured": is_conf,
+            "chatId": tc["chat_id"] if tc["chat_id"] else None,
+            "lastStatus": status_label,
+            "lastBackup": _TELEGRAM_STATE["last_backup_time"],
+            "lastBackupName": _TELEGRAM_STATE["last_backup_name"],
+            "lastError": _TELEGRAM_STATE["last_error"],
+            "inProgress": _TELEGRAM_STATE["in_progress"]
+        })
+    except Exception as e:
+        return jsonify({"error": f"FAIL {e}"}), 500
+
+@app.route("/api/backup/telegram/backup", methods=["POST"])
+@require_admin
+def telegram_manual_backup():
+    res = run_telegram_backup(trigger="MANUAL")
+    if res.get("ok"):
+        return jsonify(res)
+    return jsonify(res), 400 if res.get("skipped") else 500
+
+@app.route("/api/backup/telegram/toggle", methods=["POST"])
+@require_admin
+def telegram_toggle():
+    try:
+        j = request.get_json(force=True) or {}
+        new_val = bool(j.get("enabled", False))
+        cur = get_settings()
+        cur["telegramEnabled"] = new_val
+        save_settings(cur)
+        if isinstance(cfg.get("telegram"), dict):
+            cfg["telegram"]["enabled"] = new_val
+        return jsonify({"ok": True, "enabled": new_val})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+@app.route("/api/backup/telegram/clear-status", methods=["POST"])
+@require_admin
+def telegram_clear_status():
+    _TELEGRAM_STATE["last_error"] = None
+    _TELEGRAM_STATE["last_status"] = "IDLE"
+    return jsonify({"ok": True})
 
 @app.route("/api/export/csv")
 @require_admin
@@ -2684,16 +2935,22 @@ def _gdrive_backup_daemon():
     while not _gdrive_stop_event.is_set():
         try:
             gc = _gdrive_config()
-            if gc["enabled"] and gc["client_id"] and gc["client_secret"]:
+            tc = _telegram_config()
+            has_gdrive = bool(gc["enabled"] and gc["client_id"] and gc["client_secret"])
+            has_telegram = bool(tc["enabled"] and tc["bot_token"] and tc["chat_id"])
+            if has_gdrive or has_telegram:
                 sched = _get_gdrive_schedule()
                 if sched.get("enabled", True):
                     today = today_ist()
                     now_t = now_ist()[:5]
                     sched_t = sched.get("time", "18:30")
-                    already_done = bool(_GDRIVE_STATE["last_backup_time"] and _GDRIVE_STATE["last_backup_time"].startswith(today) and _GDRIVE_STATE["last_status"] == "SUCCESS")
+                    gdrive_done = bool(_GDRIVE_STATE["last_backup_time"] and _GDRIVE_STATE["last_backup_time"].startswith(today) and _GDRIVE_STATE["last_status"] == "SUCCESS")
+                    telegram_done = bool(_TELEGRAM_STATE["last_backup_time"] and _TELEGRAM_STATE["last_backup_time"].startswith(today) and _TELEGRAM_STATE["last_status"] == "SUCCESS")
+                    already_done = gdrive_done if has_gdrive else telegram_done
+                    in_progress = _GDRIVE_STATE["in_progress"] or _TELEGRAM_STATE["in_progress"]
 
                     # Check if today has already run, or time hasn't arrived yet, or backup is in progress
-                    if not already_done and now_t >= sched_t and not _GDRIVE_STATE["in_progress"]:
+                    if not already_done and now_t >= sched_t and not in_progress:
                         should_run = False
                         freq = sched.get("frequency", "daily")
 
@@ -2715,12 +2972,14 @@ def _gdrive_backup_daemon():
                             last_date_str = None
                             if _GDRIVE_STATE.get("last_backup_time"):
                                 last_date_str = _GDRIVE_STATE["last_backup_time"][:10]
+                            elif _TELEGRAM_STATE.get("last_backup_time"):
+                                last_date_str = _TELEGRAM_STATE["last_backup_time"][:10]
                             else:
                                 try:
                                     with app.app_context():
                                         db = get_db()
                                         with DB_LOCK:
-                                            row = db.execute("SELECT at FROM audit WHERE action='GDRIVE_BACKUP' ORDER BY at DESC LIMIT 1").fetchone()
+                                            row = db.execute("SELECT at FROM audit WHERE action IN ('GDRIVE_BACKUP', 'TELEGRAM_BACKUP') ORDER BY at DESC LIMIT 1").fetchone()
                                             if row and row[0]:
                                                 last_date_str = row[0][:10]
                                 except Exception:
@@ -2740,12 +2999,20 @@ def _gdrive_backup_daemon():
 
                         if should_run:
                             with app.app_context():
-                                print(f"[GDRIVE] Starting scheduled backup for {today} (freq: {freq})...")
-                                res = run_gdrive_backup(trigger="SCHEDULED")
-                                if res.get("ok"):
-                                    print(f"[GDRIVE] Backup completed successfully: {res.get('name')}")
-                                else:
-                                    print(f"[GDRIVE ERROR] Backup failed: {res.get('error')}")
+                                if has_gdrive:
+                                    print(f"[GDRIVE] Starting scheduled backup for {today} (freq: {freq})...")
+                                    res = run_gdrive_backup(trigger="SCHEDULED")
+                                    if res.get("ok"):
+                                        print(f"[GDRIVE] Backup completed successfully: {res.get('name')}")
+                                    else:
+                                        print(f"[GDRIVE ERROR] Backup failed: {res.get('error')}")
+                                elif has_telegram:
+                                    print(f"[TELEGRAM] Starting scheduled backup for {today} (freq: {freq})...")
+                                    res = run_telegram_backup(trigger="SCHEDULED")
+                                    if res.get("ok"):
+                                        print(f"[TELEGRAM] Backup completed successfully: {res.get('name')}")
+                                    else:
+                                        print(f"[TELEGRAM ERROR] Backup failed: {res.get('error')}")
         except Exception as e:
             print(f"[GDRIVE DAEMON EXCEPTION] {e}")
         _gdrive_stop_event.wait(60)

@@ -47,6 +47,10 @@ Base: `http://192.168.1.8:5000` (Pi) or `http://127.0.0.1:5000` (local). Server:
 | POST | `/api/backup/gdrive/backup` | header only | Trigger manual Google Drive backup now. Takes online SQLite snapshot under lock, checks integrity, uploads in resumable chunks, prunes retention. |
 | GET | `/api/backup/gdrive/list` | header only | List available cloud backup snapshots in dedicated Drive folder. |
 | POST | `/api/backup/gdrive/restore` | header only | Restore from cloud backup: `POST {fileId}`. Downloads to `.incoming`, validates integrity and tables, creates `.pre_restore.bak`, atomically replaces DB. Operator-initiated only. |
+| GET | `/api/backup/telegram/status` | header only | Secondary Telegram backup status `{enabled, configured, chatId, lastStatus, lastBackup, lastBackupName, lastError, inProgress}`. Never exposes `botToken`. |
+| POST | `/api/backup/telegram/backup` | header only | Trigger manual Telegram backup now. Generates verified snapshot and sends via official Telegram Bot API `sendDocument`. |
+| POST | `/api/backup/telegram/toggle` | header only | Enable or disable Telegram secondary backup (`POST {enabled: bool}`). |
+| POST | `/api/backup/telegram/clear-status` | header only | Clear error/failure state for Telegram backup. |
 | GET/DELETE | `/api/images` | GET open (deduplicated 60), DELETE header only | List combined `images` + `settings.imageGallery` deduplicated 60 / clear all (removes FS files from canonical `IMAGES_DIR` and legacy mirror). |
 | DELETE | `/api/images/:id` | header only | Delete one (DB + FS file). |
 | POST | `/api/images/upload` | header only | Multipart `file ≤2MB` → single `IMAGES_DIR` file + `images` row (no duplicate `assets` mirror). |

@@ -402,6 +402,33 @@ tr:hover td{background:var(--paper)}
                 </div>
               </div>
             </div>
+            <div class="detail-card" style="flex:1 1 360px" id="telegramCard">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:600">Secondary backup — Telegram</div>
+                <span id="telegramBadge" class="pill" style="font-size:10px">Checking…</span>
+              </div>
+              <div style="font-size:11px;line-height:1.6;color:var(--ink-2);margin-bottom:12px">
+                Sends verified SQLite backup snapshots directly to your Telegram chat or channel as a document via official Telegram Bot API.
+              </div>
+              <div style="display:flex;flex-direction:column;gap:10px">
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                  <span style="font-size:11px;color:var(--ink-2)">Status: <b id="telegramStatusText" style="color:var(--ink)">Disabled</b></span>
+                  <label style="display:flex;align-items:center;gap:6px;font-size:11px;cursor:pointer">
+                    <input type="checkbox" id="telegramEnabledToggle" style="accent-color:var(--ink);cursor:pointer">
+                    <span>Enable</span>
+                  </label>
+                </div>
+                <div id="telegramDetailsBox" style="font-size:11px;line-height:1.5;color:var(--ink-2);background:var(--paper);padding:8px 10px;border-radius:4px;border:1px solid var(--line)">
+                  <div>Target Chat ID: <span id="telegramChatId" style="font-family:ui-monospace,monospace;font-weight:600;color:var(--ink)">Not configured</span></div>
+                  <div>Last backup: <span id="telegramLastBackup">Never</span></div>
+                  <div id="telegramLastError" style="color:var(--danger);display:none;margin-top:4px"></div>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:2px">
+                  <button class="btn primary" id="telegramBackupNowBtn">Send backup now</button>
+                  <button class="btn" id="telegramClearStatusBtn">Clear status</button>
+                </div>
+              </div>
+            </div>
             <div class="detail-card" style="flex:2 1 480px">
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:600">Audit history — attendance is administrative record</div><div style="display:flex;gap:8px"><button class="btn" id="auditExportBtn">Export CSV</button><button class="btn" id="auditClearBtn" title="Managed on backend" disabled style="opacity:0.5">Clear audit</button></div></div>
               <div class="table-wrap"><div class="table-scroll large"><table><thead><tr><th>Time</th><th>Action</th><th>Details</th><th>By</th></tr></thead><tbody id="auditBody"></tbody></table></div></div>

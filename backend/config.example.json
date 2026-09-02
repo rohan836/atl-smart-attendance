@@ -34,5 +34,10 @@
     "clientSecret": "YOUR_DEVICE_OAUTH_CLIENT_SECRET",
     "folderName": "ATL-Attendance-Backups",
     "scheduleTime": "18:30"
+  },
+  "telegram": {
+    "enabled": false,
+    "botToken": "YOUR_TELEGRAM_BOT_TOKEN",
+    "chatId": "YOUR_TELEGRAM_CHAT_ID"
   }
 }
