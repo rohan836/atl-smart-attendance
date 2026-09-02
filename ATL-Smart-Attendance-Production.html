@@ -247,7 +247,27 @@ tr:hover td{background:var(--paper)}
       <div class="admin-pane hidden" id="pane-calendar">
         <div class="detail-scroll">
           <div class="detail-card">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px;flex-wrap:wrap"><div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:600">Weekly schedule — Administrator decides working days</div><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><select id="calClassSelect" style="height:30px;border:1px solid var(--line);background:#fff;padding:0 10px;font-size:11px"><option value="">All classes (global)</option></select><span style="font-size:10px;color:var(--ink-3);white-space:nowrap">per-class — saved with settings</span><button class="btn" id="calResetWeekBtn">Reset week to Mon-Sat</button></div></div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px;flex-wrap:wrap"><div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:600">Weekly schedule & Timings — Global, Class & Batch</div><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><select id="calClassSelect" style="height:30px;border:1px solid var(--line);background:#fff;padding:0 10px;font-size:11px"><option value="">Global schedule (all classes & batches)</option></select><span style="font-size:10px;color:var(--ink-3);white-space:nowrap">saved with settings</span><button class="btn" id="calResetWeekBtn">Reset week to Mon-Sat</button></div></div>
+            <div id="schedTimingCard" style="background:var(--paper);border:1px solid var(--line);border-radius:4px;padding:10px 14px;margin-bottom:12px">
+              <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                  <span id="schedContextBadge" class="pill" style="font-size:10px;font-weight:600">GLOBAL SCHEDULE</span>
+                  <span id="schedInheritNotice" style="font-size:10px;color:var(--ink-2)">Default timings applied to all classes and batches unless customized</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                  <div style="display:flex;align-items:center;gap:6px">
+                    <label style="font-size:10px;font-weight:600;color:var(--ink-2);text-transform:uppercase;letter-spacing:0.08em">Present cutoff</label>
+                    <input type="time" id="schedPresentCutoff" style="height:28px;border:1px solid var(--line);padding:0 6px;font-size:11px;background:#fff;border-radius:2px" value="08:00">
+                  </div>
+                  <div style="display:flex;align-items:center;gap:6px">
+                    <label style="font-size:10px;font-weight:600;color:var(--ink-2);text-transform:uppercase;letter-spacing:0.08em">Late cutoff</label>
+                    <input type="time" id="schedLateCutoff" style="height:28px;border:1px solid var(--line);padding:0 6px;font-size:11px;background:#fff;border-radius:2px" value="08:30">
+                  </div>
+                  <button class="btn primary" id="schedSaveTimingBtn" style="padding:4px 10px;font-size:10px">Save timings</button>
+                  <button class="btn" id="schedRevertTimingBtn" style="padding:4px 8px;font-size:10px;display:none">Inherit global</button>
+                </div>
+              </div>
+            </div>
             <table class="weekly-table" id="weeklyTable"><thead><tr><th>Day</th><th>Working?</th></tr></thead><tbody></tbody></table>
             <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span class="badge working" style="font-size:8px">Working</span><span class="badge holiday" style="font-size:8px;background:#FFF8F6">Holiday</span><span class="badge" style="font-size:8px;background:#F6F8FF">Vacation</span><span class="badge" style="font-size:8px;border-color:var(--ink)">Override</span></div>
             <div style="margin-top:8px;font-size:10px;color:var(--ink-2);line-height:1.5">Priority: Specific date override → Holiday/Vacation → Weekly schedule. Holiday = not counted as absent. Examples: Mon-Fri, Mon-Sat, Tue-Sat, Mon/Wed/Fri custom. School info (name, year, late rule) is now in Settings.</div>
@@ -265,7 +285,7 @@ tr:hover td{background:var(--paper)}
             </div>
           </div>
           <div class="detail-card" style="margin-top:12px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:600">Month view — working / holiday / override</div><div style="display:flex;gap:8px;align-items:center"><button class="btn" id="calPrevBtn">‹ Prev</button><div id="calMonthLabel" style="font-size:11px;letter-spacing:0.08em;min-width:140px;text-align:center"></div><button class="btn" id="calNextBtn">Next ›</button><button class="btn" id="calTodayBtn">Today</button></div></div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div style="display:flex;align-items:center;gap:8px"><div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:600">Month view — working / holiday / override</div><span id="calMonthContextLabel" class="pill" style="font-size:9px">Global</span></div><div style="display:flex;gap:8px;align-items:center"><button class="btn" id="calPrevBtn">‹ Prev</button><div id="calMonthLabel" style="font-size:11px;letter-spacing:0.08em;min-width:140px;text-align:center"></div><button class="btn" id="calNextBtn">Next ›</button><button class="btn" id="calTodayBtn">Today</button></div></div>
             <div class="calendar-grid" id="calendarGrid"></div>
           </div>
         </div>
@@ -281,13 +301,20 @@ tr:hover td{background:var(--paper)}
               <div style="margin-top:8px;font-size:10px;color:var(--ink-2)">Classes are editable; adding a class here also creates it when enrolling a student.</div>
             </div>
             <div class="detail-card" style="flex:1 1 360px">
+              <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:600;margin-bottom:12px">Batches</div>
+              <div class="table-wrap"><div class="table-scroll"><table><thead><tr><th>Batch</th><th>Students</th><th>Action</th></tr></thead><tbody id="batchBody"></tbody></table></div></div>
+              <div style="margin-top:12px;display:flex;gap:8px"><input id="newBatchName" placeholder="New batch e.g. Batch Morning" style="height:30px;border:1px solid var(--line);padding:0 10px;font-size:11px;flex:1 1 0%"><button class="btn primary" id="addBatchBtn">Add</button></div>
+              <div style="margin-top:8px;font-size:10px;color:var(--ink-2)">Batches are editable; adding a batch makes it available for enrollment and per-batch scheduling.</div>
+            </div>
+            <div class="detail-card" style="flex:1 1 360px">
               <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:600;margin-bottom:12px">School information & rules</div>
               <div class="form-grid">
                 <div class="form-field full"><label>School name</label><input id="setSchoolName" value="ATL Public School"></div>
                 <div class="form-field full"><label>Address</label><input id="setSchoolAddress" value="Shikrapur, Pune, Maharashtra"></div>
+                <div class="form-field"><label>Present cutoff</label><input type="time" id="setPresentCutoff" value="08:00"></div>
                 <div class="form-field"><label>Late threshold</label><input type="time" id="setLateThreshold" value="08:30"></div>
                 <div class="form-field"><label>Academic year</label><select id="setAcademicYear"><option>2026-27</option><option>2027-28</option></select></div>
-                <div class="form-field full"><label>Attendance start date</label><input type="date" id="setAttendanceStart"></div>
+                <div class="form-field"><label>Attendance start date</label><input type="date" id="setAttendanceStart"></div>
               </div>
               <div style="margin-top:12px;display:flex;gap:8px"><button class="btn primary" id="settingsSaveBtn">Save settings</button><button class="btn" id="settingsExportBtn">Export school info CSV</button></div>
             </div>

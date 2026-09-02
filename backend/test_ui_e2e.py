@@ -695,7 +695,111 @@ class UiE2eTest(unittest.TestCase):
         self.page.click("#adminClose")
         self.page.wait_for_function("!document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
 
+    def test_13_calendar_schedule_context_class_batch_and_timings(self):
+        """Calendar schedule context supports Global, Class, and Batch with custom timing controls and Month View integration."""
+        self.page.goto(f"{_BASE_URL}/", wait_until="networkidle")
+
+        # Open Admin panel
+        self.page.once("dialog", lambda dialog: dialog.accept("1234"))
+        self.page.click("#openAdminBtn")
+        self.page.wait_for_function("document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
+
+        # Navigate to Settings first to ensure a test batch exists
+        self.page.click("#adminNav button[data-tab='settings']")
+        self.page.wait_for_function("!document.getElementById('pane-settings').classList.contains('hidden')", timeout=3000)
+
+        # Verify Batches card exists in Settings
+        batch_body = self.page.locator("#batchBody")
+        self.assertTrue(batch_body.is_visible())
+
+        # Add a new batch "Robotics-A"
+        new_batch_input = self.page.locator("#newBatchName")
+        new_batch_input.fill("Robotics-A")
+        add_batch_btn = self.page.locator("#addBatchBtn")
+        add_batch_btn.click()
+        self.page.wait_for_function("document.getElementById('batchBody').innerText.includes('Robotics-A')", timeout=4000)
+
+        # Navigate to Calendar tab
+        self.page.click("#adminNav button[data-tab='calendar']")
+        self.page.wait_for_function("!document.getElementById('pane-calendar').classList.contains('hidden')", timeout=3000)
+
+        # 1. Verify selector has Global, Classes, and Batches
+        cal_select = self.page.locator("#calClassSelect")
+        self.assertTrue(cal_select.is_visible())
+        select_html = cal_select.inner_html()
+        self.assertIn("Global schedule", select_html)
+        self.assertIn("Classes", select_html)
+        self.assertIn("Batches", select_html)
+        self.assertIn("batch:Robotics-A", select_html)
+
+        # 2. Check default Global schedule context & timing card
+        timing_card = self.page.locator("#schedTimingCard")
+        self.assertTrue(timing_card.is_visible())
+        badge = self.page.locator("#schedContextBadge")
+        self.assertIn("GLOBAL SCHEDULE", badge.inner_text().upper())
+        month_label = self.page.locator("#calMonthContextLabel")
+        self.assertIn("Global", month_label.inner_text())
+
+        # 3. Switch to Class context (first available class)
+        class_opt = self.page.locator("#calClassSelect optgroup[label='Classes'] option").first
+        class_val = class_opt.get_attribute("value")
+        cal_select.select_option(class_val)
+        self.page.wait_for_timeout(300)
+
+        self.assertIn("CLASS", badge.inner_text().upper())
+        self.assertIn("Class:", month_label.inner_text())
+
+        # 4. Set custom timings for this class
+        present_input = self.page.locator("#schedPresentCutoff")
+        late_input = self.page.locator("#schedLateCutoff")
+        present_input.fill("07:45")
+        late_input.fill("08:15")
+
+        self.page.once("dialog", lambda dialog: dialog.accept())
+        save_timing_btn = self.page.locator("#schedSaveTimingBtn")
+        save_timing_btn.click()
+        self.page.wait_for_timeout(400)
+
+        # Verify custom timing notice is active and revert button is displayed
+        revert_btn = self.page.locator("#schedRevertTimingBtn")
+        self.assertTrue(revert_btn.is_visible())
+        notice = self.page.locator("#schedInheritNotice")
+        self.assertIn("Custom class timing active", notice.inner_text())
+
+        # 5. Switch to Batch context
+        cal_select.select_option("batch:Robotics-A")
+        self.page.wait_for_timeout(300)
+
+        self.assertIn("BATCH · ROBOTICS-A", badge.inner_text().upper())
+        self.assertIn("Batch: Robotics-A", month_label.inner_text())
+        self.assertIn("Inheriting", notice.inner_text())
+
+        # 6. Toggle a working day in weekly table for this batch
+        sunday_toggle = self.page.locator("#weeklyTable tbody tr").first.locator(".toggle")
+        initially_on = "on" in (sunday_toggle.get_attribute("class") or "")
+        sunday_toggle.click()
+        self.page.wait_for_timeout(400)
+        after_on = "on" in (sunday_toggle.get_attribute("class") or "")
+        self.assertNotEqual(initially_on, after_on)
+
+        # 7. Test Quick Schedule jump button from Settings
+        self.page.click("#adminNav button[data-tab='settings']")
+        self.page.wait_for_function("!document.getElementById('pane-settings').classList.contains('hidden')", timeout=3000)
+
+        sched_btn = self.page.locator("#batchBody [data-sched-batch='Robotics-A']")
+        self.assertTrue(sched_btn.is_visible())
+        sched_btn.click()
+        self.page.wait_for_function("!document.getElementById('pane-calendar').classList.contains('hidden')", timeout=3000)
+
+        self.assertEqual(cal_select.input_value(), "batch:Robotics-A")
+        self.assertIn("BATCH · ROBOTICS-A", badge.inner_text().upper())
+
+        # Clean up and close
+        self.page.click("#adminClose")
+        self.page.wait_for_function("!document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
 
