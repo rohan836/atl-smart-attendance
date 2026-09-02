@@ -2610,5 +2610,205 @@ class ApiTest(unittest.TestCase):
         g_sched = atl._get_gdrive_schedule()
         self.assertIn("frequency", g_sched)
 
+    def test_usb_detection_and_status(self):
+        """Tests USB drive detection, environment mocking, and status reporting."""
+        orig_env = os.environ.get("ATL_USB_MOUNT_PATH")
+        try:
+            # 1. Without USB mount configured
+            if "ATL_USB_MOUNT_PATH" in os.environ:
+                del os.environ["ATL_USB_MOUNT_PATH"]
+            
+            r1 = self.client.get("/api/backup/usb/status")
+            self.assertEqual(r1.status_code, 200)
+            j1 = r1.get_json()
+            self.assertIn("connected", j1)
+            self.assertIn("schedule", j1)
+
+            # 2. With mock USB temporary directory
+            with tempfile.TemporaryDirectory(prefix="atl_mock_usb_") as mock_usb:
+                os.environ["ATL_USB_MOUNT_PATH"] = mock_usb
+                detected = atl.detect_usb_mount()
+                self.assertTrue(detected["connected"])
+                self.assertEqual(os.path.normpath(detected["mountPath"]), os.path.normpath(mock_usb))
+                self.assertGreater(detected["freeBytes"], 0)
+
+                r2 = self.client.get("/api/backup/usb/status")
+                self.assertEqual(r2.status_code, 200)
+                j2 = r2.get_json()
+                self.assertTrue(j2["connected"])
+                self.assertEqual(os.path.normpath(j2["mountPath"]), os.path.normpath(mock_usb))
+        finally:
+            if orig_env is not None:
+                os.environ["ATL_USB_MOUNT_PATH"] = orig_env
+            elif "ATL_USB_MOUNT_PATH" in os.environ:
+                del os.environ["ATL_USB_MOUNT_PATH"]
+
+    def test_usb_backup_manual_and_unavailable(self):
+        """Tests manual USB backup execution, integrity verification, and disconnected rejection."""
+        orig_env = os.environ.get("ATL_USB_MOUNT_PATH")
+        try:
+            # 1. When USB is disconnected -> rejected with 400
+            os.environ["ATL_USB_MOUNT_PATH"] = "/path/that/definitely/does/not/exist_12345"
+            r_err = self.client.post("/api/backup/usb/backup")
+            self.assertEqual(r_err.status_code, 400)
+            self.assertIn("No USB storage device detected", r_err.get_json().get("error", ""))
+
+            # 2. When USB mock directory is available -> writes verified snapshot
+            with tempfile.TemporaryDirectory(prefix="atl_mock_usb_") as mock_usb:
+                os.environ["ATL_USB_MOUNT_PATH"] = mock_usb
+                r_ok = self.client.post("/api/backup/usb/backup")
+                self.assertEqual(r_ok.status_code, 200)
+                j_ok = r_ok.get_json()
+                self.assertTrue(j_ok.get("ok"))
+                filename = j_ok.get("name")
+                self.assertTrue(filename.startswith("atl_backup_"))
+
+                # Verify target directory and file exist on USB
+                target_file = os.path.join(mock_usb, "ATL-Attendance-Backups", filename)
+                self.assertTrue(os.path.exists(target_file))
+                self.assertGreater(os.path.getsize(target_file), 0)
+
+                # Verify SQLite integrity of destination backup
+                conn = sqlite3.connect(target_file)
+                chk = conn.execute("PRAGMA integrity_check").fetchone()
+                self.assertEqual(chk[0], "ok")
+                tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+                self.assertTrue({"students", "events", "daily", "settings"}.issubset(tables))
+                conn.close()
+
+                # Verify audit entry recorded
+                with atl.app.app_context():
+                    db = atl.get_db()
+                    row = db.execute("SELECT action, details FROM audit WHERE action='USB_BACKUP' ORDER BY at DESC LIMIT 1").fetchone()
+                    self.assertIsNotNone(row)
+                    self.assertIn(filename, row[1])
+
+                # Verify status endpoint reflects success
+                r_stat = self.client.get("/api/backup/usb/status")
+                j_stat = r_stat.get_json()
+                self.assertEqual(j_stat["lastStatus"], "SUCCESS")
+                self.assertEqual(j_stat["lastBackupName"], filename)
+        finally:
+            if orig_env is not None:
+                os.environ["ATL_USB_MOUNT_PATH"] = orig_env
+            elif "ATL_USB_MOUNT_PATH" in os.environ:
+                del os.environ["ATL_USB_MOUNT_PATH"]
+
+    def test_usb_schedule_configuration_and_pin_gating(self):
+        """Tests getting, setting, and validating USB schedules, plus PIN protection."""
+        # 1. GET schedule returns defaults
+        r_get = self.client.get("/api/backup/usb/schedule")
+        self.assertEqual(r_get.status_code, 200)
+        j_get = r_get.get_json()
+        self.assertTrue(j_get.get("ok"))
+        self.assertEqual(j_get["schedule"]["frequency"], "daily")
+
+        # 2. POST with invalid time sanitizes safely to 18:30
+        r_bad = self.client.post("/api/backup/usb/schedule", json={"time": "invalid", "frequency": "unknown"})
+        self.assertEqual(r_bad.status_code, 200)
+        self.assertEqual(r_bad.get_json()["schedule"]["time"], "18:30")
+        self.assertEqual(r_bad.get_json()["schedule"]["frequency"], "daily")
+
+        # 3. POST valid interval schedule
+        r_int = self.client.post("/api/backup/usb/schedule", json={
+            "enabled": True,
+            "time": "14:15",
+            "frequency": "interval",
+            "intervalDays": 7
+        })
+        self.assertEqual(r_int.status_code, 200)
+        sched = r_int.get_json()["schedule"]
+        self.assertEqual(sched["time"], "14:15")
+        self.assertEqual(sched["intervalDays"], 7)
+
+        # 4. POST valid weekdays schedule
+        r_wd = self.client.post("/api/backup/usb/schedule", json={
+            "enabled": True,
+            "time": "16:00",
+            "frequency": "weekdays",
+            "weekdays": [1, 3, 5]
+        })
+        self.assertEqual(r_wd.status_code, 200)
+        self.assertEqual(r_wd.get_json()["schedule"]["weekdays"], [1, 3, 5])
+
+        # Verify persistence and audit trail
+        with atl.app.app_context():
+            db = atl.get_db()
+            audit_row = db.execute("SELECT action FROM audit WHERE action='USB_SCHEDULE_CHANGED' ORDER BY at DESC LIMIT 1").fetchone()
+            self.assertIsNotNone(audit_row)
+
+        # 5. PIN protection gating
+        atl.cfg["adminPin"] = "7777"
+        try:
+            # Without PIN -> 401
+            self.assertEqual(self.client.get("/api/backup/usb/status").status_code, 401)
+            self.assertEqual(self.client.get("/api/backup/usb/schedule").status_code, 401)
+            self.assertEqual(self.client.post("/api/backup/usb/schedule").status_code, 401)
+            self.assertEqual(self.client.post("/api/backup/usb/backup").status_code, 401)
+            self.assertEqual(self.client.post("/api/backup/usb/toggle").status_code, 401)
+            self.assertEqual(self.client.post("/api/backup/usb/clear-status").status_code, 401)
+
+            # With wrong PIN -> 401
+            headers_bad = {"X-Admin-Pin": "0000"}
+            self.assertEqual(self.client.get("/api/backup/usb/status", headers=headers_bad).status_code, 401)
+
+            # With correct PIN -> 200
+            headers_ok = {"X-Admin-Pin": "7777"}
+            self.assertEqual(self.client.get("/api/backup/usb/status", headers=headers_ok).status_code, 200)
+            self.assertEqual(self.client.get("/api/backup/usb/schedule", headers=headers_ok).status_code, 200)
+            self.assertEqual(self.client.post("/api/backup/usb/clear-status", headers=headers_ok).status_code, 200)
+        finally:
+            atl.cfg["adminPin"] = ""
+
+        # Restore default daily schedule
+        self.client.post("/api/backup/usb/schedule", json={
+            "enabled": True,
+            "time": "18:30",
+            "frequency": "daily",
+            "intervalDays": 1,
+            "weekdays": [0, 1, 2, 3, 4, 5, 6]
+        })
+
+    def test_usb_toggle_and_clear_status(self):
+        """Tests enabling/disabling USB backup and clearing error status."""
+        # Toggle disabled
+        r_off = self.client.post("/api/backup/usb/toggle", json={"enabled": False})
+        self.assertEqual(r_off.status_code, 200)
+        self.assertFalse(r_off.get_json()["enabled"])
+        self.assertFalse(atl.get_settings().get("usbEnabled"))
+
+        # When disabled, backup returns skipped
+        r_skip = self.client.post("/api/backup/usb/backup")
+        self.assertEqual(r_skip.status_code, 400)
+        self.assertTrue(r_skip.get_json().get("skipped"))
+
+        # Toggle enabled back
+        r_on = self.client.post("/api/backup/usb/toggle", json={"enabled": True})
+        self.assertEqual(r_on.status_code, 200)
+        self.assertTrue(r_on.get_json()["enabled"])
+
+        # Test clear status
+        atl._USB_STATE["last_error"] = "Simulated write error"
+        atl._USB_STATE["last_status"] = "ERROR"
+        r_clear = self.client.post("/api/backup/usb/clear-status")
+        self.assertEqual(r_clear.status_code, 200)
+        self.assertIsNone(atl._USB_STATE["last_error"])
+        self.assertEqual(atl._USB_STATE["last_status"], "IDLE")
+
+    def test_usb_scheduled_backup_semantics(self):
+        """Tests that USB schedule cleaner and semantics mirror Google Drive / Telegram."""
+        clean_empty = atl._clean_usb_schedule({})
+        self.assertTrue(clean_empty["enabled"])
+        self.assertEqual(clean_empty["time"], "18:30")
+        self.assertEqual(clean_empty["frequency"], "daily")
+        self.assertEqual(clean_empty["intervalDays"], 1)
+        self.assertEqual(clean_empty["weekdays"], [0, 1, 2, 3, 4, 5, 6])
+
+        # Clamping
+        clean_high = atl._clean_usb_schedule({"intervalDays": 999})
+        self.assertEqual(clean_high["intervalDays"], 30)
+        clean_low = atl._clean_usb_schedule({"intervalDays": -10})
+        self.assertEqual(clean_low["intervalDays"], 1)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

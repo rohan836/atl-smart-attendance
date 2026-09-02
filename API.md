@@ -52,6 +52,11 @@ Base: `http://192.168.1.8:5000` (Pi) or `http://127.0.0.1:5000` (local). Server:
 | POST | `/api/backup/telegram/backup` | header only | Trigger manual Telegram backup now. Generates verified snapshot and sends via official Telegram Bot API `sendDocument`. |
 | POST | `/api/backup/telegram/toggle` | header only | Enable or disable Telegram secondary backup (`POST {enabled: bool}`). |
 | POST | `/api/backup/telegram/clear-status` | header only | Clear error/failure state for Telegram backup. |
+| GET | `/api/backup/usb/status` | header only | USB storage backup status `{enabled, connected, mountPath, label, freeBytes, lastStatus, lastBackup, lastBackupName, lastError, inProgress, schedule}`. |
+| GET/POST | `/api/backup/usb/schedule` | header only | Get or configure USB automatic backup schedule (`{enabled, time, frequency, intervalDays, weekdays}`). |
+| POST | `/api/backup/usb/backup` | header only | Trigger manual backup to attached USB storage drive (`ATL-Attendance-Backups/atl_backup_*.db`). |
+| POST | `/api/backup/usb/toggle` | header only | Enable or disable USB automatic backup (`POST {enabled: bool}`). |
+| POST | `/api/backup/usb/clear-status` | header only | Clear error/failure state for USB backup. |
 | GET/DELETE | `/api/images` | GET open (deduplicated 60), DELETE header only | List combined `images` + `settings.imageGallery` deduplicated 60 / clear all (removes FS files from canonical `IMAGES_DIR` and legacy mirror). |
 | DELETE | `/api/images/:id` | header only | Delete one (DB + FS file). |
 | POST | `/api/images/upload` | header only | Multipart `file ≤2MB` → single `IMAGES_DIR` file + `images` row (no duplicate `assets` mirror). |

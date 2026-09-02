@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """ATL Smart Attendance — Flask backend (GT-511C3 UART + SQLite). Offline-first."""
-import os, json, sqlite3, time, uuid, pathlib, datetime, re, threading, base64, secrets, urllib.request, urllib.error
+import os, json, sqlite3, time, uuid, pathlib, datetime, re, threading, base64, secrets, urllib.request, urllib.error, shutil
 # pyrefly: ignore [missing-import]
 from flask import Flask, request, jsonify, send_from_directory, g, Response, has_app_context, redirect
 from flask_cors import CORS
@@ -1805,6 +1805,268 @@ def run_telegram_backup(staging_path: str = None, trigger: str = "MANUAL") -> di
             try: os.remove(active_path)
             except Exception: pass
 
+# --- USB Storage Backup Helpers & State ---
+_USB_STATE = {
+    "last_backup_time": None,
+    "last_backup_name": None,
+    "last_status": "IDLE",
+    "last_error": None,
+    "in_progress": False,
+}
+
+def detect_usb_mount() -> dict:
+    """Detects connected and writable USB storage device on Linux (Raspberry Pi) or Windows/mock environment."""
+    # 1. Environment variable override (for tests and custom setups)
+    env_path = os.environ.get("ATL_USB_MOUNT_PATH")
+    if env_path and os.path.isdir(env_path) and os.access(env_path, os.W_OK):
+        try:
+            free_b = shutil.disk_usage(env_path).free
+        except Exception:
+            free_b = 0
+        return {
+            "connected": True,
+            "mountPath": os.path.abspath(env_path),
+            "label": os.path.basename(os.path.abspath(env_path)) or "USB",
+            "freeBytes": free_b
+        }
+
+    # 2. Config static mountPath
+    cfg_path = cfg.get("usb", {}).get("mountPath")
+    if cfg_path and os.path.isdir(cfg_path) and os.access(cfg_path, os.W_OK):
+        try:
+            free_b = shutil.disk_usage(cfg_path).free
+        except Exception:
+            free_b = 0
+        return {
+            "connected": True,
+            "mountPath": os.path.abspath(cfg_path),
+            "label": os.path.basename(os.path.abspath(cfg_path)) or "USB",
+            "freeBytes": free_b
+        }
+
+    # 3. Linux mount inspections (/proc/mounts, /media/*, /mnt/*)
+    if os.path.exists("/proc/mounts"):
+        try:
+            with open("/proc/mounts", "r") as f:
+                for line in f:
+                    parts = line.strip().split()
+                    if len(parts) >= 2:
+                        dev, mountpoint = parts[0], parts[1]
+                        # SCSI/USB drives appear as /dev/sd* on Linux (mmcblk0 is SD card)
+                        if dev.startswith("/dev/sd") or mountpoint.startswith("/media/") or (mountpoint.startswith("/mnt/") and mountpoint not in ("/mnt", "/mnt/")):
+                            if os.path.isdir(mountpoint) and os.access(mountpoint, os.W_OK) and os.path.abspath(mountpoint) not in ("/", "/boot", "/boot/firmware"):
+                                try:
+                                    free_b = shutil.disk_usage(mountpoint).free
+                                except Exception:
+                                    free_b = 0
+                                return {
+                                    "connected": True,
+                                    "mountPath": mountpoint,
+                                    "label": os.path.basename(mountpoint) or "USB",
+                                    "freeBytes": free_b
+                                }
+        except Exception:
+            pass
+
+    # Also check standard /media user directories on Pi (even if autofs/user mount)
+    for base_media in ("/media/lancer", "/media/pi", "/media"):
+        if os.path.isdir(base_media):
+            try:
+                for entry in os.scandir(base_media):
+                    if entry.is_dir() and os.access(entry.path, os.W_OK):
+                        try:
+                            free_b = shutil.disk_usage(entry.path).free
+                        except Exception:
+                            free_b = 0
+                        return {
+                            "connected": True,
+                            "mountPath": entry.path,
+                            "label": entry.name,
+                            "freeBytes": free_b
+                        }
+            except Exception:
+                pass
+
+    # 4. Windows removable drive detection fallback (if running on Windows)
+    if os.name == "nt":
+        try:
+            import ctypes
+            bitmask = ctypes.windll.kernel32.GetLogicalDrives()
+            for letter in range(2, 26):  # C: to Z:
+                if bitmask & (1 << letter):
+                    drive = f"{chr(65 + letter)}:\\"
+                    # DRIVE_REMOVABLE = 2
+                    if ctypes.windll.kernel32.GetDriveTypeW(drive) == 2:
+                        if os.path.isdir(drive) and os.access(drive, os.W_OK):
+                            try:
+                                free_b = shutil.disk_usage(drive).free
+                            except Exception:
+                                free_b = 0
+                            return {
+                                "connected": True,
+                                "mountPath": drive,
+                                "label": f"USB Drive ({drive[:2]})",
+                                "freeBytes": free_b
+                            }
+        except Exception:
+            pass
+
+    return {
+        "connected": False,
+        "mountPath": None,
+        "label": None,
+        "freeBytes": 0
+    }
+
+def _clean_usb_schedule(raw: dict) -> dict:
+    """Validate and sanitize usbSchedule dict."""
+    if not isinstance(raw, dict):
+        raw = {}
+    enabled = bool(raw.get("enabled", True))
+    raw_time = str(raw.get("time") or "18:30").strip()
+    try:
+        datetime.datetime.strptime(raw_time[:5], "%H:%M")
+        sched_time = raw_time[:5]
+    except Exception:
+        sched_time = "18:30"
+    
+    freq = str(raw.get("frequency") or "daily").strip().lower()
+    if freq not in ("daily", "interval", "weekdays"):
+        freq = "daily"
+        
+    try:
+        interval_days = int(raw.get("intervalDays", 1))
+        if interval_days < 1: interval_days = 1
+        elif interval_days > 30: interval_days = 30
+    except Exception:
+        interval_days = 1
+        
+    raw_weekdays = raw.get("weekdays")
+    if isinstance(raw_weekdays, list):
+        cleaned_wd = []
+        for d in raw_weekdays:
+            try:
+                di = int(d)
+                if 0 <= di <= 6 and di not in cleaned_wd:
+                    cleaned_wd.append(di)
+            except Exception: pass
+        if not cleaned_wd:
+            cleaned_wd = [0, 1, 2, 3, 4, 5, 6]
+    else:
+        cleaned_wd = [0, 1, 2, 3, 4, 5, 6]
+        
+    return {
+        "enabled": enabled,
+        "time": sched_time,
+        "frequency": freq,
+        "intervalDays": interval_days,
+        "weekdays": sorted(cleaned_wd)
+    }
+
+def _get_usb_schedule() -> dict:
+    """Retrieve effective usbSchedule from SQLite settings or defaults."""
+    s = get_settings()
+    raw = s.get("usbSchedule")
+    return _clean_usb_schedule(raw)
+
+def run_usb_backup(trigger: str = "MANUAL") -> dict:
+    """
+    Executes verified backup snapshot write to attached USB storage drive.
+    Validates SQLite integrity before writing to the USB storage directory.
+    """
+    s = get_settings()
+    usb_enabled = s.get("usbEnabled", True)
+    if not usb_enabled:
+        return {"ok": False, "skipped": True, "error": "USB backup is disabled in settings"}
+
+    usb_info = detect_usb_mount()
+    if not usb_info["connected"] or not usb_info["mountPath"]:
+        _USB_STATE["last_status"] = "USB_NOT_FOUND"
+        _USB_STATE["last_error"] = "No USB storage device detected. Please connect a USB drive."
+        return {"ok": False, "error": "No USB storage device detected. Please connect a USB drive."}
+
+    if _USB_STATE["in_progress"]:
+        return {"ok": False, "error": "USB backup already in progress"}
+
+    _USB_STATE["in_progress"] = True
+    _USB_STATE["last_status"] = "IN_PROGRESS"
+
+    staging_dir = "/tmp" if os.name != "nt" else os.environ.get("TEMP", str(ROOT / "backend"))
+    ts_safe = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30))).strftime("%Y%m%d_%H%M%S")
+    filename = f"atl_backup_{ts_safe}.db"
+    staging_path = os.path.join(staging_dir, filename)
+
+    try:
+        # 1. Create online snapshot under DB_LOCK
+        snap_info = gb.create_online_snapshot(DB_PATH, staging_path, db_lock=DB_LOCK)
+
+        # 2. Verify SQLite integrity before moving to USB
+        test_conn = sqlite3.connect(staging_path)
+        chk = test_conn.execute("PRAGMA integrity_check").fetchone()
+        if not chk or chk[0] != "ok":
+            test_conn.close()
+            raise RuntimeError(f"Integrity check failed on staging snapshot: {chk}")
+
+        tbls = {r[0] for r in test_conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        required = {"students", "events", "daily", "settings"}
+        if not required.issubset(tbls):
+            test_conn.close()
+            raise RuntimeError(f"Staging snapshot missing required tables: {required - tbls}")
+        test_conn.close()
+
+        # 3. Create target directory on USB drive
+        usb_target_dir = os.path.join(usb_info["mountPath"], "ATL-Attendance-Backups")
+        os.makedirs(usb_target_dir, exist_ok=True)
+        dest_path = os.path.join(usb_target_dir, filename)
+
+        # 4. Copy snapshot to USB drive with buffer copy and sync
+        import shutil
+        shutil.copy2(staging_path, dest_path)
+        if hasattr(os, "sync"):
+            try: os.sync()
+            except Exception: pass
+
+        # 5. Verify copied file size
+        size = os.path.getsize(dest_path)
+        expected_size = snap_info.get("bytes") or snap_info.get("size") or os.path.getsize(staging_path)
+        if size != expected_size:
+            raise IOError(f"USB destination size mismatch: {size} vs {expected_size}")
+
+        now_str = now_ist()
+        _USB_STATE["last_backup_time"] = f"{today_ist()} {now_str}"
+        _USB_STATE["last_backup_name"] = filename
+        _USB_STATE["last_status"] = "SUCCESS"
+        _USB_STATE["last_error"] = None
+
+        try:
+            db = get_db()
+            with DB_LOCK:
+                db.execute(
+                    "INSERT INTO audit (id, at, action, details) VALUES (?, ?, ?, ?)",
+                    (str(uuid.uuid4()), f"{today_ist()} {now_str}", "USB_BACKUP",
+                     f"Saved {filename} ({size} bytes, mount: {usb_info['mountPath']}, trigger: {trigger})")
+                )
+                db.commit()
+        except Exception:
+            pass
+
+        return {
+            "ok": True,
+            "name": filename,
+            "size": size,
+            "mountPath": usb_info["mountPath"],
+            "targetFile": dest_path
+        }
+    except Exception as e:
+        _USB_STATE["last_status"] = "ERROR"
+        _USB_STATE["last_error"] = str(e)
+        return {"ok": False, "error": f"USB backup error: {e}"}
+    finally:
+        _USB_STATE["in_progress"] = False
+        if os.path.exists(staging_path):
+            try: os.remove(staging_path)
+            except Exception: pass
+
 @app.route("/api/backup/gdrive/status", methods=["GET"])
 @require_admin
 def gdrive_status():
@@ -2175,6 +2437,91 @@ def telegram_clear_status():
     _TELEGRAM_STATE["last_error"] = None
     _TELEGRAM_STATE["last_status"] = "IDLE"
     return jsonify({"ok": True})
+
+# --- USB Backup Endpoints ---
+@app.route("/api/backup/usb/status", methods=["GET"])
+@require_admin
+def usb_status():
+    try:
+        usb_info = detect_usb_mount()
+        s = get_settings()
+        usb_enabled = s.get("usbEnabled", True)
+        status_label = _USB_STATE["last_status"]
+        if not usb_enabled:
+            status_label = "DISABLED"
+        elif not usb_info["connected"]:
+            status_label = "USB_NOT_FOUND"
+
+        return jsonify({
+            "enabled": usb_enabled,
+            "connected": usb_info["connected"],
+            "mountPath": usb_info["mountPath"],
+            "label": usb_info["label"],
+            "freeBytes": usb_info["freeBytes"],
+            "lastStatus": status_label,
+            "lastBackup": _USB_STATE["last_backup_time"],
+            "lastBackupName": _USB_STATE["last_backup_name"],
+            "lastError": _USB_STATE["last_error"],
+            "inProgress": _USB_STATE["in_progress"],
+            "schedule": _get_usb_schedule()
+        })
+    except Exception as e:
+        return jsonify({"error": f"FAIL {e}"}), 500
+
+@app.route("/api/backup/usb/backup", methods=["POST"])
+@require_admin
+def usb_manual_backup():
+    res = run_usb_backup(trigger="MANUAL")
+    if res.get("ok"):
+        return jsonify(res)
+    return jsonify(res), 400
+
+@app.route("/api/backup/usb/toggle", methods=["POST"])
+@require_admin
+def usb_toggle():
+    try:
+        j = request.get_json(force=True) or {}
+        new_val = bool(j.get("enabled", False))
+        cur = get_settings()
+        cur["usbEnabled"] = new_val
+        save_settings(cur)
+        return jsonify({"ok": True, "enabled": new_val})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+@app.route("/api/backup/usb/clear-status", methods=["POST"])
+@require_admin
+def usb_clear_status():
+    _USB_STATE["last_error"] = None
+    _USB_STATE["last_status"] = "IDLE"
+    return jsonify({"ok": True})
+
+@app.route("/api/backup/usb/schedule", methods=["GET", "POST"])
+@require_admin
+def usb_schedule_endpoint():
+    if request.method == "GET":
+        return jsonify({"ok": True, "schedule": _get_usb_schedule()})
+    try:
+        j = request.get_json(force=True) or {}
+    except Exception:
+        return jsonify({"error": "invalid JSON"}), 400
+
+    clean_sched = _clean_usb_schedule(j)
+    
+    with DB_LOCK:
+        cur_settings = get_settings()
+        cur_settings["usbSchedule"] = clean_sched
+        save_settings(cur_settings)
+        try:
+            db = get_db()
+            db.execute(
+                "INSERT INTO audit (id, at, action, details) VALUES (?, ?, ?, ?)",
+                (str(uuid.uuid4()), f"{today_ist()} {now_ist()}", "USB_SCHEDULE_CHANGED", json.dumps(clean_sched))
+            )
+            db.commit()
+        except Exception: pass
+
+    return jsonify({"ok": True, "schedule": clean_sched})
 
 @app.route("/api/export/csv")
 @require_admin
@@ -3137,6 +3484,65 @@ def _gdrive_backup_daemon():
                                     print(f"[TELEGRAM ERROR] Backup failed: {res.get('error')}")
         except Exception as e:
             print(f"[TELEGRAM DAEMON EXCEPTION] {e}")
+
+        # --- 3. USB Storage Scheduled Backup Evaluation ---
+        try:
+            u_sched = _get_usb_schedule()
+            if u_sched.get("enabled", True):
+                u_sched_t = u_sched.get("time", "18:30")
+                usb_already_done = bool(_USB_STATE["last_backup_time"] and _USB_STATE["last_backup_time"].startswith(today) and _USB_STATE["last_status"] == "SUCCESS")
+
+                if not usb_already_done and now_t >= u_sched_t and not _USB_STATE["in_progress"]:
+                    usb_should_run = False
+                    usb_freq = u_sched.get("frequency", "daily")
+
+                    if usb_freq == "daily":
+                        usb_should_run = True
+                    elif usb_freq == "weekdays":
+                        tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+                        today_d = datetime.datetime.now(tz).date()
+                        cur_wday = (today_d.weekday() + 1) % 7
+                        if cur_wday in u_sched.get("weekdays", []):
+                            usb_should_run = True
+                    elif usb_freq == "interval":
+                        interval_n = u_sched.get("intervalDays", 1)
+                        tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+                        today_d = datetime.datetime.now(tz).date()
+                        usb_last_date_str = None
+                        if _USB_STATE.get("last_backup_time"):
+                            usb_last_date_str = _USB_STATE["last_backup_time"][:10]
+                        else:
+                            try:
+                                with app.app_context():
+                                    db = get_db()
+                                    with DB_LOCK:
+                                        row = db.execute("SELECT at FROM audit WHERE action='USB_BACKUP' ORDER BY at DESC LIMIT 1").fetchone()
+                                        if row and row[0]:
+                                            usb_last_date_str = row[0][:10]
+                            except Exception:
+                                pass
+
+                        if usb_last_date_str:
+                            try:
+                                last_d = datetime.date.fromisoformat(usb_last_date_str)
+                                days_elapsed = (today_d - last_d).days
+                                if days_elapsed >= interval_n:
+                                    usb_should_run = True
+                            except Exception:
+                                usb_should_run = True
+                        else:
+                            usb_should_run = True
+
+                    if usb_should_run:
+                        with app.app_context():
+                            print(f"[USB] Starting scheduled backup for {today} (freq: {usb_freq})...")
+                            res = run_usb_backup(trigger="SCHEDULED")
+                            if res.get("ok"):
+                                print(f"[USB] Backup completed successfully: {res.get('name')}")
+                            else:
+                                print(f"[USB] Backup skipped or failed: {res.get('error')}")
+        except Exception as e:
+            print(f"[USB DAEMON EXCEPTION] {e}")
 
         _gdrive_stop_event.wait(60)
 

@@ -1219,7 +1219,7 @@ function updateTabs(){
   if(currentTab==="reports") renderReports();
   if(currentTab==="calendar"){ renderHolidays(); renderOverrides(); renderCalendarMonth(); }
   if(currentTab==="settings") renderClasses();
-  if(currentTab==="backup"){ renderAudit(); loadGDriveStatus(); loadTelegramStatus(); }
+  if(currentTab==="backup"){ renderAudit(); loadGDriveStatus(); loadTelegramStatus(); loadUsbStatus(); }
 }
 document.getElementById("openAdminBtn").onclick=openAdmin;
 const _frontEnrollBtn=document.getElementById("openEnrollBtn"); if(_frontEnrollBtn) _frontEnrollBtn.onclick=openNewStudent;
@@ -1821,6 +1821,7 @@ window.addEventListener("focus", ()=>{
   if(currentTab==="backup" && adminLayer && adminLayer.classList.contains("open")){
     loadGDriveStatus();
     loadTelegramStatus();
+    loadUsbStatus();
   }
 });
 
@@ -2069,6 +2070,219 @@ if($("telegramClearStatusBtn")) $("telegramClearStatusBtn").onclick = async () =
   try{
     await api("/api/backup/telegram/clear-status", { method: "POST" });
     await loadTelegramStatus();
+  }catch(e){
+    alert("Failed to clear status: " + (e.message || "error"));
+  }
+};
+
+// --- USB Storage Backup Client Logic ---
+let _usbActiveWeekdays = [0, 1, 2, 3, 4, 5, 6];
+
+function formatBytes(bytes){
+  if(!bytes || bytes <= 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+}
+
+async function loadUsbStatus(){
+  const badge = $("usbBadge");
+  const toggle = $("usbEnabledToggle");
+  const mountSpan = $("usbMountPath");
+  const freeSpan = $("usbFreeSpace");
+  const statusText = $("usbStatusText");
+  const lastSpan = $("usbLastBackup");
+  const errDiv = $("usbLastError");
+  if(!badge) return;
+
+  try{
+    const st = await api("/api/backup/usb/status");
+    if(toggle) toggle.checked = !!st.enabled;
+    if(mountSpan){
+      if(st.connected){
+        mountSpan.textContent = st.mountPath ? `${st.mountPath} (${st.label || "USB"})` : "Connected";
+      }else{
+        mountSpan.textContent = "Not detected";
+      }
+    }
+    if(freeSpan){
+      freeSpan.textContent = st.connected ? `${formatBytes(st.freeBytes)} free` : "--";
+    }
+
+    if(!st.enabled){
+      badge.textContent = "Disabled";
+      badge.className = "pill";
+      if(statusText) statusText.textContent = "Disabled";
+    }else if(!st.connected){
+      badge.textContent = "Not detected";
+      badge.className = "pill";
+      if(statusText) statusText.textContent = "No USB drive detected (insert USB drive)";
+    }else if(st.lastStatus === "SUCCESS"){
+      badge.textContent = "Ready";
+      badge.className = "pill active";
+      if(statusText) statusText.textContent = `Connected (${st.label || "USB"})`;
+    }else if(st.lastStatus === "ERROR"){
+      badge.textContent = "Error";
+      badge.className = "pill danger";
+      if(statusText) statusText.textContent = "Error";
+    }else{
+      badge.textContent = "Connected";
+      badge.className = "pill active";
+      if(statusText) statusText.textContent = `Connected (${st.label || "USB"})`;
+    }
+
+    if(lastSpan){
+      lastSpan.textContent = st.lastBackup ? `${st.lastBackup} (${st.lastBackupName || ""})` : "Never";
+    }
+
+    if(errDiv){
+      if(st.lastError){
+        errDiv.style.display = "block";
+        errDiv.textContent = "Error: " + st.lastError;
+      }else{
+        errDiv.style.display = "none";
+        errDiv.textContent = "";
+      }
+    }
+
+    if(st.schedule) renderUsbSchedule(st.schedule);
+  }catch(e){
+    badge.textContent = "Unavailable";
+    badge.className = "pill danger";
+    if(statusText) statusText.textContent = "Error loading status";
+  }
+}
+
+function renderUsbSchedule(sched){
+  if(!$("usbSchedEnabled")) return;
+  const enabled = sched.enabled !== false;
+  $("usbSchedEnabled").checked = enabled;
+  if($("usbSchedTime")) $("usbSchedTime").value = sched.time || "18:30";
+  if($("usbSchedFreq")) $("usbSchedFreq").value = sched.frequency || "daily";
+  if($("usbSchedInterval")) $("usbSchedInterval").value = sched.intervalDays || 1;
+  
+  _usbActiveWeekdays = Array.isArray(sched.weekdays) ? [...sched.weekdays] : [0, 1, 2, 3, 4, 5, 6];
+  updateUsbScheduleVisibility();
+  updateUsbWeekdayButtons();
+}
+
+function updateUsbScheduleVisibility(){
+  const freq = $("usbSchedFreq") ? $("usbSchedFreq").value : "daily";
+  const intervalWrap = $("usbSchedIntervalWrap");
+  const daysWrap = $("usbSchedDaysWrap");
+  if(intervalWrap) intervalWrap.style.display = (freq === "interval") ? "block" : "none";
+  if(daysWrap) daysWrap.style.display = (freq === "weekdays") ? "block" : "none";
+}
+
+function updateUsbWeekdayButtons(){
+  const container = $("usbSchedDays");
+  if(!container) return;
+  const btns = container.querySelectorAll("button[data-day]");
+  btns.forEach(btn => {
+    const day = parseInt(btn.dataset.day, 10);
+    if(_usbActiveWeekdays.includes(day)){
+      btn.classList.add("primary");
+    } else {
+      btn.classList.remove("primary");
+    }
+  });
+}
+
+if($("usbSchedFreq")) $("usbSchedFreq").onchange = updateUsbScheduleVisibility;
+
+if($("usbSchedDays")) $("usbSchedDays").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-day]");
+  if(!btn) return;
+  const day = parseInt(btn.dataset.day, 10);
+  if(_usbActiveWeekdays.includes(day)){
+    if(_usbActiveWeekdays.length > 1){
+      _usbActiveWeekdays = _usbActiveWeekdays.filter(d => d !== day);
+    }
+  } else {
+    _usbActiveWeekdays.push(day);
+  }
+  updateUsbWeekdayButtons();
+});
+
+if($("usbSchedSaveBtn")) $("usbSchedSaveBtn").onclick = async () => {
+  const btn = $("usbSchedSaveBtn");
+  const statusEl = $("usbSchedStatus");
+  try {
+    btn.disabled = true;
+    btn.textContent = "Saving…";
+    if(statusEl) statusEl.textContent = "";
+
+    const payload = {
+      enabled: $("usbSchedEnabled") ? $("usbSchedEnabled").checked : true,
+      time: $("usbSchedTime") ? $("usbSchedTime").value : "18:30",
+      frequency: $("usbSchedFreq") ? $("usbSchedFreq").value : "daily",
+      intervalDays: $("usbSchedInterval") ? parseInt($("usbSchedInterval").value, 10) || 1 : 1,
+      weekdays: _usbActiveWeekdays
+    };
+
+    const res = await api("/api/backup/usb/schedule", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+
+    if(res && res.ok){
+      if(statusEl) statusEl.textContent = "Schedule saved.";
+      setTimeout(() => { if(statusEl) statusEl.textContent = ""; }, 3000);
+      await loadUsbStatus();
+    } else {
+      alert((res && res.error) || "Failed to save schedule");
+    }
+  } catch(e){
+    alert("Save schedule failed: " + (e.message || (e.body && e.body.error) || "error"));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Save Schedule";
+  }
+};
+
+if($("usbEnabledToggle")) $("usbEnabledToggle").onchange = async function(){
+  try{
+    await api("/api/backup/usb/toggle", {
+      method: "POST",
+      body: JSON.stringify({ enabled: this.checked })
+    });
+    await loadUsbStatus();
+  }catch(e){
+    alert("Failed to toggle USB backup: " + (e.message || "error"));
+    await loadUsbStatus();
+  }
+};
+
+if($("usbBackupNowBtn")) $("usbBackupNowBtn").onclick = async () => {
+  const btn = $("usbBackupNowBtn");
+  try{
+    btn.disabled = true; btn.textContent = "Backing up…";
+    const res = await api("/api/backup/usb/backup", { method: "POST" });
+    alert("Backup written to USB drive successfully: " + (res.name || ""));
+    await loadUsbStatus();
+  }catch(e){
+    alert("USB backup failed: " + (e.message || (e.body && e.body.error) || "error"));
+    await loadUsbStatus();
+  }finally{
+    btn.disabled = false; btn.textContent = "Backup to USB now";
+  }
+};
+
+if($("usbRefreshBtn")) $("usbRefreshBtn").onclick = async () => {
+  const btn = $("usbRefreshBtn");
+  try{
+    btn.disabled = true; btn.textContent = "Checking…";
+    await loadUsbStatus();
+  }finally{
+    btn.disabled = false; btn.textContent = "Check USB";
+  }
+};
+
+if($("usbClearStatusBtn")) $("usbClearStatusBtn").onclick = async () => {
+  try{
+    await api("/api/backup/usb/clear-status", { method: "POST" });
+    await loadUsbStatus();
   }catch(e){
     alert("Failed to clear status: " + (e.message || "error"));
   }

@@ -578,6 +578,69 @@ class UiE2eTest(unittest.TestCase):
         self.page.click("#adminClose")
         self.page.wait_for_function("!document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
 
+    def test_10_backup_tab_usb_controls(self):
+        """Backup tab allows configuring USB backup (toggle, refresh, and schedule)."""
+        self.page.goto(f"{_BASE_URL}/", wait_until="networkidle")
+
+        self.page.once("dialog", lambda dialog: dialog.accept("1234"))
+        self.page.click("#openAdminBtn")
+        self.page.wait_for_function("document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
+
+        self.page.click("#adminNav button[data-tab='backup']")
+        self.page.wait_for_function("!document.getElementById('pane-backup').classList.contains('hidden')", timeout=3000)
+
+        # 1. USB card and controls render
+        usb_card = self.page.locator("#usbCard")
+        usb_card.wait_for(state="visible", timeout=3000)
+        self.assertTrue(self.page.locator("#usbBadge").is_visible())
+        self.assertTrue(self.page.locator("#usbMountPath").is_visible())
+
+        # 2. Toggle enable checkbox
+        toggle = self.page.locator("#usbEnabledToggle")
+        self.assertTrue(toggle.is_visible())
+        toggle.click()
+        self.page.wait_for_timeout(300)
+        toggle.click() # restore
+
+        # 3. Check USB button click
+        self.page.click("#usbRefreshBtn")
+        self.page.wait_for_timeout(300)
+
+        # 4. Schedule controls
+        enabled_checkbox = self.page.locator("#usbSchedEnabled")
+        self.assertTrue(enabled_checkbox.is_visible())
+        if not enabled_checkbox.is_checked():
+            enabled_checkbox.check()
+
+        self.page.fill("#usbSchedTime", "19:45")
+
+        freq_select = self.page.locator("#usbSchedFreq")
+        interval_wrap = self.page.locator("#usbSchedIntervalWrap")
+        days_wrap = self.page.locator("#usbSchedDaysWrap")
+
+        # Frequency: interval
+        freq_select.select_option("interval")
+        interval_wrap.wait_for(state="visible", timeout=2000)
+        self.assertFalse(days_wrap.is_visible())
+        self.page.fill("#usbSchedInterval", "4")
+
+        # Frequency: weekdays
+        freq_select.select_option("weekdays")
+        days_wrap.wait_for(state="visible", timeout=2000)
+        self.assertFalse(interval_wrap.is_visible())
+
+        # Toggle Tuesday (2)
+        tue_btn = self.page.locator("#usbSchedDays button[data-day='2']")
+        tue_btn.click()
+
+        # Save schedule
+        self.page.click("#usbSchedSaveBtn")
+        status_span = self.page.locator("#usbSchedStatus")
+        status_span.wait_for(state="visible", timeout=3000)
+        self.assertIn("SAVED", status_span.inner_text().upper())
+
+        self.page.click("#adminClose")
+        self.page.wait_for_function("!document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
