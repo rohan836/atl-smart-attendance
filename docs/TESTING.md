@@ -27,7 +27,7 @@ Run from repository root:
 python -m unittest backend.test_ui_e2e -v
 ```
 
-Coverage (8 scenarios) includes:
+Coverage (9 scenarios) includes:
 1. Kiosk idle presentation: `#terminal`, `PLACE YOUR FINGER` prompt reveal, and Admin trigger button.
 2. Real-time scan display lifecycle: Simulated scan event triggers student profile card display (`#identityLayer.visible`, student name, roll, class, status), followed by automatic fade-out back to idle prompt after hold timeout.
 3. Admin security gate: PIN challenge modal on click, rejection and lock on invalid PIN (`0000`), and unlock on valid PIN (`1234`).
@@ -36,6 +36,7 @@ Coverage (8 scenarios) includes:
 6. Google Drive Device Authorization Flow pairing UI: unauthenticated state renders `#gdriveDeviceStartBtn`, clicking initiates pairing and displays user code (`#gdriveUserCodeDisplay`), and cancellation resets the UI.
 7. Google Drive automatic backup schedule controls: authenticated state renders frequency selector (`daily`, `interval`, `weekdays`), weekday toggle buttons, interval input, time selector, and schedule save confirmation (`#gdriveSchedStatus`).
 8. Telegram secondary backup card and interactive controls: renders `#telegramCard` with status badge, allows interactive enable/disable toggle, tests "Send backup now" with mock network interception, and tests "Clear status" action.
+9. Telegram automatic backup schedule controls: renders `#telegramSchedBody` with time selector, frequency selector (`daily`, `interval`, `weekdays`), interval input, weekday buttons, and schedule save confirmation (`#telegramSchedStatus`).
 
 ## Integration testing
 

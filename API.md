@@ -47,7 +47,8 @@ Base: `http://192.168.1.8:5000` (Pi) or `http://127.0.0.1:5000` (local). Server:
 | POST | `/api/backup/gdrive/backup` | header only | Trigger manual Google Drive backup now. Takes online SQLite snapshot under lock, checks integrity, uploads in resumable chunks, prunes retention. |
 | GET | `/api/backup/gdrive/list` | header only | List available cloud backup snapshots in dedicated Drive folder. |
 | POST | `/api/backup/gdrive/restore` | header only | Restore from cloud backup: `POST {fileId}`. Downloads to `.incoming`, validates integrity and tables, creates `.pre_restore.bak`, atomically replaces DB. Operator-initiated only. |
-| GET | `/api/backup/telegram/status` | header only | Secondary Telegram backup status `{enabled, configured, chatId, lastStatus, lastBackup, lastBackupName, lastError, inProgress}`. Never exposes `botToken`. |
+| GET | `/api/backup/telegram/status` | header only | Secondary Telegram backup status `{enabled, configured, chatId, lastStatus, lastBackup, lastBackupName, lastError, inProgress, schedule}`. Never exposes `botToken`. |
+| GET/POST | `/api/backup/telegram/schedule` | header only | Get or configure Telegram automatic backup schedule (`{enabled, time, frequency, intervalDays, weekdays}`). |
 | POST | `/api/backup/telegram/backup` | header only | Trigger manual Telegram backup now. Generates verified snapshot and sends via official Telegram Bot API `sendDocument`. |
 | POST | `/api/backup/telegram/toggle` | header only | Enable or disable Telegram secondary backup (`POST {enabled: bool}`). |
 | POST | `/api/backup/telegram/clear-status` | header only | Clear error/failure state for Telegram backup. |

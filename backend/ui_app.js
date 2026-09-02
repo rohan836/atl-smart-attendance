@@ -1939,12 +1939,103 @@ async function loadTelegramStatus(){
         errDiv.textContent = "";
       }
     }
+
+    if(st.schedule) renderTelegramSchedule(st.schedule);
   }catch(e){
     badge.textContent = "Unavailable";
     badge.className = "pill danger";
     if(statusText) statusText.textContent = "Error loading status";
   }
 }
+
+let _telegramActiveWeekdays = [0, 1, 2, 3, 4, 5, 6];
+
+function renderTelegramSchedule(sched){
+  if(!$("telegramSchedEnabled")) return;
+  const enabled = sched.enabled !== false;
+  $("telegramSchedEnabled").checked = enabled;
+  if($("telegramSchedTime")) $("telegramSchedTime").value = sched.time || "18:30";
+  if($("telegramSchedFreq")) $("telegramSchedFreq").value = sched.frequency || "daily";
+  if($("telegramSchedInterval")) $("telegramSchedInterval").value = sched.intervalDays || 1;
+  
+  _telegramActiveWeekdays = Array.isArray(sched.weekdays) ? [...sched.weekdays] : [0, 1, 2, 3, 4, 5, 6];
+  updateTelegramScheduleVisibility();
+  updateTelegramWeekdayButtons();
+}
+
+function updateTelegramScheduleVisibility(){
+  const freq = $("telegramSchedFreq") ? $("telegramSchedFreq").value : "daily";
+  const intervalWrap = $("telegramSchedIntervalWrap");
+  const daysWrap = $("telegramSchedDaysWrap");
+  if(intervalWrap) intervalWrap.style.display = (freq === "interval") ? "block" : "none";
+  if(daysWrap) daysWrap.style.display = (freq === "weekdays") ? "block" : "none";
+}
+
+function updateTelegramWeekdayButtons(){
+  const container = $("telegramSchedDays");
+  if(!container) return;
+  const btns = container.querySelectorAll("button[data-day]");
+  btns.forEach(btn => {
+    const day = parseInt(btn.dataset.day, 10);
+    if(_telegramActiveWeekdays.includes(day)){
+      btn.classList.add("primary");
+    } else {
+      btn.classList.remove("primary");
+    }
+  });
+}
+
+if($("telegramSchedFreq")) $("telegramSchedFreq").onchange = updateTelegramScheduleVisibility;
+
+if($("telegramSchedDays")) $("telegramSchedDays").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-day]");
+  if(!btn) return;
+  const day = parseInt(btn.dataset.day, 10);
+  if(_telegramActiveWeekdays.includes(day)){
+    if(_telegramActiveWeekdays.length > 1){
+      _telegramActiveWeekdays = _telegramActiveWeekdays.filter(d => d !== day);
+    }
+  } else {
+    _telegramActiveWeekdays.push(day);
+  }
+  updateTelegramWeekdayButtons();
+});
+
+if($("telegramSchedSaveBtn")) $("telegramSchedSaveBtn").onclick = async () => {
+  const btn = $("telegramSchedSaveBtn");
+  const statusEl = $("telegramSchedStatus");
+  try {
+    btn.disabled = true;
+    btn.textContent = "Saving…";
+    if(statusEl) statusEl.textContent = "";
+
+    const payload = {
+      enabled: $("telegramSchedEnabled") ? $("telegramSchedEnabled").checked : true,
+      time: $("telegramSchedTime") ? $("telegramSchedTime").value : "18:30",
+      frequency: $("telegramSchedFreq") ? $("telegramSchedFreq").value : "daily",
+      intervalDays: $("telegramSchedInterval") ? parseInt($("telegramSchedInterval").value, 10) || 1 : 1,
+      weekdays: _telegramActiveWeekdays
+    };
+
+    const res = await api("/api/backup/telegram/schedule", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+
+    if(res && res.ok){
+      if(statusEl) statusEl.textContent = "Schedule saved.";
+      setTimeout(() => { if(statusEl) statusEl.textContent = ""; }, 3000);
+      await loadTelegramStatus();
+    } else {
+      alert((res && res.error) || "Failed to save schedule");
+    }
+  } catch(e){
+    alert("Save schedule failed: " + (e.message || (e.body && e.body.error) || "error"));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Save Schedule";
+  }
+};
 
 if($("telegramEnabledToggle")) $("telegramEnabledToggle").onchange = async function(){
   try{

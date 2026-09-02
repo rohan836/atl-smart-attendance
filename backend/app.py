@@ -1607,6 +1607,57 @@ def _telegram_config() -> dict:
         "chat_id": str(chat_id).strip()
     }
 
+def _clean_telegram_schedule(raw: dict) -> dict:
+    """Validate and sanitize telegramSchedule dict."""
+    if not isinstance(raw, dict):
+        raw = {}
+    enabled = bool(raw.get("enabled", True))
+    raw_time = str(raw.get("time") or "18:30").strip()
+    try:
+        datetime.datetime.strptime(raw_time[:5], "%H:%M")
+        sched_time = raw_time[:5]
+    except Exception:
+        sched_time = "18:30"
+    
+    freq = str(raw.get("frequency") or "daily").strip().lower()
+    if freq not in ("daily", "interval", "weekdays"):
+        freq = "daily"
+        
+    try:
+        interval_days = int(raw.get("intervalDays", 1))
+        if interval_days < 1: interval_days = 1
+        elif interval_days > 30: interval_days = 30
+    except Exception:
+        interval_days = 1
+        
+    raw_weekdays = raw.get("weekdays")
+    if isinstance(raw_weekdays, list):
+        cleaned_wd = []
+        for d in raw_weekdays:
+            try:
+                di = int(d)
+                if 0 <= di <= 6 and di not in cleaned_wd:
+                    cleaned_wd.append(di)
+            except Exception: pass
+        if not cleaned_wd:
+            cleaned_wd = [0, 1, 2, 3, 4, 5, 6]
+    else:
+        cleaned_wd = [0, 1, 2, 3, 4, 5, 6]
+        
+    return {
+        "enabled": enabled,
+        "time": sched_time,
+        "frequency": freq,
+        "intervalDays": interval_days,
+        "weekdays": sorted(cleaned_wd)
+    }
+
+def _get_telegram_schedule() -> dict:
+    """Retrieve effective telegramSchedule from SQLite settings or defaults."""
+    s = get_settings()
+    raw = s.get("telegramSchedule")
+    return _clean_telegram_schedule(raw)
+
 def _sanitize_telegram_error(err_str: str, bot_token: str = None) -> str:
     """Ensure bot token never leaks into error logs or API responses."""
     if not err_str:
@@ -2061,10 +2112,39 @@ def telegram_status():
             "lastBackup": _TELEGRAM_STATE["last_backup_time"],
             "lastBackupName": _TELEGRAM_STATE["last_backup_name"],
             "lastError": _TELEGRAM_STATE["last_error"],
-            "inProgress": _TELEGRAM_STATE["in_progress"]
+            "inProgress": _TELEGRAM_STATE["in_progress"],
+            "schedule": _get_telegram_schedule()
         })
     except Exception as e:
         return jsonify({"error": f"FAIL {e}"}), 500
+
+@app.route("/api/backup/telegram/schedule", methods=["GET", "POST"])
+@require_admin
+def telegram_schedule_endpoint():
+    if request.method == "GET":
+        return jsonify({"ok": True, "schedule": _get_telegram_schedule()})
+    try:
+        j = request.get_json(force=True) or {}
+    except Exception:
+        return jsonify({"error": "invalid JSON"}), 400
+
+    clean_sched = _clean_telegram_schedule(j)
+    
+    # Save into SQLite settings under key "telegramSchedule"
+    with DB_LOCK:
+        cur_settings = get_settings()
+        cur_settings["telegramSchedule"] = clean_sched
+        save_settings(cur_settings)
+        try:
+            db = get_db()
+            db.execute(
+                "INSERT INTO audit (id, at, action, details) VALUES (?, ?, ?, ?)",
+                (str(uuid.uuid4()), f"{today_ist()} {now_ist()}", "TELEGRAM_SCHEDULE_CHANGED", json.dumps(clean_sched))
+            )
+            db.commit()
+        except Exception: pass
+
+    return jsonify({"ok": True, "schedule": clean_sched})
 
 @app.route("/api/backup/telegram/backup", methods=["POST"])
 @require_admin
@@ -2931,55 +3011,45 @@ def stop_reconcile_daemon(timeout=5):
 start_reconcile_daemon()
 
 def _gdrive_backup_daemon():
-    """Background daemon loop checking if Google Drive backup should run based on configured schedule."""
+    """Background daemon loop checking if Google Drive or Telegram backups should run based on configured schedules."""
     while not _gdrive_stop_event.is_set():
+        today = today_ist()
+        now_t = now_ist()[:5]
+
+        # --- 1. Google Drive Scheduled Backup Evaluation ---
         try:
             gc = _gdrive_config()
-            tc = _telegram_config()
-            has_gdrive = bool(gc["enabled"] and gc["client_id"] and gc["client_secret"])
-            has_telegram = bool(tc["enabled"] and tc["bot_token"] and tc["chat_id"])
-            if has_gdrive or has_telegram:
-                sched = _get_gdrive_schedule()
-                if sched.get("enabled", True):
-                    today = today_ist()
-                    now_t = now_ist()[:5]
-                    sched_t = sched.get("time", "18:30")
-                    gdrive_done = bool(_GDRIVE_STATE["last_backup_time"] and _GDRIVE_STATE["last_backup_time"].startswith(today) and _GDRIVE_STATE["last_status"] == "SUCCESS")
-                    telegram_done = bool(_TELEGRAM_STATE["last_backup_time"] and _TELEGRAM_STATE["last_backup_time"].startswith(today) and _TELEGRAM_STATE["last_status"] == "SUCCESS")
-                    already_done = gdrive_done if has_gdrive else telegram_done
-                    in_progress = _GDRIVE_STATE["in_progress"] or _TELEGRAM_STATE["in_progress"]
+            if gc["enabled"] and gc["client_id"] and gc["client_secret"]:
+                g_sched = _get_gdrive_schedule()
+                if g_sched.get("enabled", True):
+                    sched_t = g_sched.get("time", "18:30")
+                    already_done = bool(_GDRIVE_STATE["last_backup_time"] and _GDRIVE_STATE["last_backup_time"].startswith(today) and _GDRIVE_STATE["last_status"] == "SUCCESS")
 
-                    # Check if today has already run, or time hasn't arrived yet, or backup is in progress
-                    if not already_done and now_t >= sched_t and not in_progress:
+                    if not already_done and now_t >= sched_t and not _GDRIVE_STATE["in_progress"]:
                         should_run = False
-                        freq = sched.get("frequency", "daily")
+                        freq = g_sched.get("frequency", "daily")
 
                         if freq == "daily":
                             should_run = True
                         elif freq == "weekdays":
-                            # Python weekday(): Mon=0..Sun=6 -> map to Sun=0..Sat=6
                             tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
                             today_d = datetime.datetime.now(tz).date()
                             cur_wday = (today_d.weekday() + 1) % 7
-                            if cur_wday in sched.get("weekdays", []):
+                            if cur_wday in g_sched.get("weekdays", []):
                                 should_run = True
                         elif freq == "interval":
-                            interval_n = sched.get("intervalDays", 1)
+                            interval_n = g_sched.get("intervalDays", 1)
                             tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
                             today_d = datetime.datetime.now(tz).date()
-                            
-                            # Find last successful backup date from state or audit table
                             last_date_str = None
                             if _GDRIVE_STATE.get("last_backup_time"):
                                 last_date_str = _GDRIVE_STATE["last_backup_time"][:10]
-                            elif _TELEGRAM_STATE.get("last_backup_time"):
-                                last_date_str = _TELEGRAM_STATE["last_backup_time"][:10]
                             else:
                                 try:
                                     with app.app_context():
                                         db = get_db()
                                         with DB_LOCK:
-                                            row = db.execute("SELECT at FROM audit WHERE action IN ('GDRIVE_BACKUP', 'TELEGRAM_BACKUP') ORDER BY at DESC LIMIT 1").fetchone()
+                                            row = db.execute("SELECT at FROM audit WHERE action='GDRIVE_BACKUP' ORDER BY at DESC LIMIT 1").fetchone()
                                             if row and row[0]:
                                                 last_date_str = row[0][:10]
                                 except Exception:
@@ -2994,27 +3064,80 @@ def _gdrive_backup_daemon():
                                 except Exception:
                                     should_run = True
                             else:
-                                # Never backed up, run now
                                 should_run = True
 
                         if should_run:
                             with app.app_context():
-                                if has_gdrive:
-                                    print(f"[GDRIVE] Starting scheduled backup for {today} (freq: {freq})...")
-                                    res = run_gdrive_backup(trigger="SCHEDULED")
-                                    if res.get("ok"):
-                                        print(f"[GDRIVE] Backup completed successfully: {res.get('name')}")
-                                    else:
-                                        print(f"[GDRIVE ERROR] Backup failed: {res.get('error')}")
-                                elif has_telegram:
-                                    print(f"[TELEGRAM] Starting scheduled backup for {today} (freq: {freq})...")
-                                    res = run_telegram_backup(trigger="SCHEDULED")
-                                    if res.get("ok"):
-                                        print(f"[TELEGRAM] Backup completed successfully: {res.get('name')}")
-                                    else:
-                                        print(f"[TELEGRAM ERROR] Backup failed: {res.get('error')}")
+                                print(f"[GDRIVE] Starting scheduled backup for {today} (freq: {freq})...")
+                                res = run_gdrive_backup(trigger="SCHEDULED")
+                                if res.get("ok"):
+                                    print(f"[GDRIVE] Backup completed successfully: {res.get('name')}")
+                                else:
+                                    print(f"[GDRIVE ERROR] Backup failed: {res.get('error')}")
         except Exception as e:
             print(f"[GDRIVE DAEMON EXCEPTION] {e}")
+
+        # --- 2. Telegram Secondary Scheduled Backup Evaluation ---
+        try:
+            tc = _telegram_config()
+            if tc["enabled"] and tc["bot_token"] and tc["chat_id"]:
+                t_sched = _get_telegram_schedule()
+                if t_sched.get("enabled", True):
+                    t_sched_t = t_sched.get("time", "18:30")
+                    tg_already_done = bool(_TELEGRAM_STATE["last_backup_time"] and _TELEGRAM_STATE["last_backup_time"].startswith(today) and _TELEGRAM_STATE["last_status"] == "SUCCESS")
+
+                    if not tg_already_done and now_t >= t_sched_t and not _TELEGRAM_STATE["in_progress"]:
+                        tg_should_run = False
+                        tg_freq = t_sched.get("frequency", "daily")
+
+                        if tg_freq == "daily":
+                            tg_should_run = True
+                        elif tg_freq == "weekdays":
+                            tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+                            today_d = datetime.datetime.now(tz).date()
+                            cur_wday = (today_d.weekday() + 1) % 7
+                            if cur_wday in t_sched.get("weekdays", []):
+                                tg_should_run = True
+                        elif tg_freq == "interval":
+                            interval_n = t_sched.get("intervalDays", 1)
+                            tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+                            today_d = datetime.datetime.now(tz).date()
+                            tg_last_date_str = None
+                            if _TELEGRAM_STATE.get("last_backup_time"):
+                                tg_last_date_str = _TELEGRAM_STATE["last_backup_time"][:10]
+                            else:
+                                try:
+                                    with app.app_context():
+                                        db = get_db()
+                                        with DB_LOCK:
+                                            row = db.execute("SELECT at FROM audit WHERE action='TELEGRAM_BACKUP' ORDER BY at DESC LIMIT 1").fetchone()
+                                            if row and row[0]:
+                                                tg_last_date_str = row[0][:10]
+                                except Exception:
+                                    pass
+
+                            if tg_last_date_str:
+                                try:
+                                    last_d = datetime.date.fromisoformat(tg_last_date_str)
+                                    days_elapsed = (today_d - last_d).days
+                                    if days_elapsed >= interval_n:
+                                        tg_should_run = True
+                                except Exception:
+                                    tg_should_run = True
+                            else:
+                                tg_should_run = True
+
+                        if tg_should_run:
+                            with app.app_context():
+                                print(f"[TELEGRAM] Starting scheduled backup for {today} (freq: {tg_freq})...")
+                                res = run_telegram_backup(trigger="SCHEDULED")
+                                if res.get("ok"):
+                                    print(f"[TELEGRAM] Backup completed successfully: {res.get('name')}")
+                                else:
+                                    print(f"[TELEGRAM ERROR] Backup failed: {res.get('error')}")
+        except Exception as e:
+            print(f"[TELEGRAM DAEMON EXCEPTION] {e}")
+
         _gdrive_stop_event.wait(60)
 
 def start_gdrive_daemon():

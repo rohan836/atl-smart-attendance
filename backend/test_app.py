@@ -2503,6 +2503,8 @@ class ApiTest(unittest.TestCase):
         try:
             # Without PIN -> 401
             self.assertEqual(self.client.get("/api/backup/telegram/status").status_code, 401)
+            self.assertEqual(self.client.get("/api/backup/telegram/schedule").status_code, 401)
+            self.assertEqual(self.client.post("/api/backup/telegram/schedule").status_code, 401)
             self.assertEqual(self.client.post("/api/backup/telegram/backup").status_code, 401)
             self.assertEqual(self.client.post("/api/backup/telegram/toggle").status_code, 401)
             self.assertEqual(self.client.post("/api/backup/telegram/clear-status").status_code, 401)
@@ -2510,13 +2512,103 @@ class ApiTest(unittest.TestCase):
             # With wrong PIN -> 401
             headers_bad = {"X-Admin-Pin": "0000"}
             self.assertEqual(self.client.get("/api/backup/telegram/status", headers=headers_bad).status_code, 401)
+            self.assertEqual(self.client.get("/api/backup/telegram/schedule", headers=headers_bad).status_code, 401)
 
             # With correct PIN -> 200
             headers_ok = {"X-Admin-Pin": "4321"}
             self.assertEqual(self.client.get("/api/backup/telegram/status", headers=headers_ok).status_code, 200)
+            self.assertEqual(self.client.get("/api/backup/telegram/schedule", headers=headers_ok).status_code, 200)
             self.assertEqual(self.client.post("/api/backup/telegram/clear-status", headers=headers_ok).status_code, 200)
         finally:
             atl.cfg["adminPin"] = ""
+
+    def test_telegram_schedule_configuration(self):
+        """Tests getting, updating, and validating Telegram automatic backup schedules."""
+        # 1. GET schedule returns defaults or current settings
+        r_get = self.client.get("/api/backup/telegram/schedule")
+        self.assertEqual(r_get.status_code, 200)
+        j_get = r_get.get_json()
+        self.assertTrue(j_get.get("ok"))
+        self.assertIn("schedule", j_get)
+        self.assertEqual(j_get["schedule"]["frequency"], "daily")
+
+        # 2. POST invalid time format sanitizes safely to 18:30 and daily
+        r_bad = self.client.post("/api/backup/telegram/schedule", json={"time": "invalid_time", "frequency": "unknown_freq"})
+        self.assertEqual(r_bad.status_code, 200)
+        self.assertEqual(r_bad.get_json()["schedule"]["time"], "18:30")
+        self.assertEqual(r_bad.get_json()["schedule"]["frequency"], "daily")
+
+        # 3. POST valid interval schedule
+        r_interval = self.client.post("/api/backup/telegram/schedule", json={
+            "enabled": True,
+            "time": "21:15",
+            "frequency": "interval",
+            "intervalDays": 4
+        })
+        self.assertEqual(r_interval.status_code, 200)
+        sched = r_interval.get_json()["schedule"]
+        self.assertEqual(sched["time"], "21:15")
+        self.assertEqual(sched["frequency"], "interval")
+        self.assertEqual(sched["intervalDays"], 4)
+
+        # Verify status endpoint reflects new schedule
+        r_status = self.client.get("/api/backup/telegram/status")
+        self.assertEqual(r_status.status_code, 200)
+        j_status = r_status.get_json()
+        self.assertIn("schedule", j_status)
+        self.assertEqual(j_status["schedule"]["time"], "21:15")
+        self.assertEqual(j_status["schedule"]["intervalDays"], 4)
+
+        # 4. POST valid weekdays schedule
+        r_weekdays = self.client.post("/api/backup/telegram/schedule", json={
+            "enabled": False,
+            "time": "11:30",
+            "frequency": "weekdays",
+            "weekdays": [1, 3, 5]
+        })
+        self.assertEqual(r_weekdays.status_code, 200)
+        sched_wd = r_weekdays.get_json()["schedule"]
+        self.assertFalse(sched_wd["enabled"])
+        self.assertEqual(sched_wd["time"], "11:30")
+        self.assertEqual(sched_wd["frequency"], "weekdays")
+        self.assertEqual(sched_wd["weekdays"], [1, 3, 5])
+
+        # Verify persistence in settings and audit trail
+        s = atl.get_settings()
+        self.assertEqual(s.get("telegramSchedule", {}).get("weekdays"), [1, 3, 5])
+        with atl.app.app_context():
+            db = atl.get_db()
+            audit_row = db.execute("SELECT action FROM audit WHERE action='TELEGRAM_SCHEDULE_CHANGED' ORDER BY at DESC LIMIT 1").fetchone()
+            self.assertIsNotNone(audit_row)
+
+        # Restore default daily schedule
+        self.client.post("/api/backup/telegram/schedule", json={
+            "enabled": True,
+            "time": "18:30",
+            "frequency": "daily",
+            "intervalDays": 1,
+            "weekdays": [0, 1, 2, 3, 4, 5, 6]
+        })
+
+    def test_telegram_scheduled_backup_semantics(self):
+        """Tests that Telegram schedule cleaner and semantics mirror Google Drive schedule."""
+        # Sanitizer default test
+        clean_empty = atl._clean_telegram_schedule({})
+        self.assertTrue(clean_empty["enabled"])
+        self.assertEqual(clean_empty["time"], "18:30")
+        self.assertEqual(clean_empty["frequency"], "daily")
+        self.assertEqual(clean_empty["intervalDays"], 1)
+        self.assertEqual(clean_empty["weekdays"], [0, 1, 2, 3, 4, 5, 6])
+
+        # Clamping test for intervalDays
+        clean_high = atl._clean_telegram_schedule({"intervalDays": 999})
+        self.assertEqual(clean_high["intervalDays"], 30)
+        clean_low = atl._clean_telegram_schedule({"intervalDays": -5})
+        self.assertEqual(clean_low["intervalDays"], 1)
+
+        # Ensure gdrive schedule remains untouched
+        g_sched = atl._get_gdrive_schedule()
+        self.assertIn("frequency", g_sched)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

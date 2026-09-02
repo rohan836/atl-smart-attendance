@@ -528,6 +528,56 @@ class UiE2eTest(unittest.TestCase):
         self.page.click("#adminClose")
         self.page.wait_for_function("!document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
 
+    def test_09_backup_tab_telegram_schedule_controls(self):
+        """Backup tab allows configuring automatic Telegram backup schedule (frequency, weekdays, save)."""
+        self.page.goto(f"{_BASE_URL}/", wait_until="networkidle")
+
+        self.page.once("dialog", lambda dialog: dialog.accept("1234"))
+        self.page.click("#openAdminBtn")
+        self.page.wait_for_function("document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
+
+        self.page.click("#adminNav button[data-tab='backup']")
+        self.page.wait_for_function("!document.getElementById('pane-backup').classList.contains('hidden')", timeout=3000)
+
+        # Telegram card and schedule controls render
+        tg_card = self.page.locator("#telegramCard")
+        tg_card.wait_for(state="visible", timeout=3000)
+
+        enabled_checkbox = self.page.locator("#telegramSchedEnabled")
+        self.assertTrue(enabled_checkbox.is_visible())
+        if not enabled_checkbox.is_checked():
+            enabled_checkbox.check()
+
+        self.page.fill("#telegramSchedTime", "20:30")
+
+        freq_select = self.page.locator("#telegramSchedFreq")
+        interval_wrap = self.page.locator("#telegramSchedIntervalWrap")
+        days_wrap = self.page.locator("#telegramSchedDaysWrap")
+
+        # Frequency: interval
+        freq_select.select_option("interval")
+        interval_wrap.wait_for(state="visible", timeout=2000)
+        self.assertFalse(days_wrap.is_visible())
+        self.page.fill("#telegramSchedInterval", "3")
+
+        # Frequency: weekdays
+        freq_select.select_option("weekdays")
+        days_wrap.wait_for(state="visible", timeout=2000)
+        self.assertFalse(interval_wrap.is_visible())
+
+        # Weekday toggles (Friday = 5)
+        fri_btn = self.page.locator("#telegramSchedDays button[data-day='5']")
+        fri_btn.click()
+
+        # Save schedule
+        self.page.click("#telegramSchedSaveBtn")
+        status_span = self.page.locator("#telegramSchedStatus")
+        status_span.wait_for(state="visible", timeout=3000)
+        self.assertIn("SAVED", status_span.inner_text().upper())
+
+        self.page.click("#adminClose")
+        self.page.wait_for_function("!document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
