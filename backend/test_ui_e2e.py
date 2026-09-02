@@ -544,22 +544,23 @@ class UiE2eTest(unittest.TestCase):
 
         self.page.click("#adminNav button[data-tab='backup']")
         self.page.wait_for_function("!document.getElementById('pane-backup').classList.contains('hidden')", timeout=3000)
+        self.page.wait_for_function("document.getElementById('destStatusTelegram').textContent !== 'Checking…'", timeout=5000)
 
         # Enable Telegram destination
         tg_check = self.page.locator("#destCheckTelegram")
         if not tg_check.is_checked():
-            tg_check.check()
-            self.page.wait_for_timeout(250)
+            tg_check.click()
+            self.page.wait_for_timeout(350)
 
         # Disable Google Drive and USB for this targeted test
         gd_check = self.page.locator("#destCheckGdrive")
         if gd_check.is_checked():
-            gd_check.uncheck()
-            self.page.wait_for_timeout(250)
+            gd_check.click()
+            self.page.wait_for_timeout(300)
         usb_check = self.page.locator("#destCheckUsb")
         if usb_check.is_checked():
-            usb_check.uncheck()
-            self.page.wait_for_timeout(250)
+            usb_check.click()
+            self.page.wait_for_timeout(300)
 
         backup_btn = self.page.locator("#backupNowBtn")
         self.assertTrue(backup_btn.is_visible())
