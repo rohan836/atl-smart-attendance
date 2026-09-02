@@ -14,8 +14,8 @@ Wiring: VCC→3.3V pin1, GND→pin6, RX→GPIO14/pin8, TX→GPIO15/pin10.
 
 ```bash
 python backend/app.py          # http://127.0.0.1:5000/
-python -m unittest backend.test_app -v       # 113 backend unit tests
-python -m unittest backend.test_ui_e2e -v    # 10 Playwright E2E browser tests
+python -m unittest backend.test_app -v       # 116 backend unit tests
+python -m unittest backend.test_ui_e2e -v    # 12 Playwright E2E browser tests
 ```
 
 Pi: `http://192.168.1.8:5000/` · `sudo systemctl status atl-attendance` · `journalctl -u atl-attendance -f`

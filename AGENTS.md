@@ -2,7 +2,7 @@
 
 This file is the first source of rules for any coding agent. Read it before changing code. It points to the right doc for each task.
 
-Production release: `v1.1.0` (`da89bdf`). Current `main`: `2cb235f` (Unified Backup Manager UI + Telegram secondary cloud backup + USB local storage backup + synchronized multi-destination scheduling + 113 backend tests + 10 Playwright E2E tests). Historical rollback tags: `v1.0.1` (`32e5ef7`), `v1.0.0` (`c0fe411`). For new work, start from current `main`. Never modify historical release tags. See `docs/VERSIONS.md`.
+Production release: `v1.1.0` (`da89bdf`). Current `main`: `36c6825` (Unified Backup Manager UI + Telegram secondary cloud backup + USB local storage backup + synchronized multi-destination scheduling + 116 backend tests + 12 Playwright E2E tests). Historical rollback tags: `v1.0.1` (`32e5ef7`), `v1.0.0` (`c0fe411`). For new work, start from current `main`. Never modify historical release tags. See `docs/VERSIONS.md`.
 
 ## What this project is
 
@@ -43,7 +43,7 @@ Fingerprint kiosk:
 - **Deploy:** `powershell -File tools/deploy.ps1` or `bash tools/deploy.sh` — never copies `attendance.db`, `config.json`, or `*.backup.html`
 - **SSH:** `ssh -i C:\Users\LaNcer\.ssh\id_ed25519 lancer@192.168.1.8` (user `lancer`, not `pi`)
 - **Verify:** `curl http://192.168.1.8:5000/` → title `ATL Smart Attendance Terminal — Complete School System`, `pane-backup` + `#FCFBF7`, spliced `ui_app.js`, no `__SSR_DATA__` · `curl /api/health` → `db_ok: true` (`sensor offline` expected when `sensor:real` without hardware) · Routes `/` + `/assets/<path>` + `/api/*`; unknown non-API paths serve UI; dead `/legacy|/terminal|/perfect|/css|/js` stay gone
-- **Tests:** `python -m unittest backend.test_app -v` (113 backend unit tests) · `python -m unittest backend.test_ui_e2e -v` (10 Playwright E2E browser tests)
+- **Tests:** `python -m unittest backend.test_app -v` (116 backend unit tests) · `python -m unittest backend.test_ui_e2e -v` (12 Playwright E2E browser tests)
 
 ## Constraints — must not break
 
