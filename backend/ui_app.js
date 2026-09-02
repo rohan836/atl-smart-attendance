@@ -1454,14 +1454,273 @@ function exportCSV(rows, filename){
   const csv=rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
   downloadFile(csv, filename, 'text/csv');
 }
-function printHTML(htmlContent){
+function printHTML(htmlContent, docTitle){
   const w=window.open('','_blank'); if(!w) return;
-  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Report</title><style>
-    body{font-family:Georgia,serif;color:#0A0A0A;padding:32px;max-width:800px;margin:auto}
-    h1{font-size:22px;text-transform:uppercase;letter-spacing:0.06em} table{width:100%;border-collapse:collapse;font-size:11px;margin:12px 0}
-    th{font-size:9px;text-transform:uppercase;letter-spacing:0.12em;color:#6B6B6B;text-align:left;padding:8px;border-bottom:1px solid #E9E6E0}
-    td{padding:7px 8px;border-bottom:1px solid #E9E6E0}
-  </style></head><body>${htmlContent}<script>window.onload=()=>window.print()<\/script></body></html>`);
+  const t = docTitle ? esc(docTitle) : "Report";
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${t}</title><style>
+    @page {
+      size: auto;
+      margin: 12mm 15mm;
+    }
+    *, *:before, *:after {
+      box-sizing: border-box;
+    }
+    html, body {
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: #0A0A0A;
+      background: #FFFFFF;
+      padding: 24px;
+      max-width: 900px;
+      margin: 0 auto;
+      line-height: 1.4;
+    }
+    .report-header {
+      border-bottom: 2px solid #0A0A0A;
+      padding-bottom: 12px;
+      margin-bottom: 16px;
+    }
+    h1 {
+      font-family: "Newsreader", Georgia, serif;
+      font-size: 20px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin: 0 0 6px 0;
+      color: #0A0A0A;
+    }
+    .report-subtitle {
+      font-size: 11px;
+      letter-spacing: 0.03em;
+      color: #6B6B6B;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .report-meta-tag {
+      display: inline-block;
+      padding: 2px 7px;
+      background: #F6F4EF;
+      border: 1px solid #E9E6E0;
+      border-radius: 2px;
+      font-size: 10px;
+      font-weight: 500;
+      color: #0A0A0A;
+    }
+    .stats-row {
+      display: flex !important;
+      flex-wrap: wrap !important;
+      gap: 8px !important;
+      margin: 14px 0 20px 0 !important;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+    .stat {
+      border: 1px solid #E9E6E0 !important;
+      background: #FCFBF7 !important;
+      padding: 8px 12px !important;
+      min-width: 85px !important;
+      flex: 1 1 0% !important;
+      box-sizing: border-box !important;
+    }
+    .stat b {
+      display: block !important;
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+      font-size: 16px !important;
+      font-weight: 600 !important;
+      color: #0A0A0A !important;
+      letter-spacing: -0.02em !important;
+      line-height: 1.2 !important;
+    }
+    .stat label {
+      display: block !important;
+      font-size: 8.5px !important;
+      font-weight: 600 !important;
+      letter-spacing: 0.12em !important;
+      text-transform: uppercase !important;
+      color: #6B6B6B !important;
+      margin-top: 4px !important;
+      line-height: 1.2 !important;
+    }
+    .table-wrap {
+      border: 1px solid #E9E6E0 !important;
+      background: #FFFFFF !important;
+      margin: 14px 0 20px 0 !important;
+      overflow: visible !important;
+      contain: none !important;
+    }
+    .table-scroll {
+      max-height: none !important;
+      overflow: visible !important;
+    }
+    table {
+      width: 100% !important;
+      max-width: 100% !important;
+      min-width: 0 !important;
+      border-collapse: collapse !important;
+      font-size: 10.5px !important;
+      table-layout: auto !important;
+    }
+    thead {
+      display: table-header-group !important;
+    }
+    tr {
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+    }
+    th {
+      font-size: 8.5px !important;
+      font-weight: 600 !important;
+      text-transform: uppercase !important;
+      letter-spacing: 0.12em !important;
+      color: #6B6B6B !important;
+      text-align: left !important;
+      padding: 8px 10px !important;
+      border-bottom: 1.5px solid #0A0A0A !important;
+      background: #F6F4EF !important;
+      white-space: nowrap !important;
+    }
+    td {
+      padding: 7px 10px !important;
+      border-bottom: 1px solid #E9E6E0 !important;
+      color: #0A0A0A !important;
+      vertical-align: middle !important;
+      font-variant-numeric: tabular-nums !important;
+      white-space: normal !important;
+      word-break: break-word !important;
+      max-width: none !important;
+    }
+    tr:nth-child(even) td {
+      background: #FAFAF7 !important;
+    }
+    .badge {
+      display: inline-block !important;
+      font-size: 8.5px !important;
+      font-weight: 600 !important;
+      letter-spacing: 0.08em !important;
+      text-transform: uppercase !important;
+      padding: 2px 6px !important;
+      border: 1px solid #E9E6E0 !important;
+      background: #FFFFFF !important;
+      border-radius: 2px !important;
+      white-space: nowrap !important;
+    }
+    .badge.present {
+      color: #2F5D34 !important;
+      border-color: #2F5D34 !important;
+      background: #F3F8F4 !important;
+    }
+    .badge.late {
+      color: #8A6A2A !important;
+      border-color: #C7B07A !important;
+      background: #FAF7F0 !important;
+    }
+    .badge.absent {
+      color: #8A3A3A !important;
+      border-color: #8A3A3A !important;
+      background: #FDF4F4 !important;
+    }
+    .badge.not-scheduled {
+      color: #6B6B6B !important;
+      border-color: #E9E6E0 !important;
+      background: #F6F4EF !important;
+    }
+    .badge.duplicate {
+      color: #6B6B6B !important;
+      border-color: #E9E6E0 !important;
+    }
+    .report-section {
+      margin-top: 22px !important;
+      page-break-inside: auto !important;
+      break-inside: auto !important;
+    }
+    .section-title {
+      font-family: "Newsreader", Georgia, serif !important;
+      font-size: 13px !important;
+      font-weight: 600 !important;
+      text-transform: uppercase !important;
+      letter-spacing: 0.08em !important;
+      margin-bottom: 8px !important;
+      color: #0A0A0A !important;
+      border-bottom: 1px solid #E9E6E0 !important;
+      padding-bottom: 4px !important;
+    }
+    .detail-card {
+      border: 1px solid #E9E6E0 !important;
+      background: #FFFFFF !important;
+      padding: 16px !important;
+      margin: 12px 0 !important;
+      display: flex !important;
+      gap: 20px !important;
+    }
+    .detail-photo {
+      width: 140px !important;
+      height: 180px !important;
+      border: 1px solid #0A0A0A !important;
+      background: #F6F4EF !important;
+      overflow: hidden !important;
+      flex-shrink: 0 !important;
+    }
+    .detail-photo img {
+      width: 100% !important;
+      height: 100% !important;
+      object-fit: cover !important;
+    }
+    .detail-photo-fallback {
+      width: 100% !important;
+      height: 100% !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      font-family: "Newsreader", Georgia, serif !important;
+      font-size: 54px !important;
+      color: #0A0A0A !important;
+    }
+    .detail-grid {
+      display: grid !important;
+      grid-template-columns: repeat(2, 1fr) !important;
+      gap: 10px !important;
+      flex: 1 !important;
+    }
+    .detail-field label {
+      display: block !important;
+      font-size: 8.5px !important;
+      font-weight: 600 !important;
+      letter-spacing: 0.12em !important;
+      text-transform: uppercase !important;
+      color: #6B6B6B !important;
+      margin-bottom: 2px !important;
+    }
+    .detail-field span {
+      display: block !important;
+      font-size: 11px !important;
+      font-weight: 500 !important;
+      color: #0A0A0A !important;
+    }
+    .empty {
+      padding: 16px !important;
+      text-align: center !important;
+      font-size: 10px !important;
+      color: #6B6B6B !important;
+    }
+    button, .btn {
+      display: none !important;
+    }
+    @media print {
+      body {
+        padding: 0 !important;
+        max-width: none !important;
+      }
+      .no-print {
+        display: none !important;
+      }
+    }
+  </style></head><body>${htmlContent}<script>window.addEventListener('DOMContentLoaded',()=>{ setTimeout(()=>{ try{ window.print(); }catch(e){} }, 100); }); if(document.readyState==='complete'){ setTimeout(()=>{ try{ window.print(); }catch(e){} }, 100); }<\/script></body></html>`);
   w.document.close();
 }
 
@@ -1631,10 +1890,40 @@ $("todayRefreshBtn").onclick=async()=>{
 $("todayPrintBtn").onclick=()=>{
   const t=todayISO();
   const school=Settings.schoolName||"ATL Model School";
-  const hdr=`<h1>${esc(school)} — Today's Attendance — ${esc(t)}</h1><p style="font-size:11px;color:#6B6B6B">${esc(fmtDate(t))} — ${esc($("todayDateLabel")?$("todayDateLabel").textContent:"")}</p>`;
-  const stats=$("todayStats")?$("todayStats").outerHTML:"";
-  const tbl=document.querySelector('#pane-today .table-wrap');
-  printHTML(hdr+stats+(tbl?tbl.outerHTML:""));
+  const cf=todayClassFilter?todayClassFilter.value:"";
+  const subLabel=$("todayDateLabel")?$("todayDateLabel").textContent:"";
+  const generated=new Date().toLocaleString();
+
+  const hdr=`
+    <div class="report-header">
+      <h1>${esc(school)} — Today's Attendance</h1>
+      <div class="report-subtitle">
+        <div><strong>${esc(fmtDate(t))} (${t})</strong>${cf?` &nbsp;·&nbsp; <span>Class: ${esc(cf)}</span>`:""} &nbsp;·&nbsp; <span>${esc(subLabel)}</span></div>
+        <div><span class="report-meta-tag">Generated: ${esc(generated)}</span></div>
+      </div>
+    </div>`;
+
+  const stats=$("todayStats")&&$("todayStats").children.length ? `<div class="stats-row">${$("todayStats").innerHTML}</div>` : "";
+  const mainTbl=document.querySelector('#pane-today .table-wrap:first-of-type');
+  const tblHtml=mainTbl ? mainTbl.outerHTML : "";
+
+  let unknownsHtml = "";
+  if(Unknowns && Unknowns.length){
+    unknownsHtml = `
+      <div class="report-section">
+        <div class="section-title">Unknown Scan Attempts (${Unknowns.length})</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Time</th><th>Fingerprint</th><th>Note</th></tr></thead>
+            <tbody>
+              ${Unknowns.map(u => `<tr><td>${esc(u.time)}</td><td>${esc(u.finger)}</td><td>${esc(u.note)}</td></tr>`).join("")}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  printHTML(hdr+stats+tblHtml+unknownsHtml, `${school} — Today's Attendance (${t})`);
 };
 $("todayExportBtn").onclick=async()=>{
   const t=todayISO(), cf=todayClassFilter?todayClassFilter.value:"";
@@ -1672,7 +1961,78 @@ $("todayExportBtn").onclick=async()=>{
   exportCSV(rows,"today-"+t+(cf?"-"+cf:"")+".csv");
 };
 $("reportApplyBtn").onclick=renderReports;
-$("reportPrintBtn").onclick=()=>printHTML(`<h1>Attendance Report</h1>${document.querySelector('#pane-reports .table-wrap').innerHTML}`);
+$("reportPrintBtn").onclick=()=>{
+  const school=Settings.schoolName||"ATL Model School";
+  const scope=reportScope.value, cls=reportClass.value;
+  const time=reportTime.value;
+  let from, to; const today=todayISO();
+  if(time==="today"){from=today;to=today;}
+  else if(time==="week"){const d=new Date();d.setDate(d.getDate()-6);from=toLocalISO(d);to=today;}
+  else if(time==="month"){const d=new Date();d.setDate(1);from=toLocalISO(d);to=today;}
+  else if(time==="academic"){from=Settings.startDate||today;to=Settings.endDate||today;}
+  else if(time==="custom"){from=reportFrom.value||today; to=reportTo.value||today;}
+  else {from=Settings.startDate||today;to=today;}
+
+  let scopeLabel="Entire School";
+  if(scope==="class"&&cls) scopeLabel=`Class: ${cls}`;
+  else if(scope==="student"){
+    const sid=parseInt(reportStudent.value);
+    const stu=Students.find(x=>x.id===sid);
+    scopeLabel=stu ? `Student: ${stu.name} (${stu.roll||"—"}, ${stu.class||"—"})` : "Single Student";
+  }
+
+  let dateDesc="";
+  if(from===to){
+    dateDesc=`Date: ${fmtDate(from)} (${from})`;
+  } else {
+    let dayCount = 1;
+    try {
+      const d1 = new Date(from+"T00:00:00"), d2 = new Date(to+"T00:00:00");
+      dayCount = Math.round((d2 - d1)/(1000*60*60*24)) + 1;
+    } catch(e){}
+    dateDesc=`Date Range: ${fmtDate(from)} to ${fmtDate(to)} (${from} → ${to}, ${dayCount} days)`;
+  }
+
+  const generated = new Date().toLocaleString();
+
+  const hdr=`
+    <div class="report-header">
+      <h1>${esc(school)} — Attendance Report</h1>
+      <div class="report-subtitle">
+        <div><strong>${esc(dateDesc)}</strong> &nbsp;·&nbsp; <span>${esc(scopeLabel)}</span></div>
+        <div><span class="report-meta-tag">Generated: ${esc(generated)}</span></div>
+      </div>
+    </div>`;
+
+  const stats = $("reportStats") && $("reportStats").children.length ? `<div class="stats-row">${$("reportStats").innerHTML}</div>` : "";
+  const tbl = document.querySelector('#pane-reports .table-wrap');
+  const tblHtml = tbl ? tbl.outerHTML : "";
+
+  // Unknown scan attempts in date range
+  let unknownsHtml = "";
+  try {
+    const unks = Unknowns.filter(u => {
+      if(u.date) return u.date >= from && u.date <= to;
+      return from <= today && to >= today;
+    });
+    if(unks.length){
+      unknownsHtml = `
+        <div class="report-section">
+          <div class="section-title">Unknown Scan Attempts (${unks.length})</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Time</th><th>Fingerprint</th><th>Note</th></tr></thead>
+              <tbody>
+                ${unks.map(u => `<tr><td>${esc(u.time)}</td><td>${esc(u.finger)}</td><td>${esc(u.note)}</td></tr>`).join("")}
+              </tbody>
+            </table>
+          </div>
+        </div>`;
+    }
+  } catch(e){}
+
+  printHTML(hdr + stats + tblHtml + unknownsHtml, `${school} — Attendance Report (${from}${from!==to?" to "+to:""})`);
+};
 $("reportCsvBtn").onclick=async()=>{
   const scope=reportScope.value, cls=reportClass.value;
   let from,to; const today=todayISO();
