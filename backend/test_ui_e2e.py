@@ -420,11 +420,13 @@ class UiE2eTest(unittest.TestCase):
         # 1. Unified Backup Manager card renders
         manager_card = self.page.locator("#backupManagerCard")
         manager_card.wait_for(state="visible", timeout=3000)
+        self.page.wait_for_function("document.getElementById('destStatusTelegram').textContent !== 'Checking…'", timeout=5000)
 
         enabled_checkbox = self.page.locator("#backupSchedEnabled")
         self.assertTrue(enabled_checkbox.is_visible())
         if not enabled_checkbox.is_checked():
-            enabled_checkbox.check()
+            enabled_checkbox.click()
+            self.page.wait_for_timeout(200)
 
         self.page.fill("#backupSchedTime", "19:45")
 

@@ -1508,10 +1508,12 @@ def run_gdrive_backup(trigger="AUTO"):
     _GDRIVE_STATE["in_progress"] = True
     _GDRIVE_STATE["last_status"] = "IN_PROGRESS"
 
-    staging_dir = "/tmp" if os.name != "nt" else os.environ.get("TEMP", str(ROOT / "backend"))
+    staging_base = "/tmp" if os.name != "nt" else os.environ.get("TEMP", str(ROOT / "backend"))
     ts_safe = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30))).strftime("%Y%m%d_%H%M%S")
     staging_name = f"atl_backup_{ts_safe}.db"
-    staging_path = os.path.join(staging_dir, staging_name)
+    stage_dir = os.path.join(staging_base, f"atl_stage_gdrive_{ts_safe}_{uuid.uuid4().hex[:8]}")
+    os.makedirs(stage_dir, exist_ok=True)
+    staging_path = os.path.join(stage_dir, staging_name)
 
     try:
         snap_info = gb.create_online_snapshot(DB_PATH, staging_path, db_lock=DB_LOCK)
@@ -1568,7 +1570,9 @@ def run_gdrive_backup(trigger="AUTO"):
         return {"ok": False, "error": f"FAIL: {e}"}
     finally:
         _GDRIVE_STATE["in_progress"] = False
-        if os.path.exists(staging_path):
+        if stage_dir and os.path.exists(stage_dir):
+            shutil.rmtree(stage_dir, ignore_errors=True)
+        elif staging_path and os.path.exists(staging_path):
             try: os.remove(staging_path)
             except Exception: pass
 
@@ -1754,12 +1758,16 @@ def run_telegram_backup(staging_path: str = None, trigger: str = "MANUAL") -> di
 
     created_staging = False
     active_path = staging_path
+    stage_dir = None
 
     try:
         if not active_path or not os.path.exists(active_path):
-            staging_dir = "/tmp" if os.name != "nt" else os.environ.get("TEMP", str(ROOT / "backend"))
+            staging_base = "/tmp" if os.name != "nt" else os.environ.get("TEMP", str(ROOT / "backend"))
             ts_safe = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30))).strftime("%Y%m%d_%H%M%S")
-            active_path = os.path.join(staging_dir, f"atl_backup_{ts_safe}.db")
+            filename = f"atl_backup_{ts_safe}.db"
+            stage_dir = os.path.join(staging_base, f"atl_stage_telegram_{ts_safe}_{uuid.uuid4().hex[:8]}")
+            os.makedirs(stage_dir, exist_ok=True)
+            active_path = os.path.join(stage_dir, filename)
             gb.create_online_snapshot(DB_PATH, active_path, db_lock=DB_LOCK)
             created_staging = True
 
@@ -1802,9 +1810,12 @@ def run_telegram_backup(staging_path: str = None, trigger: str = "MANUAL") -> di
         return {"ok": False, "error": err_msg}
     finally:
         _TELEGRAM_STATE["in_progress"] = False
-        if created_staging and active_path and os.path.exists(active_path):
-            try: os.remove(active_path)
-            except Exception: pass
+        if created_staging:
+            if stage_dir and os.path.exists(stage_dir):
+                shutil.rmtree(stage_dir, ignore_errors=True)
+            elif active_path and os.path.exists(active_path):
+                try: os.remove(active_path)
+                except Exception: pass
 
 # --- USB Storage Backup Helpers & State ---
 _USB_STATE = {
@@ -1992,10 +2003,12 @@ def run_usb_backup(trigger: str = "MANUAL") -> dict:
     _USB_STATE["in_progress"] = True
     _USB_STATE["last_status"] = "IN_PROGRESS"
 
-    staging_dir = "/tmp" if os.name != "nt" else os.environ.get("TEMP", str(ROOT / "backend"))
+    staging_base = "/tmp" if os.name != "nt" else os.environ.get("TEMP", str(ROOT / "backend"))
     ts_safe = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30))).strftime("%Y%m%d_%H%M%S")
     filename = f"atl_backup_{ts_safe}.db"
-    staging_path = os.path.join(staging_dir, filename)
+    stage_dir = os.path.join(staging_base, f"atl_stage_usb_{ts_safe}_{uuid.uuid4().hex[:8]}")
+    os.makedirs(stage_dir, exist_ok=True)
+    staging_path = os.path.join(stage_dir, filename)
 
     try:
         # 1. Create online snapshot under DB_LOCK
@@ -2064,7 +2077,9 @@ def run_usb_backup(trigger: str = "MANUAL") -> dict:
         return {"ok": False, "error": f"USB backup error: {e}"}
     finally:
         _USB_STATE["in_progress"] = False
-        if os.path.exists(staging_path):
+        if stage_dir and os.path.exists(stage_dir):
+            shutil.rmtree(stage_dir, ignore_errors=True)
+        elif staging_path and os.path.exists(staging_path):
             try: os.remove(staging_path)
             except Exception: pass
 

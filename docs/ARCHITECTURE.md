@@ -7,7 +7,7 @@ The system is a kiosk: sensor → driver → server → database → UI shell. T
 UI layering:
 - `ATL-Smart-Attendance-Production.html` = shell/markup/CSS — edit for visual redesign
 - `backend/ui_app.js` = behavior/state/events/API — edit for behavior
-- `backend/app.py` = Flask API (serves HTML with `ui_app.js` injected) + background reconciliation worker (`_reconcile_daemon`) + backup scheduler daemon (`_backup_daemon` for Google Drive, Telegram, and USB)
+- `backend/app.py` = Flask API (serves HTML with `ui_app.js` injected) + background reconciliation worker (`_reconcile_daemon`) + backup scheduler daemon (`_gdrive_backup_daemon` for Google Drive, Telegram, and USB)
 - `backend/gdrive_backup.py` = Google Drive cloud backup engine (Device Flow RFC 8628, SQLite Online Backup snapshot, resumable upload, GFS retention)
 - `backend/gt511c3.py` = driver (UART only)
 No working-tree backup HTML is kept — current production release is `v1.1.0` (`da89bdf`); Git tags `v1.0.1` and `v1.0.0` remain historical rollback points.
