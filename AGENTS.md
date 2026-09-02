@@ -2,7 +2,7 @@
 
 This file is the first source of rules for any coding agent. Read it before changing code. It points to the right doc for each task.
 
-Production release: `v1.0.1` (`32e5ef7`). Current `main`: `7a5d73b` (automated daily reconciliation). Historical rollback tag: `v1.0.0` (`c0fe411`). For new work, start from current `main`. Never modify historical release tags. See `docs/VERSIONS.md`.
+Production release: `v1.0.1` (`32e5ef7`). Current `main`: `d5c5462` (automated Google Drive cloud backup via Device Flow RFC 8628 + automated daily reconciliation). Historical rollback tag: `v1.0.0` (`c0fe411`). For new work, start from current `main`. Never modify historical release tags. See `docs/VERSIONS.md`.
 
 ## What this project is
 
@@ -35,7 +35,7 @@ Fingerprint kiosk:
 - **Working dir:** `e:\sss` — do not probe other drives.
 - **UI architecture:** `ATL-Smart-Attendance-Production.html` = shell/markup/CSS/layout; `backend/ui_app.js` = behavior/state/events/API; `backend/app.py` = serves HTML with `ui_app.js` injected at `_serve_production()`; `backend/gt511c3.py` = sensor driver. No working-tree backup HTML is kept — Git tag `v1.0.0` remains the historical rollback point; current production release is `v1.0.1` (see `docs/VERSIONS.md`). Theme `bg #FCFBF7 panel #FFFFFF ink #0A0A0A ink-2 #6B6B6B ink-3 #A8A5A0 line #E9E6E0 paper #F6F4EF ok #2F5D34 danger #8A3A3A` + `Inter/Newsreader/ui-monospace`. Idle `PLACE YOUR FINGER` 11px 0.22em + `Admin` bottom-middle. No `css/ js/ templates/` unless proven need; keep simple architecture.
 - **Stack:** `backend/app.py` + `backend/gt511c3.py` + `backend/schema.sql` + `backend/config.json` (`sensor real`, `uart /dev/serial0`, `baud 9600`, `db /var/lib/atl/attendance.db`, `host 0.0.0.0:5000`). Windows fallback `backend/attendance.db` + `backend/uploads/`. Template `backend/config.example.json`.
-- **Structure:** `ATL-Smart-Attendance-Production.html` (prod) · `AGENTS.md README.md API.md` · `docs/*.md` · `assets/images/{admin,diagrams,students,ui}` · `backend/{app.py,gt511c3.py,schema.sql,config.example.json,requirements.txt,ui_app.js,test_app.py}` · `pi/{setup.sh,atl-attendance.service}` · `tools/{deploy.ps1,deploy.sh,led_test.py}`
+- **Structure:** `ATL-Smart-Attendance-Production.html` (prod) · `AGENTS.md README.md API.md` · `docs/*.md` · `assets/images/{admin,diagrams,students,ui}` · `backend/{app.py,gt511c3.py,gdrive_backup.py,schema.sql,config.example.json,requirements.txt,ui_app.js,test_app.py}` · `pi/{setup.sh,atl-attendance.service}` · `tools/{deploy.ps1,deploy.sh,led_test.py}`
 
 ## How to run, deploy, verify
 
@@ -52,7 +52,7 @@ Fingerprint kiosk:
 - **Settings:** `POST /api/settings` whitelist excludes `sensor/uart/baud/db/host/port/imagesDir` and `adminPin`. Holidays `YYYY-MM-DD[..YYYY-MM-DD]:type:name` where `type holiday|vacation|exam` (`exam`=working); validated via shared holiday parser.
 - **Scheduling:** precedence `override → holiday/vacation/exam → weekly`; weekly per-student `Grade|Batch → batch → class → global`; default Sunday off Mon-Sat on.
 - **Wiring:** VCC **3.3V pin1** never 5V, GND pin6, RX GPIO14/pin8, TX GPIO15/pin10, `/dev/serial0` 9600, `enable_uart=1`.
-- **Artifacts never commit/deploy:** `__pycache__/ *.log *.db *.pre_restore.bak uploads/ .venv/ .env backend/config.json` — template is `backend/config.example.json`.
+- **Artifacts never commit/deploy:** `__pycache__/ *.log *.db *.pre_restore.bak uploads/ .venv/ .env backend/config.json *gdrive_token.json` — template is `backend/config.example.json`.
 - **Attendance:** `PRESENT ≤08:00`, `LATE` otherwise, `DUPLICATE` on same-day re-scan, `NOT_SCHEDULED` muted never absent, `ABSENT` generated only after `lateCutoff` with today guard `BEFORE_CUTOFF` via automated background daemon (`_reconcile_daemon`) or manual `POST /api/reconcile`.
 - **Auth:** Admin PIN via `X-Admin-Pin` header only (no `?pin=` query); health never exposes `adminPin`; backup/restore/export/audit/correction/reconcile require PIN when configured, empty PIN preserves open behavior.
 - **One task at a time.** After code, update docs. Check `docs/*.md` against `backend/app.py`, `gt511c3.py`, `schema.sql`, `ui_app.js` before finishing.

@@ -26,4 +26,4 @@ Scheduling precedence is strict: specific-date override, then holiday range, the
 
 ## Non-goals
 
-The terminal does not send SMS, does not sync to a cloud, does not run multiple sensors, does not fabricate scans when no finger is present, and does not mark absent before the cutoff. Reports are read-only views of `daily` and `events`; corrections are explicit operations with an audit trail.
+The terminal does not send SMS, does not stream attendance to third-party cloud SaaS (Google Drive cloud backup is an offsite disaster recovery snapshot layer), does not run multiple sensors, does not fabricate scans when no finger is present, and does not mark absent before the cutoff. Reports are read-only views of `daily` and `events`; corrections are explicit operations with an audit trail.

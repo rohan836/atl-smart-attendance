@@ -69,4 +69,4 @@ curl -X POST http://192.168.1.8:5000/api/reconcile -H "Content-Type: application
 curl -s http://192.168.1.8:5000/ | grep -o "ATL Smart Attendance Terminal"
 ```
 
-*Aligned 2026-08-31 with `backend/app.py` `backend/ui_app.js`.*
+*Aligned 2026-09-02 with `backend/app.py` `backend/gdrive_backup.py` `backend/ui_app.js`.*

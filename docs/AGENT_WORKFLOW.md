@@ -6,7 +6,7 @@ Every agent must follow this workflow. It keeps changes small, verifiable, and p
 
 1. **Read `AGENTS.md` first.** Entry point that maps tasks to docs.
 2. **Identify the task and read only the relevant docs.** Use `AGENTS.md` table — `docs/PROJECT.md`, `WORKFLOW.md`, `ADMIN.md`, `ARCHITECTURE.md`, `DATA_MODEL.md`, `DEVELOPMENT.md`, `TESTING.md`, `OPERATIONS.md`, plus `API.md` for endpoints. Do not load unrelated docs.
-3. **Inspect the actual current code before assuming.** Read `backend/app.py`, `gt511c3.py`, `schema.sql`, `ui_app.js`, `ATL-Smart-Attendance-Production.html` as needed. Evidence before synthesis.
+3. **Inspect the actual current code before assuming.** Read `backend/app.py`, `gt511c3.py`, `gdrive_backup.py`, `schema.sql`, `ui_app.js`, `ATL-Smart-Attendance-Production.html` as needed. Evidence before synthesis.
 4. **Stay in Plan mode for investigation.** Explore and draft a plan without modifying files.
 5. **Separate confirmed bugs from suspected issues.** Confirmed reproduces with a test or log; suspected needs verification.
 6. **Give evidence, files, risks, tests, and rollback.** For each hypothesis state file/line, risk, covering test, and revert (current production `v1.0.1`, historical `v1.0.0`, `git revert`, or DB `.pre_restore.bak`).
@@ -15,7 +15,7 @@ Every agent must follow this workflow. It keeps changes small, verifiable, and p
 9. **Do not modify unrelated files or architecture.** Keep `ATL-Smart-Attendance-Production.html` (shell/CSS) + `backend/ui_app.js` (behavior). No `css/`/`js/`/`templates/`/components unless proven need.
 10. **Add regression tests for bugs/features.** In `backend/test_app.py`; the fix should have failed before.
 11. **Run the full test suite.** `python -m unittest backend.test_app -v` — all must pass.
-12. **Review `git diff` and check for secrets or runtime data.** No `backend/config.json`, `*.db`, `*.pre_restore.bak`, `uploads/`, `assets/images/students/*`, `__pycache__/`, `*.log`, `.venv/`, `.env`. Confirm `git status` matches intent.
+12. **Review `git diff` and check for secrets or runtime data.** No `backend/config.json`, `*gdrive_token.json`, `*.db`, `*.pre_restore.bak`, `uploads/`, `assets/images/students/*`, `__pycache__/`, `*.log`, `.venv/`, `.env`. Confirm `git status` matches intent.
 13. **Commit one logical change at a time.** Clear message, one concern per commit.
 14. **Deploy only when explicitly required.** `powershell -File tools/deploy.ps1` or `bash tools/deploy.sh`; never `attendance.db` or `config.json`.
 15. **Verify production after deploy.** `curl http://192.168.1.8:5000/api/health` (`db_ok:true`), `curl /` title + `__ATL_BRIDGE__`, `systemctl status atl-attendance`.
@@ -28,7 +28,7 @@ Every agent must follow this workflow. It keeps changes small, verifiable, and p
 A task is done only when:
 
 - Requested behavior works as specified
-- Tests pass (`85/85` or current suite) and new regression coverage exists
+- Tests pass (`98/98` or current suite) and new regression coverage exists
 - Documentation is accurate and the relevant `docs/*.md` were updated
 - No unrelated changes are in the diff
 - Git diff was reviewed and no secrets or runtime data are included
