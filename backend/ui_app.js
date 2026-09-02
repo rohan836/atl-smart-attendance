@@ -770,8 +770,9 @@ async function renderReports(){
   if(scope!=="student"){
     // scheduled denominator consistent with kpis/reports (not raw event count)
     let scheduled = 0;
+    const studentsInScope = Students.filter(s=> s.active && (scope!=="class" || !cls || s.class===cls));
+    const totalStudents = studentsInScope.length;
     try{
-      const studentsInScope = Students.filter(s=> s.active && (scope!=="class" || !cls || s.class===cls));
       let d = parseISO(from), endD = parseISO(to);
       while(d <= endD){
         const iso = toLocalISO(d);
@@ -782,7 +783,28 @@ async function renderReports(){
       }
     }catch(e){ scheduled = present+late+absent; }
     const rate = scheduled ? Math.round((present+late)/scheduled*100) : 0;
-    reportStats.innerHTML=`<div class="stat"><b>${list.length}</b><label>Records</label></div><div class="stat"><b>${present}</b><label>Present</label></div><div class="stat"><b>${late}</b><label>Late</label></div><div class="stat"><b>${absent}</b><label>Absent</label></div><div class="stat"><b>${notScheduled}</b><label>Not Scheduled</label></div><div class="stat"><b>${duplicate}</b><label>Duplicate</label></div><div class="stat"><b>${scheduled}</b><label>Scheduled</label></div><div class="stat"><b>${rate}%</b><label>Rate</label></div><div class="stat"><b>${from} → ${to}</b><label>Range</label></div>`;
+
+    let unkCount = 0;
+    try{
+      unkCount = ev.filter(e => {
+        const isUnk = e.result==="UNKNOWN" || e.status==="UNKNOWN" || (!e.studentId && e.status==="Unknown");
+        return isUnk && (!e.date || (e.date >= from && e.date <= to));
+      }).length;
+      if(!unkCount && Unknowns && from <= today && to >= today){
+        unkCount = Unknowns.filter(u => !u.date || (u.date >= from && u.date <= to)).length;
+      }
+    }catch(e){ unkCount = Unknowns ? Unknowns.length : 0; }
+
+    reportStats.innerHTML=`
+      <div class="stat"><b>${from===to ? from : from+" → "+to}</b><label>Date</label></div>
+      <div class="stat"><b>${totalStudents}</b><label>Total students</label></div>
+      <div class="stat"><b>${present}</b><label>Present</label></div>
+      <div class="stat"><b>${late}</b><label>Late</label></div>
+      <div class="stat"><b>${absent}</b><label>Absent</label></div>
+      <div class="stat"><b>${notScheduled}</b><label>Not Scheduled</label></div>
+      <div class="stat"><b>${unkCount}</b><label>Unknown scans</label></div>
+      <div class="stat"><b>${duplicate}</b><label>Duplicate scans</label></div>
+      <div class="stat"><b>${rate}%</b><label>Attendance %</label></div>`;
   }
   if(!list.length){ reportBody.innerHTML=`<tr><td colspan="7"><div class="empty"><b>No records</b>Adjust scope or time range.</div></td></tr>`; return; }
   reportBody.innerHTML=list.map(a=>{
