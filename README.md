@@ -10,13 +10,18 @@ GT-511C3 200 slots, UART `/dev/serial0` 9600, **VCC 3.3V pin 1 only — never 5V
 
 Wiring: VCC→3.3V pin1, GND→pin6, RX→GPIO14/pin8, TX→GPIO15/pin10.
 
-## Run
+## Run & Local Development
 
-```bash
+```powershell
+# Start safe local development server on Windows PC:
+powershell -File tools/dev.ps1
+# Or directly via Python:
 python backend/app.py          # http://127.0.0.1:5000/
+# Run tests:
 python -m unittest backend.test_app -v       # 116 backend unit tests
-python -m unittest backend.test_ui_e2e -v    # 12 Playwright E2E browser tests
+python -m unittest backend.test_ui_e2e -v    # 14 Playwright E2E browser tests
 ```
+Open `http://127.0.0.1:5000/`. UI changes in `ATL-Smart-Attendance-Production.html` and `backend/ui_app.js` take effect immediately on browser refresh (`F5` / `Ctrl+R`) without restarting the server or deploying to the Pi.
 
 Pi: `http://192.168.1.8:5000/` · `sudo systemctl status atl-attendance` · `journalctl -u atl-attendance -f`
 

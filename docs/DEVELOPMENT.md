@@ -18,6 +18,21 @@ Scan and enroll are concurrency-sensitive. Guard any sensor access with `SENSOR_
 
 Add UI in `ui_app.js` mapping through `mapStudent()`/`mapEvent()` and rendering via `renderAll()`. Add persistence in `app.py` with an additive migration in `_migrate_db()` or `get_settings()` so `DB_PATH` preserves history. Expose any new state through `/api/settings` only if it is in the whitelist; otherwise keep it file-backed. Keep `Cache-Control: no-store` for HTML and API.
 
+## Local UI Development
+
+To preview and iterate on the UI locally on your PC without deploying to the Raspberry Pi:
+```powershell
+# Windows PowerShell
+powershell -File tools/dev.ps1
+# Or directly via Python
+python backend/app.py
+```
+Open **`http://127.0.0.1:5000/`**.
+
+- **Instant Preview:** `backend/app.py` splices `backend/ui_app.js` into `ATL-Smart-Attendance-Production.html` on every GET `/` request with `Cache-Control: no-store`. Any UI/CSS/JS edits take effect immediately upon refreshing the browser (**`F5`** or **`Ctrl+R`**). Server restart is NOT required for UI changes.
+- **Safety & Isolation:** Local development runs in simulated sensor mode (`sensor: sim`) using the local SQLite file (`backend/attendance.db`) and local upload directory (`backend/uploads/`). It has zero network dependency or write access to the Raspberry Pi (`192.168.1.8`).
+- **Production Parity:** Uses the exact same single-file production HTML shell and `ui_app.js` rendered in production.
+
 ## Verification
 
-Run `python -m unittest backend.test_app -v` from the repo root — it uses a temp SQLite file and a simulated sensor, so it never touches hardware. Check that `curl http://127.0.0.1:5000/` still contains the title `ATL Smart Attendance Terminal — Complete School System` and that `curl /api/health` returns `db_ok true`. Confirm `/backend/config.json` is not served and no `__SSR_DATA__` appears in the HTML.
+Run `python -m unittest backend.test_app -v` from the repo root — it uses a temp SQLite file and a simulated sensor, so it never touches hardware. Run `python -m unittest backend.test_ui_e2e -v` for the Playwright browser test suite. Check that `curl http://127.0.0.1:5000/` still contains the title `ATL Smart Attendance Terminal — Complete School System` and that `curl /api/health` returns `db_ok true`. Confirm `/backend/config.json` is not served and no `__SSR_DATA__` appears in the HTML.

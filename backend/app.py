@@ -9,7 +9,14 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONFIG_PATH = pathlib.Path(__file__).with_name("config.json")
 SCHEMA_PATH = pathlib.Path(__file__).with_name("schema.sql")
 
-cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+if CONFIG_PATH.exists():
+    cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+else:
+    EXAMPLE_PATH = pathlib.Path(__file__).with_name("config.example.json")
+    if EXAMPLE_PATH.exists():
+        cfg = json.loads(EXAMPLE_PATH.read_text(encoding="utf-8"))
+    else:
+        cfg = {}
 DB_PATH = os.path.expanduser(cfg.get("db") or str(ROOT / "backend" / "attendance.db"))
 if os.name == "nt" and DB_PATH.startswith("/var"):
     DB_PATH = str(ROOT / "backend" / "attendance.db")
