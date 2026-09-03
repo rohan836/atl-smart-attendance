@@ -1,6 +1,6 @@
 # ADMIN — Responsibilities and functions
 
-Admin is gated behind the terminal's `Admin` trigger and is organized into six tabs. It is the only place that mutates roster, schedules, and school settings. The terminal scan loop pauses while Admin or the enroll modal is open and resumes on close.
+Admin is gated behind the terminal's `Admin` trigger and is organized into four unified tabs: **Students**, **Attendance**, **Setup**, and **Backup**. It is the only place that mutates roster, schedules, and school settings. The terminal scan loop pauses while Admin or the enroll modal is open and resumes on close.
 
 ## Students
 
@@ -8,21 +8,25 @@ Owns the roster. Search spans name, roll, class, batch, phone, fingerprint ID, s
 
 Detail cards show the last 60 events and actions: Edit (whitelisted `PATCH /api/students/:id`), Re-enroll, Deactivate (`DELETE` → `active=0, roll#d{id}, fingerId=NULL`), Re-activate (`PATCH active=1` restores roll if free), and Print. History bundles `events` 500 and `daily` 500. CSV export includes `batch/section/parent/address/attendance_rate`.
 
-## Today
+## Attendance (Unified Today & Reports Workspace)
 
-Current-day view. Stats from `GET /api/kpis?date=today` (via `is_student_scheduled`): Total, Scheduled, Present, Late, Absent, Not Scheduled, Unknown, Duplicate, percent. Filters are class, status, and sort (time/name/roll/class). Main table lists today's `events`; second table lists unknown attempts. `Not Scheduled` is muted, never absent. Print uses school header; CSV uses `?class&status`. Loads via `POST /api/reconcile` first.
+Unifies live operations and historical reporting into a single screen:
+- **Default View:** Defaults immediately to today's live attendance upon opening, with a green `LIVE TODAY` badge, working day vs. holiday status, and scheduled vs. not scheduled breakdown.
+- **Unified Filter Bar:** Fast date controls (Today, Yesterday, Custom Date, Custom Date Range, Last 7 Days, This Month, Academic Year), Class filter, Batch filter, Status filter (All, Present, Late, Absent, Not Scheduled, Duplicate), and Sort ordering.
+- **9 KPI Cards:** In both live and historical modes: `Date`, `Total students`, `Present`, `Late`, `Absent`, `Not Scheduled`, `Unknown scans`, `Duplicate scans`, and `Attendance %`.
+- **Dynamic Attendance Table:**
+  - *Single-Day Mode:* Columns for Time, Student, Roll, Class, Status with `[Correct]` button, and Fingerprint ID.
+  - *Multi-Day Mode:* Columns for Date, Time, Student, Roll, Class, Status with `[Correct]` button, and Working Day (`Scheduled` vs `Not Scheduled`).
+- **Operational Data:** Live unknown scan attempts list with count, time, fingerprint slot, and note.
+- **Actions:** In-place `Refresh` (re-loads sensor events and recalculates), `Print` (professional editorial report layout with header, metadata, 9 KPI cards, table, and unknown attempts), and `Export CSV` (backend export for single day, frontend export for multi-day ranges).
 
-## Reports
+## Setup (Unified School Configuration & Schedule)
 
-Aggregates over scopes: entire school, one class, or one student, and over time windows: today, week, month, academic year, or custom `from ≤ to` (validated). Student scope calls `GET /api/reports?studentId` which returns `present/late/absent/eligible/attended/rate/buckets[11]` counting only scheduled days from `attendanceStartDate` to today. Print and CSV use `GET /api/export/csv?type=attendance&start&end&class&studentId&status` (limit 5000).
-
-## Calendar
-
-Schedule only — not events. Weekly toggles control global working days (Sunday=0). Per-class selection via `calClassSelect` shows the effective weekly map for that class; batch composites `Grade|Batch` are also persisted. Holidays are global ranges `YYYY-MM-DD[..YYYY-MM-DD]:type:name` where `type` is `holiday|vacation|exam`; `exam` counts as working. Overrides are global single-date entries `YYYY-MM-DD:0/1:note` or dict form. Both holidays and overrides are backend-persisted in `POST /api/settings` (`classSchedules`/`batchSchedules`) and included in the database backup — they are not UI-only. Month view and Today status reflect the resolved schedule.
-
-## Settings
-
-Single source for school identity: name, address, late threshold, academic year, and attendance start date. Classes are listed with student counts; adding a class here also makes it available during enrollment. Validation enforces `presentCutoff ≤ lateCutoff` and ISO dates.
+Unifies school settings, classes, batches, rules, calendar, holidays, and schedule inheritance:
+- **School Information & Rules:** Name, address, academic year, attendance start date, present cutoff, and late cutoff.
+- **Classes & Batches:** Manage classes and section batches with student counts and quick schedule jumps.
+- **Schedule Context Selector:** Switch between Global, Class, and Batch contexts with visual inheritance notices and timing controls (`Set Custom Timing`, `Revert to Inherited`).
+- **Weekly Schedule & Holidays:** Weekly working day toggles, holiday range definitions (`holiday`, `vacation`, `exam`), single-date overrides, and live interactive Month View calendar.
 
 ## Backup
 

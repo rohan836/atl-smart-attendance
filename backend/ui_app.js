@@ -303,6 +303,14 @@ const promptText=$("promptText"),
   adminLayer=$("adminLayer"), adminNav=$("adminNav"), adminTitle=$("adminTitle"),
   studentListEl=$("studentList"), searchInput=$("searchInput"), classFilter=$("classFilter"), batchFilter=$("batchFilter"), studentStatusFilter=$("studentStatusFilter"),
   detailScroll=$("detailScroll"),
+  attDatePreset=$("attDatePreset"), attSingleDate=$("attSingleDate"),
+  attFromDate=$("attFromDate"), attToDate=$("attToDate"),
+  attClassFilter=$("attClassFilter"), attBatchFilter=$("attBatchFilter"),
+  attStatusFilter=$("attStatusFilter"), attSort=$("attSort"),
+  attRefreshBtn=$("attRefreshBtn"), attPrintBtn=$("attPrintBtn"), attExportBtn=$("attExportBtn"),
+  attDateLabel=$("attDateLabel"), attModeBadge=$("attModeBadge"), attStats=$("attStats"),
+  attTableHead=$("attTableHead"), attTableBody=$("attTableBody"),
+  attUnknownWrap=$("attUnknownWrap"), attUnknownCount=$("attUnknownCount"), attUnknownBody=$("attUnknownBody"),
   todayDateLabel=$("todayDateLabel"), todayClassFilter=$("todayClassFilter"),
   todayStatusFilter=$("todayStatusFilter"), todaySort=$("todaySort"),
   todayStats=$("todayStats"), todayTableBody=$("todayTableBody"), todayUnknownBody=$("todayUnknownBody"),
@@ -583,13 +591,19 @@ async function sensorScanLoop(){
 function renderClassFilters(){
   const opts=['<option value="">All Classes</option>'].concat(Classes.map(c=>`<option>${esc(c)}</option>`)).join("");
   if(classFilter) classFilter.innerHTML=opts;
+  if(attClassFilter) attClassFilter.innerHTML=opts;
   if(todayClassFilter) todayClassFilter.innerHTML=opts;
-  reportClass.innerHTML='<option value="">Select class</option>'+Classes.map(c=>`<option>${esc(c)}</option>`).join("");
+  if(reportClass) reportClass.innerHTML='<option value="">Select class</option>'+Classes.map(c=>`<option>${esc(c)}</option>`).join("");
+  const batches=[...new Set([...(Batches||[]), ...Students.map(s=>s.batch).filter(Boolean)])].sort();
   if(batchFilter){
-    const batches=[...new Set([...(Batches||[]), ...Students.map(s=>s.batch).filter(Boolean)])].sort();
     const cur=batchFilter.value;
     batchFilter.innerHTML='<option value="">All Batches</option>'+batches.map(b=>`<option ${b===cur?'selected':''}>${esc(b)}</option>`).join("");
     if(!batches.includes(cur)) batchFilter.value="";
+  }
+  if(attBatchFilter){
+    const cur=attBatchFilter.value;
+    attBatchFilter.innerHTML='<option value="">All Batches</option>'+batches.map(b=>`<option ${b===cur?'selected':''}>${esc(b)}</option>`).join("");
+    if(!batches.includes(cur)) attBatchFilter.value="";
   }
   // also populate schedule context selector (Global, Classes, Batches)
   populateScheduleSelector();
@@ -663,161 +677,324 @@ function renderStudentDetail(id){
     </div>`;
 }
 function selectStudent(id){ selectedStudentId=id; renderStudentList(); renderStudentDetail(id); }
-// ---- render: Today ----
-function renderToday(){
-  const t=todayISO(), cf=todayClassFilter.value, sf=todayStatusFilter.value, sort=todaySort.value;
-  const byId=new Map(Students.map(s=>[s.id,s]));
-  let rows=Attendance.filter(a=>a.date===t && a.studentId).map(a=>{ const s=byId.get(a.studentId); return s?{a,s}:null; }).filter(Boolean);
-  if(cf) rows=rows.filter(r=>r.s.class===cf);
-  // backend-persisted schedule: determine scheduled vs not scheduled via per-student precedence
-  const allActiveFiltered = Students.filter(s=>s.active && (!cf || s.class===cf));
-  const scheduledFiltered = allActiveFiltered.filter(s=> isWorkingDayForStudent(t, s));
-  const notScheduledFiltered = allActiveFiltered.filter(s=> !isWorkingDayForStudent(t, s));
-  const isGlobalWorking = isWorkingDayUI(t);
-  if(sf){
-    if(sf==="Duplicate") rows=rows.filter(r=>r.a.isDuplicate);
-    else if(sf==="Unknown") rows=rows.filter(r=>false);
-    else if(sf==="Not Scheduled"){
-      // show not-scheduled students as muted rows (UI preview)
-      rows = notScheduledFiltered.map(s=>({a:{status:"Not Scheduled", time:"—", isDuplicate:false, fingerId:s.fid?parseInt(String(s.fid).replace("F-","")):null, date:t}, s}));
+// ---- render: Unified Attendance Workspace (Live Today + Historical) ----
+async function renderAttendance(){
+  const attPane = document.getElementById("pane-attendance");
+  if(!attPane) return;
+  const preset = (attDatePreset && attDatePreset.value) ? attDatePreset.value : "today";
+  const today = todayISO();
+  let from = today, to = today;
+
+  if(preset === "today"){
+    from = today; to = today;
+    if(attSingleDate) attSingleDate.style.display = "none";
+    if(attFromDate) attFromDate.style.display = "none";
+    if(attToDate) attToDate.style.display = "none";
+  } else if(preset === "yesterday"){
+    const d = new Date(); d.setDate(d.getDate() - 1);
+    from = toLocalISO(d); to = from;
+    if(attSingleDate) attSingleDate.style.display = "none";
+    if(attFromDate) attFromDate.style.display = "none";
+    if(attToDate) attToDate.style.display = "none";
+  } else if(preset === "custom_day"){
+    if(attSingleDate){
+      attSingleDate.style.display = "";
+      if(!attSingleDate.value) attSingleDate.value = today;
+      from = attSingleDate.value; to = from;
     }
-    else if(sf==="Absent"){
-      const presentIds = new Set(rows.filter(r=>r.a.status==="Present"||r.a.status==="Late").map(r=>r.s.id));
-      const absentStudents = scheduledFiltered.filter(s=> !presentIds.has(s.id));
-      rows = absentStudents.map(s=>({a:{status:"Absent", time:"—", isDuplicate:false, fingerId:null, date:t}, s}));
+    if(attFromDate) attFromDate.style.display = "none";
+    if(attToDate) attToDate.style.display = "none";
+  } else if(preset === "custom_range"){
+    if(attSingleDate) attSingleDate.style.display = "none";
+    if(attFromDate) attFromDate.style.display = "";
+    if(attToDate) attToDate.style.display = "";
+    from = attFromDate.value || today;
+    to = attToDate.value || today;
+    if(!attFromDate.value) attFromDate.value = from;
+    if(!attToDate.value) attToDate.value = to;
+    if(from > to){
+      attStats.innerHTML = `<div class="inline-error">Invalid date range — Start date must be before End date.</div>`;
+      attTableBody.innerHTML = `<tr><td colspan="7"><div class="empty"><b>Invalid range</b>Choose a valid custom date range.</div></td></tr>`;
+      return;
     }
-    else rows=rows.filter(r=>r.a.status===sf);
+  } else if(preset === "week"){
+    const d = new Date(); d.setDate(d.getDate() - 6);
+    from = toLocalISO(d); to = today;
+    if(attSingleDate) attSingleDate.style.display = "none";
+    if(attFromDate) attFromDate.style.display = "none";
+    if(attToDate) attToDate.style.display = "none";
+  } else if(preset === "month"){
+    const d = new Date(); d.setDate(1);
+    from = toLocalISO(d); to = today;
+    if(attSingleDate) attSingleDate.style.display = "none";
+    if(attFromDate) attFromDate.style.display = "none";
+    if(attToDate) attToDate.style.display = "none";
+  } else if(preset === "academic"){
+    from = Settings.startDate || Settings.schoolOpeningDate || "2026-06-15";
+    to = Settings.endDate || today;
+    if(attSingleDate) attSingleDate.style.display = "none";
+    if(attFromDate) attFromDate.style.display = "none";
+    if(attToDate) attToDate.style.display = "none";
   }
-  rows.sort((x,y)=>{
-    if(sort==="time_desc") return (y.a.time||"").localeCompare(x.a.time||"");
-    if(sort==="time_asc") return (x.a.time||"").localeCompare(y.a.time||"");
-    if(sort==="name_asc") return x.s.name.localeCompare(y.s.name);
-    if(sort==="roll_asc") return x.s.roll.localeCompare(y.s.roll);
-    if(sort==="class_asc") return x.s.class.localeCompare(y.s.class);
-    return 0;
-  });
-  const total= allActiveFiltered.length;
-  const scheduledTotal = scheduledFiltered.length;
-  const notScheduled = notScheduledFiltered.length;
-  // Prefer backend KPI if available for authoritative counts (scheduled never includes Not Scheduled)
-  let presentAll, lateAll, absentAll, pct;
-  if(Kpis && Kpis.date===t && !cf && typeof Kpis.scheduled==="number"){
-    presentAll = Kpis.present ?? 0;
-    lateAll = Kpis.late ?? 0;
-    absentAll = Kpis.absent ?? Math.max(0, (Kpis.scheduled ?? scheduledTotal) - presentAll - lateAll);
-    pct = Kpis.scheduled ? Math.round((presentAll+lateAll)/Kpis.scheduled*100) : 0;
-  } else {
-    presentAll = Attendance.filter(a=>a.date===t && a.studentId).map(a=>{const s=byId.get(a.studentId); return s&& (!cf||s.class===cf) && isWorkingDayForStudent(t, s) ? a:null}).filter(a=>a&&a.status==="Present").length;
-    lateAll = Attendance.filter(a=>a.date===t && a.studentId).map(a=>{const s=byId.get(a.studentId); return s&& (!cf||s.class===cf) && isWorkingDayForStudent(t, s) ? a:null}).filter(a=>a&&a.status==="Late").length;
-    absentAll = Math.max(0, scheduledTotal - presentAll - lateAll);
-    pct = scheduledTotal?Math.round((presentAll+lateAll)/scheduledTotal*100):0;
-  }
-  const present = sf ? rows.filter(r=>r.a.status==="Present").length : presentAll;
-  const late = sf ? rows.filter(r=>r.a.status==="Late").length : lateAll;
-  const absent = sf ? (sf==="Absent" ? rows.length : (sf==="Not Scheduled" ? 0 : absentAll)) : absentAll;
-  const dup=rows.filter(r=>r.a.isDuplicate).length;
-  const workingLabel = isGlobalWorking ? "Working day" : "Holiday";
-  const schedInfo = cf ? `${cf} — ${scheduledTotal} scheduled, ${notScheduled} not scheduled` : `${scheduledTotal} scheduled, ${notScheduled} not scheduled`;
-  todayDateLabel.textContent=`${fmtDate(t)} — ${workingLabel} — ${schedInfo}`;
-  todayStats.innerHTML=`
-    <div class="stat"><b>${t}</b><label>Date</label></div>
-    <div class="stat"><b>${total}</b><label>Total students</label></div>
-    <div class="stat"><b>${present}</b><label>Present</label></div>
-    <div class="stat"><b>${late}</b><label>Late</label></div>
-    <div class="stat"><b>${absent}</b><label>Absent</label></div>
-    <div class="stat"><b>${notScheduled}</b><label>Not Scheduled</label></div>
-    <div class="stat"><b>${Unknowns.length}</b><label>Unknown scans</label></div>
-    <div class="stat"><b>${dup}</b><label>Duplicate scans</label></div>
-    <div class="stat"><b>${pct}%</b><label>Attendance %</label></div>`;
-  if(!rows.length){ todayTableBody.innerHTML=`<tr><td colspan="6"><div class="empty"><b>No attendance recorded today</b>Place a finger on the scanner — results appear here from the database.</div></td></tr>`; }
-  else todayTableBody.innerHTML=rows.map(r=>`<tr data-student="${r.s.id}"><td>${esc(r.a.time)}</td><td>${esc(r.s.name)}</td><td>${esc(r.s.roll)}</td><td>${esc(r.s.class)}</td><td><span class="badge ${r.a.status.toLowerCase().replace(" ","-")}">${esc(r.a.status)}</span>${r.a.isDuplicate?' <span class="badge">Duplicate</span>':''} <button class="btn" data-correct data-correct-sid="${r.s.id}" data-correct-date="${esc(r.a.date||t)}" data-correct-status="${esc(r.a.status)}" style="height:20px;padding:0 6px;font-size:9px;margin-left:6px">Correct</button></td><td>${esc(r.a.fingerId!=null?"F-"+r.a.fingerId:"")}</td></tr>`).join("");
-  todayUnknownBody.innerHTML=Unknowns.length?Unknowns.map(u=>`<tr><td>${esc(u.time)}</td><td>${esc(u.finger)}</td><td>${esc(u.note)}</td></tr>`).join(""):`<tr><td colspan="3"><div class="empty"><b>No unknown scans today</b></div></td></tr>`;
-}
-// ---- render: Reports (backend-aware: handles NOT_SCHEDULED, batch schedules, and per-student KPI) ----
-async function renderReports(){
-  const scope=reportScope.value, cls=reportClass.value, time=reportTime.value;
-  let from,to; const today=todayISO();
-  if(time==="today"){from=today;to=today;}
-  else if(time==="week"){const d=new Date();d.setDate(d.getDate()-6);from=toLocalISO(d);to=today;}
-  else if(time==="month"){const d=new Date();d.setDate(1);from=toLocalISO(d);to=today;}
-  else if(time==="academic"){from=Settings.startDate||today;to=Settings.endDate||today;}
-  else if(time==="custom"){
-    from=reportFrom.value||""; to=reportTo.value||"";
-    if(!from||!to||from>to){ reportStats.innerHTML=`<div class="inline-error">Invalid date range — Start must be before End.</div>`; reportBody.innerHTML=`<tr><td colspan="7"><div class="empty"><b>Invalid range</b>Choose a valid custom range.</div></td></tr>`; return; }
-  }
-  else {from=Settings.startDate||today;to=today;}
-  // For single student scope, fetch authoritative KPI from backend
-  if(scope==="student"){
-    const sid=parseInt(reportStudent.value);
-    if(sid){
-      try{
-        const rpt = await api("/api/reports?studentId="+sid, {method:"GET"});
-        if(rpt && typeof rpt==="object" && "eligible" in rpt){
-          reportStats.innerHTML=`<div class="stat"><b>${rpt.eligible}</b><label>Eligible days</label></div><div class="stat"><b>${rpt.attended}</b><label>Attended</label></div><div class="stat"><b>${rpt.present}</b><label>Present</label></div><div class="stat"><b>${rpt.late}</b><label>Late</label></div><div class="stat"><b>${rpt.absent}</b><label>Absent</label></div><div class="stat"><b>${rpt.rate}%</b><label>Rate</label></div><div class="stat"><b>${from} → ${to}</b><label>Range</label></div>`;
-        }
+
+  const isSingleDay = (from === to);
+  const isToday = (from === today);
+  const cf = attClassFilter ? attClassFilter.value : "";
+  const bf = attBatchFilter ? attBatchFilter.value : "";
+  const sf = attStatusFilter ? attStatusFilter.value : "";
+  const sort = attSort ? attSort.value : "time_desc";
+
+  // Filter active students by class & batch
+  const studentsInScope = Students.filter(s => s.active && (!cf || s.class === cf) && (!bf || (s.batch || "") === bf));
+  const totalStudents = studentsInScope.length;
+  const byId = new Map(Students.map(s => [s.id, s]));
+
+  // Update mode badge
+  if(attModeBadge){
+    if(isToday){
+      attModeBadge.textContent = "Live Today";
+      attModeBadge.style.cssText = "font-size:10px;letter-spacing:0.1em;text-transform:uppercase;padding:2px 8px;border:1px solid #2F5D34;border-radius:2px;background:#2F5D34;color:#fff;font-weight:600";
+    } else if(preset === "yesterday"){
+      attModeBadge.textContent = "Yesterday";
+      attModeBadge.style.cssText = "font-size:10px;letter-spacing:0.1em;text-transform:uppercase;padding:2px 8px;border:1px solid var(--line);border-radius:2px;background:var(--paper);color:var(--ink-2)";
+    } else if(isSingleDay){
+      attModeBadge.textContent = `Date: ${from}`;
+      attModeBadge.style.cssText = "font-size:10px;letter-spacing:0.1em;text-transform:uppercase;padding:2px 8px;border:1px solid var(--line);border-radius:2px;background:var(--paper);color:var(--ink-2)";
+    } else {
+      let days = 1;
+      try {
+        const d1 = new Date(from+"T00:00:00"), d2 = new Date(to+"T00:00:00");
+        days = Math.round((d2 - d1)/(1000*60*60*24)) + 1;
       }catch(e){}
+      attModeBadge.textContent = `Range: ${from} → ${to} (${days}d)`;
+      attModeBadge.style.cssText = "font-size:10px;letter-spacing:0.1em;text-transform:uppercase;padding:2px 8px;border:1px solid var(--line);border-radius:2px;background:var(--paper);color:var(--ink-2)";
     }
   }
-  let ev=[]; try{ ev=await api("/api/attendance",{method:"GET"}); }catch(e){ ev=Attendance; }
-  let list=ev.filter(a=>a.date>=from&&a.date<=to).map(mapEvent);
-  if(scope==="class"&&cls) list=list.filter(a=>{const s=Students.find(x=>x.id===a.studentId); return s&&s.class===cls;});
-  if(scope==="student"){const sid=parseInt(reportStudent.value); if(sid) list=list.filter(a=>a.studentId===sid);}
-  list.sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time)).reverse();
-  const present=list.filter(a=>a.status==="Present").length, late=list.filter(a=>a.status==="Late").length;
-  const absent=list.filter(a=>a.status==="Absent").length, notScheduled=list.filter(a=>a.status==="Not Scheduled").length;
-  const duplicate=list.filter(a=>a.isDuplicate).length;
-  // For non-student scope, build stats with backend-aware counts (absent never includes Not Scheduled)
-  if(scope!=="student"){
-    // scheduled denominator consistent with kpis/reports (not raw event count)
-    let scheduled = 0;
-    const studentsInScope = Students.filter(s=> s.active && (scope!=="class" || !cls || s.class===cls));
-    const totalStudents = studentsInScope.length;
-    try{
+
+  // Fetch events
+  let ev = [];
+  if(isToday){
+    ev = Attendance;
+  } else {
+    try {
+      ev = await api("/api/attendance", {method:"GET"});
+    } catch(e){
+      ev = Attendance;
+    }
+  }
+
+  // Filter events in date range
+  let list = ev.filter(a => a.date >= from && a.date <= to).map(mapEvent);
+  if(cf) list = list.filter(a => { const s = byId.get(a.studentId); return s && s.class === cf; });
+  if(bf) list = list.filter(a => { const s = byId.get(a.studentId); return s && (s.batch || "") === bf; });
+
+  // Scheduled vs Not Scheduled calculations
+  let scheduled = 0;
+  let scheduledFiltered = [];
+  let notScheduledFiltered = [];
+
+  if(isSingleDay){
+    scheduledFiltered = studentsInScope.filter(s => isWorkingDayForStudent(from, s));
+    notScheduledFiltered = studentsInScope.filter(s => !isWorkingDayForStudent(from, s));
+    scheduled = scheduledFiltered.length;
+  } else {
+    try {
       let d = parseISO(from), endD = parseISO(to);
       while(d <= endD){
         const iso = toLocalISO(d);
         for(const stu of studentsInScope){
           if(isWorkingDayForStudent(iso, stu)) scheduled++;
         }
-        d.setDate(d.getDate()+1);
+        d.setDate(d.getDate() + 1);
       }
-    }catch(e){ scheduled = present+late+absent; }
-    const rate = scheduled ? Math.round((present+late)/scheduled*100) : 0;
-
-    let unkCount = 0;
-    try{
-      unkCount = ev.filter(e => {
-        const isUnk = e.result==="UNKNOWN" || e.status==="UNKNOWN" || (!e.studentId && e.status==="Unknown");
-        return isUnk && (!e.date || (e.date >= from && e.date <= to));
-      }).length;
-      if(!unkCount && Unknowns && from <= today && to >= today){
-        unkCount = Unknowns.filter(u => !u.date || (u.date >= from && u.date <= to)).length;
-      }
-    }catch(e){ unkCount = Unknowns ? Unknowns.length : 0; }
-
-    reportStats.innerHTML=`
-      <div class="stat"><b>${from===to ? from : from+" → "+to}</b><label>Date</label></div>
-      <div class="stat"><b>${totalStudents}</b><label>Total students</label></div>
-      <div class="stat"><b>${present}</b><label>Present</label></div>
-      <div class="stat"><b>${late}</b><label>Late</label></div>
-      <div class="stat"><b>${absent}</b><label>Absent</label></div>
-      <div class="stat"><b>${notScheduled}</b><label>Not Scheduled</label></div>
-      <div class="stat"><b>${unkCount}</b><label>Unknown scans</label></div>
-      <div class="stat"><b>${duplicate}</b><label>Duplicate scans</label></div>
-      <div class="stat"><b>${rate}%</b><label>Attendance %</label></div>`;
-  }
-  if(!list.length){ reportBody.innerHTML=`<tr><td colspan="7"><div class="empty"><b>No records</b>Adjust scope or time range.</div></td></tr>`; return; }
-  reportBody.innerHTML=list.map(a=>{
-    const s=Students.find(x=>x.id===a.studentId);
-    // working-day? column shows scheduled vs not scheduled for that student/date
-    let working="—";
-    if(s && a.date){
-      working = isWorkingDayForStudent(a.date, s) ? "Scheduled" : "Not Scheduled";
-      if(a.status==="Not Scheduled") working="Not Scheduled";
-      else if(a.status==="Absent" && !isWorkingDayForStudent(a.date, s)) working="Not Scheduled";
+    } catch(e){
+      scheduled = list.filter(a => a.status === "Present" || a.status === "Late" || a.status === "Absent").length;
     }
-    return `<tr><td>${esc(a.date)}</td><td>${esc(a.time)}</td><td>${esc(s?s.name:"Unknown")}</td><td>${esc(s?s.roll:"")}</td><td>${esc(s?s.class:"")}</td><td><span class="badge ${a.status.toLowerCase().replace(" ","-")}">${esc(a.status)}</span></td><td>${esc(working)}${a.isDuplicate?" · Duplicate":""}</td></tr>`;
-  }).join("");
+  }
+
+  // Filtered rows display
+  let rows = [];
+  if(isSingleDay){
+    rows = list.map(a => { const s = byId.get(a.studentId); return s ? {a, s} : null; }).filter(Boolean);
+    if(sf){
+      if(sf === "Duplicate") rows = rows.filter(r => r.a.isDuplicate);
+      else if(sf === "Unknown") rows = [];
+      else if(sf === "Not Scheduled"){
+        rows = notScheduledFiltered.map(s => ({a:{status:"Not Scheduled", time:"—", isDuplicate:false, fingerId:s.fid?parseInt(String(s.fid).replace("F-","")):null, date:from}, s}));
+      } else if(sf === "Absent"){
+        const presentIds = new Set(rows.filter(r => r.a.status === "Present" || r.a.status === "Late").map(r => r.s.id));
+        const absentStudents = scheduledFiltered.filter(s => !presentIds.has(s.id));
+        rows = absentStudents.map(s => ({a:{status:"Absent", time:"—", isDuplicate:false, fingerId:null, date:from}, s}));
+      } else {
+        rows = rows.filter(r => r.a.status === sf);
+      }
+    }
+  } else {
+    // Multi-day
+    rows = list.map(a => { const s = byId.get(a.studentId); return s ? {a, s} : null; }).filter(Boolean);
+    if(sf){
+      if(sf === "Duplicate") rows = rows.filter(r => r.a.isDuplicate);
+      else if(sf === "Unknown") rows = [];
+      else rows = rows.filter(r => r.a.status === sf);
+    }
+  }
+
+  // Sort rows
+  rows.sort((x, y) => {
+    if(!isSingleDay){
+      const dc = (y.a.date || "").localeCompare(x.a.date || "");
+      if(dc !== 0) return dc;
+    }
+    if(sort === "time_desc") return (y.a.time || "").localeCompare(x.a.time || "");
+    if(sort === "time_asc") return (x.a.time || "").localeCompare(y.a.time || "");
+    if(sort === "name_asc") return x.s.name.localeCompare(y.s.name);
+    if(sort === "roll_asc") return x.s.roll.localeCompare(y.s.roll);
+    if(sort === "class_asc") return x.s.class.localeCompare(y.s.class);
+    if(sort === "status_asc") return (x.a.status || "").localeCompare(y.a.status || "");
+    return 0;
+  });
+
+  // KPI Calculations
+  let presentAll, lateAll, absentAll, pct;
+  if(isToday && Kpis && Kpis.date === today && !cf && !bf && typeof Kpis.scheduled === "number"){
+    presentAll = Kpis.present ?? 0;
+    lateAll = Kpis.late ?? 0;
+    absentAll = Kpis.absent ?? Math.max(0, (Kpis.scheduled ?? scheduled) - presentAll - lateAll);
+    pct = Kpis.scheduled ? Math.round((presentAll + lateAll)/Kpis.scheduled*100) : 0;
+  } else if(isSingleDay){
+    presentAll = list.filter(a => a.status === "Present").length;
+    lateAll = list.filter(a => a.status === "Late").length;
+    absentAll = Math.max(0, scheduled - presentAll - lateAll);
+    pct = scheduled ? Math.round((presentAll + lateAll)/scheduled*100) : 0;
+  } else {
+    presentAll = list.filter(a => a.status === "Present").length;
+    lateAll = list.filter(a => a.status === "Late").length;
+    absentAll = list.filter(a => a.status === "Absent").length;
+    pct = scheduled ? Math.round((presentAll + lateAll)/scheduled*100) : 0;
+  }
+
+  const present = sf ? rows.filter(r => r.a.status === "Present").length : presentAll;
+  const late = sf ? rows.filter(r => r.a.status === "Late").length : lateAll;
+  const absent = sf ? (sf === "Absent" ? rows.length : (sf === "Not Scheduled" ? 0 : absentAll)) : absentAll;
+  const notScheduledCount = isSingleDay ? notScheduledFiltered.length : list.filter(a => a.status === "Not Scheduled").length;
+  const dup = rows.filter(r => r.a.isDuplicate).length;
+
+  // Unknown scan attempts
+  let unks = [];
+  try {
+    unks = Unknowns.filter(u => (!u.date && isToday) || (u.date >= from && u.date <= to));
+    const evUnks = ev.filter(e => {
+      const isUnk = e.result === "UNKNOWN" || e.status === "UNKNOWN" || (!e.studentId && e.status === "Unknown");
+      return isUnk && (!e.date || (e.date >= from && e.date <= to));
+    });
+    for(const eu of evUnks){
+      if(!unks.some(u => u.time === eu.time && u.finger === (eu.fingerId ? "F-"+eu.fingerId : "—"))){
+        unks.push({time: eu.time, finger: eu.fingerId ? "F-"+eu.fingerId : "—", note: "Unknown fingerprint", date: eu.date});
+      }
+    }
+  } catch(e){
+    unks = isToday ? Unknowns : [];
+  }
+
+  // Update attDateLabel
+  const isGlobalWorking = isWorkingDayUI(from);
+  const workingLabel = isGlobalWorking ? "Working day" : "Holiday / Vacation";
+  if(isToday){
+    const schedInfo = cf ? `${cf} — ${scheduled} scheduled, ${notScheduledCount} not scheduled` : `${scheduled} scheduled, ${notScheduledCount} not scheduled`;
+    attDateLabel.textContent = `${fmtDate(today)} — ${workingLabel} — ${schedInfo}`;
+  } else if(isSingleDay){
+    const schedInfo = `${scheduled} scheduled, ${notScheduledCount} not scheduled`;
+    attDateLabel.textContent = `${fmtDate(from)} (${from}) — ${workingLabel} — ${schedInfo}`;
+  } else {
+    let dayCount = 1;
+    try {
+      const d1 = new Date(from+"T00:00:00"), d2 = new Date(to+"T00:00:00");
+      dayCount = Math.round((d2 - d1)/(1000*60*60*24)) + 1;
+    } catch(e){}
+    attDateLabel.textContent = `Date Range: ${fmtDate(from)} to ${fmtDate(to)} (${from} → ${to}, ${dayCount} days)${cf?` · Class: ${cf}`:""}${bf?` · Batch: ${bf}`:""}`;
+  }
+
+  // Render 9 KPI cards
+  const dateCardVal = isSingleDay ? from : `${from} → ${to}`;
+  attStats.innerHTML = `
+    <div class="stat"><b>${esc(dateCardVal)}</b><label>Date</label></div>
+    <div class="stat"><b>${totalStudents}</b><label>Total students</label></div>
+    <div class="stat"><b>${present}</b><label>Present</label></div>
+    <div class="stat"><b>${late}</b><label>Late</label></div>
+    <div class="stat"><b>${absent}</b><label>Absent</label></div>
+    <div class="stat"><b>${notScheduledCount}</b><label>Not Scheduled</label></div>
+    <div class="stat"><b>${unks.length}</b><label>Unknown scans</label></div>
+    <div class="stat"><b>${dup}</b><label>Duplicate scans</label></div>
+    <div class="stat"><b>${pct}%</b><label>Attendance %</label></div>`;
+
+  // Render Table Head
+  if(isSingleDay){
+    attTableHead.innerHTML = `<tr><th>Time</th><th>Student</th><th>Roll</th><th>Class</th><th>Status</th><th>Fingerprint</th></tr>`;
+  } else {
+    attTableHead.innerHTML = `<tr><th>Date</th><th>Time</th><th>Student</th><th>Roll</th><th>Class</th><th>Status</th><th>Working Day?</th></tr>`;
+  }
+
+  // Render Table Body
+  if(!rows.length){
+    attTableBody.innerHTML = `<tr><td colspan="${isSingleDay ? 6 : 7}"><div class="empty"><b>No attendance records</b>No scans recorded for this selection. Place a finger on the sensor or adjust the filter.</div></td></tr>`;
+  } else {
+    attTableBody.innerHTML = rows.map(r => {
+      const isDupeBadge = r.a.isDuplicate ? ' <span class="badge">Duplicate</span>' : '';
+      const correctBtn = `<button class="btn" data-correct data-correct-sid="${r.s.id}" data-correct-date="${esc(r.a.date || from)}" data-correct-status="${esc(r.a.status)}" style="height:20px;padding:0 6px;font-size:9px;margin-left:6px">Correct</button>`;
+      if(isSingleDay){
+        return `<tr data-student="${r.s.id}">
+          <td>${esc(r.a.time)}</td>
+          <td>${esc(r.s.name)}</td>
+          <td>${esc(r.s.roll)}</td>
+          <td>${esc(r.s.class)}</td>
+          <td><span class="badge ${r.a.status.toLowerCase().replace(" ","-")}">${esc(r.a.status)}</span>${isDupeBadge} ${correctBtn}</td>
+          <td>${esc(r.a.fingerId!=null ? "F-"+r.a.fingerId : "")}</td>
+        </tr>`;
+      } else {
+        let working = "—";
+        if(r.s && r.a.date){
+          working = isWorkingDayForStudent(r.a.date, r.s) ? "Scheduled" : "Not Scheduled";
+          if(r.a.status === "Not Scheduled") working = "Not Scheduled";
+          else if(r.a.status === "Absent" && !isWorkingDayForStudent(r.a.date, r.s)) working = "Not Scheduled";
+        }
+        return `<tr data-student="${r.s.id}">
+          <td>${esc(r.a.date)}</td>
+          <td>${esc(r.a.time)}</td>
+          <td>${esc(r.s.name)}</td>
+          <td>${esc(r.s.roll)}</td>
+          <td>${esc(r.s.class)}</td>
+          <td><span class="badge ${r.a.status.toLowerCase().replace(" ","-")}">${esc(r.a.status)}</span>${isDupeBadge} ${correctBtn}</td>
+          <td>${esc(working)}</td>
+        </tr>`;
+      }
+    }).join("");
+  }
+
+  // Render Unknown Attempts section
+  if(attUnknownCount) attUnknownCount.textContent = `${unks.length} attempt${unks.length === 1 ? "" : "s"}`;
+  if(attUnknownBody){
+    if(unks.length){
+      attUnknownBody.innerHTML = unks.map(u => `<tr><td>${esc(u.time)}</td><td>${esc(u.finger)}</td><td>${esc(u.note)}</td></tr>`).join("");
+    } else {
+      attUnknownBody.innerHTML = `<tr><td colspan="3"><div class="empty" style="padding:16px"><b>No unknown scan attempts</b></div></td></tr>`;
+    }
+  }
+
+  // Sync backward compatibility aliases
+  if(todayStats) todayStats.innerHTML = attStats.innerHTML;
+  if(todayDateLabel) todayDateLabel.textContent = attDateLabel.textContent;
+  if(todayTableBody) todayTableBody.innerHTML = attTableBody.innerHTML;
+  if(todayUnknownBody && attUnknownBody) todayUnknownBody.innerHTML = attUnknownBody.innerHTML;
+  if(reportStats) reportStats.innerHTML = attStats.innerHTML;
+  if(reportBody) reportBody.innerHTML = attTableBody.innerHTML;
+}
+
+function renderToday(){
+  if(attDatePreset) attDatePreset.value = "today";
+  renderAttendance();
+}
+async function renderReports(){
+  renderAttendance();
 }
 // ---- render: Calendar (holidays/weekly/overrides persisted in backend settings) ----
 function isHoliday(d){ return Holidays.find(h=>inRange(d,h.start,h.end))||null; }
@@ -1756,17 +1933,25 @@ async function openAdmin(){
     // for other errors (e.g., network when PIN empty), still allow open to preserve offline admin when no PIN
     const pin = (()=>{ try{ return sessionStorage.getItem("atl_admin_pin") || ""; }catch(_e){ return ""; }})();
     if(!pin){
-      // check if PIN actually required by probing require_admin logic: if health would show PIN needed, but we already tried audit
-      // if PIN is configured but user cancelled, e.status 401 already handled; otherwise allow open
     } else {
       return;
     }
   }
-  const titles={students:"Students", today:"Today — Attendance", reports:"Reports", setup:"Setup — School Configuration & Schedule", calendar:"Setup — School Configuration & Schedule", settings:"Setup — School Configuration & Schedule", backup:"Backup — Audit"};
+  const titles={
+    students: "Students",
+    attendance: "Today — Attendance",
+    today: "Today — Attendance",
+    reports: "Attendance",
+    setup: "Setup — School Configuration & Schedule",
+    calendar: "Setup — School Configuration & Schedule",
+    settings: "Setup — School Configuration & Schedule",
+    backup: "Backup — Audit"
+  };
   if(adminTitle) adminTitle.textContent=titles[currentTab]||"Admin";
   // show loading briefly while data refreshes
   let activeTabName = currentTab;
   if(activeTabName === "calendar" || activeTabName === "settings") activeTabName = "setup";
+  if(activeTabName === "today" || activeTabName === "reports") activeTabName = "attendance";
   const pane=document.getElementById("pane-"+activeTabName);
   if(pane) pane.style.opacity="0.6";
   pauseSensorScan(); adminLayer.classList.add("open"); renderAll();
@@ -1776,8 +1961,15 @@ function updateTabs(){
   document.querySelectorAll(".admin-pane").forEach(p=>p.classList.add("hidden"));
   let tab = currentTab;
   if(tab === "calendar" || tab === "settings") tab = "setup";
+  if(tab === "today" || tab === "reports") tab = "attendance";
   const pane = document.getElementById("pane-" + tab);
   if(pane){ pane.classList.remove("hidden"); pane.style.opacity = ""; }
+  const pToday = document.getElementById("pane-today");
+  const pReports = document.getElementById("pane-reports");
+  if(tab === "attendance"){
+    if(pToday) pToday.classList.remove("hidden");
+    if(pReports) pReports.classList.remove("hidden");
+  }
   const pCal = document.getElementById("pane-calendar");
   const pSet = document.getElementById("pane-settings");
   if(tab === "setup"){
@@ -1786,16 +1978,19 @@ function updateTabs(){
   }
   const titles = {
     students: "Students",
+    attendance: "Today — Attendance",
     today: "Today — Attendance",
-    reports: "Reports",
+    reports: "Attendance",
     setup: "Setup — School Configuration & Schedule",
     calendar: "Setup — School Configuration & Schedule",
     settings: "Setup — School Configuration & Schedule",
     backup: "Backup — Audit"
   };
   if(adminTitle) adminTitle.textContent = titles[currentTab] || "Admin";
-  if(tab === "today") renderToday();
-  if(tab === "reports") renderReports();
+  if(tab === "attendance" || tab === "today" || tab === "reports"){
+    if(currentTab === "attendance" && attDatePreset && !attDatePreset.value) attDatePreset.value = "today";
+    renderAttendance();
+  }
   if(tab === "setup"){
     populateScheduleSelector();
     renderClasses();
@@ -1825,6 +2020,13 @@ adminNav.onclick=(e)=>{
     const setupBtn = adminNav.querySelector("button[data-tab='setup']");
     if(setupBtn) setupBtn.classList.add("active");
   }
+  if(currentTab === "today" || currentTab === "reports"){
+    const attBtn = adminNav.querySelector("button[data-tab='attendance']");
+    if(attBtn) attBtn.classList.add("active");
+  }
+  if(currentTab === "attendance" || currentTab === "today"){
+    if(attDatePreset) attDatePreset.value = "today";
+  }
   updateTabs();
 };
 // CSV import (backend) — Import CSV beside Export CSV (static in HTML, dynamic fallback)
@@ -1851,237 +2053,186 @@ adminNav.onclick=(e)=>{
   impBtn._csvWired = true;
   impBtn.onclick=()=>fileInput.click();
   fileInput.onchange=async(e)=>{
-      const file=e.target.files&&e.target.files[0]; if(!file) return;
-      const text=await file.text();
-      // try backend import via file upload first
-      try{
-        const form=new FormData(); form.append('file', file);
-        const pinHeaders={}; try{ const pin=sessionStorage.getItem("atl_admin_pin")||""; if(pin) pinHeaders["X-Admin-Pin"]=pin; }catch(e){}
-        const r=await fetch('/api/import/csv',{method:'POST',body:form,cache:'no-store', headers:pinHeaders});
-        const body=await r.json().catch(()=>({}));
-        if(!r.ok) throw new Error(body.error||('HTTP '+r.status));
-        alert(`Imported ${body.added||0} students, skipped ${body.skipped||0}` + (body.errors&&body.errors.length ? `\n${body.errors.slice(0,3).join('\n')}` : ''));
-        await loadAll();
-      }catch(err){
-        // fallback: try JSON csv text
-        try{
-          const r2=await api('/api/import/csv',{method:'POST',body:JSON.stringify({csv:text})});
-          alert(`Imported ${r2.added||0} students`);
-          await loadAll();
-        }catch(e2){
-          alert('Import failed: '+(err.message||e2.message));
-        }
-      }
-      e.target.value='';
-    };
+    const file=e.target.files?.[0]; if(!file) return;
+    fileInput.value='';
+    const prev=impBtn.textContent; impBtn.textContent='Importing…'; impBtn.disabled=true;
+    try{
+      const fd=new FormData(); fd.append('file',file);
+      const r=await api('/api/students/import',{method:'POST',body:fd});
+      alert(`Import complete: ${r.created||0} created, ${r.updated||0} updated${r.errors?.length?` (${r.errors.length} errors)`:''}`);
+      await loadAll();
+    }catch(err){ alert('Import failed: '+(err.message||err)); }
+    finally{ impBtn.textContent=prev; impBtn.disabled=false; }
+  };
 })();
-$("exportStudentsBtn").onclick=async()=>{
-  // Prefer backend export (includes batch/section/parent/attendance_rate)
-  try{
-    const r=await fetch('/api/export/csv?type=students',{cache:'no-store'});
-    if(r.ok){
-      const blob=await r.blob();
-      const url=URL.createObjectURL(blob), a=document.createElement('a');
-      const cd=r.headers.get('Content-Disposition')||'';
-      let fn="students_"+todayISO()+".csv";
-      const m=cd.match(/filename="?([^"]+)"?/); if(m) fn=m[1];
-      a.href=url; a.download=fn; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),1500);
-      return;
-    }
-  }catch(e){}
-  // offline fallback: export currently filtered view
-  const q=(searchInput.value||"").toLowerCase(), cf=classFilter?classFilter.value:"", bf=batchFilter?batchFilter.value:"", sf=studentStatusFilter?studentStatusFilter.value:"active";
-  let list=Students.filter(s=>{
-    if(sf==="active" && !s.active) return false;
-    if(sf==="inactive" && s.active) return false;
-    if(cf && s.class!==cf) return false;
-    if(bf && (s.batch||"")!==bf) return false;
-    if(q && !(s.name+" "+s.roll+" "+s.class+" "+(s.batch||"")+" "+s.phone+" "+s.fid+" "+s.id+" "+(s.section||"")+" "+(s.parent||"")).toLowerCase().includes(q)) return false;
-    return true;
-  });
-  const rows=[["ID","Name","Roll","Class","Batch","Section","Parent","Phone","Address","Fingerprint","Status"]].concat(list.map(s=>[s.id,s.name,s.roll,s.class,s.batch||"",s.section||"",s.parent||"",s.phone||"",s.address||"",s.fid||"",s.active?"Active":"Inactive"]));
-  exportCSV(rows,"students_"+todayISO()+".csv");
-};
-$("todayRefreshBtn").onclick=async()=>{
-  const btn=$("todayRefreshBtn");
-  const prev=btn?btn.textContent:"";
-  if(btn){ btn.textContent="Loading…"; btn.disabled=true; }
-  try{ await loadTodayAttendance(); renderToday(); }
-  finally{ if(btn){ btn.textContent=prev; btn.disabled=false; } }
-};
-$("todayPrintBtn").onclick=()=>{
-  const t=todayISO();
-  const school=Settings.schoolName||"ATL Model School";
-  const cf=todayClassFilter?todayClassFilter.value:"";
-  const subLabel=$("todayDateLabel")?$("todayDateLabel").textContent:"";
-  const generated=new Date().toLocaleString();
+// Unified Attendance toolbar actions & event listeners
+const handleAttendancePrint = () => {
+  const school = Settings.schoolName || "ATL Model School";
+  const preset = attDatePreset ? attDatePreset.value : "today";
+  const today = todayISO();
+  let from = today, to = today;
+  if(preset === "today"){ from = today; to = today; }
+  else if(preset === "yesterday"){ const d = new Date(); d.setDate(d.getDate()-1); from = toLocalISO(d); to = from; }
+  else if(preset === "custom_day"){ from = (attSingleDate && attSingleDate.value) || today; to = from; }
+  else if(preset === "custom_range"){ from = (attFromDate && attFromDate.value) || today; to = (attToDate && attToDate.value) || today; }
+  else if(preset === "week"){ const d = new Date(); d.setDate(d.getDate()-6); from = toLocalISO(d); to = today; }
+  else if(preset === "month"){ const d = new Date(); d.setDate(1); from = toLocalISO(d); to = today; }
+  else if(preset === "academic"){ from = Settings.startDate || Settings.schoolOpeningDate || "2026-06-15"; to = Settings.endDate || today; }
 
-  const hdr=`
-    <div class="report-header">
-      <h1>${esc(school)} — Today's Attendance</h1>
-      <div class="report-subtitle">
-        <div><strong>${esc(fmtDate(t))} (${t})</strong>${cf?` &nbsp;·&nbsp; <span>Class: ${esc(cf)}</span>`:""} &nbsp;·&nbsp; <span>${esc(subLabel)}</span></div>
-        <div><span class="report-meta-tag">Generated: ${esc(generated)}</span></div>
-      </div>
-    </div>`;
+  const isSingleDay = (from === to);
+  const cf = attClassFilter ? attClassFilter.value : "";
+  const bf = attBatchFilter ? attBatchFilter.value : "";
+  let scopeLabel = "Entire School";
+  if(cf && bf) scopeLabel = `Class: ${cf} · Batch: ${bf}`;
+  else if(cf) scopeLabel = `Class: ${cf}`;
+  else if(bf) scopeLabel = `Batch: ${bf}`;
 
-  const stats=$("todayStats")&&$("todayStats").children.length ? `<div class="stats-row">${$("todayStats").innerHTML}</div>` : "";
-  const mainTbl=document.querySelector('#pane-today .table-wrap:first-of-type');
-  const tblHtml=mainTbl ? mainTbl.outerHTML : "";
-
-  let unknownsHtml = "";
-  if(Unknowns && Unknowns.length){
-    unknownsHtml = `
-      <div class="report-section">
-        <div class="section-title">Unknown Scan Attempts (${Unknowns.length})</div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Time</th><th>Fingerprint</th><th>Note</th></tr></thead>
-            <tbody>
-              ${Unknowns.map(u => `<tr><td>${esc(u.time)}</td><td>${esc(u.finger)}</td><td>${esc(u.note)}</td></tr>`).join("")}
-            </tbody>
-          </table>
-        </div>
-      </div>`;
-  }
-
-  printHTML(hdr+stats+tblHtml+unknownsHtml, `${school} — Today's Attendance (${t})`);
-};
-$("todayExportBtn").onclick=async()=>{
-  const t=todayISO(), cf=todayClassFilter?todayClassFilter.value:"";
-  // Prefer backend export (includes reconciled ABSENT/NOT_SCHEDULED)
-  try{
-    let url="/api/export/csv?type=attendance&date="+encodeURIComponent(t);
-    if(cf) url+="&class="+encodeURIComponent(cf);
-    const sf=todayStatusFilter?todayStatusFilter.value:"";
-    if(sf && ["Present","Late","Absent","Not Scheduled","Duplicate","Unknown"].includes(sf)) url+="&status="+encodeURIComponent(sf.toUpperCase().replace(" ","_"));
-    const r=await fetch(url,{cache:"no-store"});
-    if(r.ok){
-      const blob=await r.blob();
-      const url2=URL.createObjectURL(blob), a=document.createElement('a');
-      a.href=url2; a.download="today-"+t+(cf?"-"+cf:"")+".csv"; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url2),1500);
-      return;
-    }
-  }catch(e){}
-  // fallback: include virtual Not Scheduled / Absent rows as shown in UI (backend schedule-aware)
-  const allActiveFiltered = Students.filter(s=>s.active && (!cf || s.class===cf));
-  const scheduledFiltered = allActiveFiltered.filter(s=> isWorkingDayForStudent(t, s));
-  const rowsVisible = (()=> {
-    const sf=todayStatusFilter?todayStatusFilter.value:"";
-    if(sf==="Not Scheduled"){
-      const notSched=allActiveFiltered.filter(s=> !isWorkingDayForStudent(t, s));
-      return notSched.map(s=>["—",s.name,s.roll,s.class,"Not Scheduled",s.fid||""]);
-    }
-    if(sf==="Absent"){
-      const presentIds=new Set(Attendance.filter(a=>a.date===t&&(a.status==="Present"||a.status==="Late")).map(a=>a.studentId));
-      const abs=scheduledFiltered.filter(s=> !Attendance.some(a=>a.date===t&&a.studentId===s.id&&(a.status==="Present"||a.status==="Late")));
-      return abs.map(s=>["—",s.name,s.roll,s.class,"Absent",""]);
-    }
-    return Attendance.filter(a=>a.date===t&&a.studentId).filter(a=>{ const s=Students.find(x=>x.id===a.studentId); return s&& (!cf||s.class===cf); }).map(a=>{ const s=Students.find(x=>x.id===a.studentId); return [a.time,s?s.name:"",s?s.roll:"",s?s.class:"",a.status,a.fingerId!=null?"F-"+a.fingerId:""]; });
-  })();
-  const rows=[["Time","Student","Roll","Class","Status","Fingerprint"]].concat(rowsVisible);
-  exportCSV(rows,"today-"+t+(cf?"-"+cf:"")+".csv");
-};
-$("reportApplyBtn").onclick=renderReports;
-$("reportPrintBtn").onclick=()=>{
-  const school=Settings.schoolName||"ATL Model School";
-  const scope=reportScope.value, cls=reportClass.value;
-  const time=reportTime.value;
-  let from, to; const today=todayISO();
-  if(time==="today"){from=today;to=today;}
-  else if(time==="week"){const d=new Date();d.setDate(d.getDate()-6);from=toLocalISO(d);to=today;}
-  else if(time==="month"){const d=new Date();d.setDate(1);from=toLocalISO(d);to=today;}
-  else if(time==="academic"){from=Settings.startDate||today;to=Settings.endDate||today;}
-  else if(time==="custom"){from=reportFrom.value||today; to=reportTo.value||today;}
-  else {from=Settings.startDate||today;to=today;}
-
-  let scopeLabel="Entire School";
-  if(scope==="class"&&cls) scopeLabel=`Class: ${cls}`;
-  else if(scope==="student"){
-    const sid=parseInt(reportStudent.value);
-    const stu=Students.find(x=>x.id===sid);
-    scopeLabel=stu ? `Student: ${stu.name} (${stu.roll||"—"}, ${stu.class||"—"})` : "Single Student";
-  }
-
-  let dateDesc="";
-  if(from===to){
-    dateDesc=`Date: ${fmtDate(from)} (${from})`;
+  let dateDesc = "";
+  if(isSingleDay){
+    dateDesc = (from === today) ? `Today — ${fmtDate(from)} (${from})` : `Date: ${fmtDate(from)} (${from})`;
   } else {
     let dayCount = 1;
     try {
       const d1 = new Date(from+"T00:00:00"), d2 = new Date(to+"T00:00:00");
       dayCount = Math.round((d2 - d1)/(1000*60*60*24)) + 1;
     } catch(e){}
-    dateDesc=`Date Range: ${fmtDate(from)} to ${fmtDate(to)} (${from} → ${to}, ${dayCount} days)`;
+    dateDesc = `Date Range: ${fmtDate(from)} to ${fmtDate(to)} (${from} → ${to}, ${dayCount} days)`;
   }
 
   const generated = new Date().toLocaleString();
+  const titleText = isSingleDay ? `${school} — Attendance (${from})` : `${school} — Attendance Report`;
 
-  const hdr=`
+  const hdr = `
     <div class="report-header">
-      <h1>${esc(school)} — Attendance Report</h1>
+      <h1>${esc(titleText)}</h1>
       <div class="report-subtitle">
         <div><strong>${esc(dateDesc)}</strong> &nbsp;·&nbsp; <span>${esc(scopeLabel)}</span></div>
         <div><span class="report-meta-tag">Generated: ${esc(generated)}</span></div>
       </div>
     </div>`;
 
-  const stats = $("reportStats") && $("reportStats").children.length ? `<div class="stats-row">${$("reportStats").innerHTML}</div>` : "";
-  const tbl = document.querySelector('#pane-reports .table-wrap');
-  const tblHtml = tbl ? tbl.outerHTML : "";
+  const stats = (attStats && attStats.children.length) ? `<div class="stats-row">${attStats.innerHTML}</div>` : "";
+  const mainTbl = document.querySelector('#pane-attendance .table-wrap:first-of-type') || document.querySelector('#pane-today .table-wrap:first-of-type');
+  const tblHtml = mainTbl ? mainTbl.outerHTML : "";
 
-  // Unknown scan attempts in date range
   let unknownsHtml = "";
-  try {
-    const unks = Unknowns.filter(u => {
-      if(u.date) return u.date >= from && u.date <= to;
-      return from <= today && to >= today;
-    });
-    if(unks.length){
-      unknownsHtml = `
-        <div class="report-section">
-          <div class="section-title">Unknown Scan Attempts (${unks.length})</div>
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>Time</th><th>Fingerprint</th><th>Note</th></tr></thead>
-              <tbody>
-                ${unks.map(u => `<tr><td>${esc(u.time)}</td><td>${esc(u.finger)}</td><td>${esc(u.note)}</td></tr>`).join("")}
-              </tbody>
-            </table>
-          </div>
-        </div>`;
-    }
-  } catch(e){}
+  const unkRows = attUnknownBody ? attUnknownBody.querySelectorAll("tr") : [];
+  const hasUnks = unkRows.length && !attUnknownBody.querySelector(".empty");
+  if(hasUnks){
+    unknownsHtml = `
+      <div class="report-section">
+        <div class="section-title">Unknown Scan Attempts (${unkRows.length})</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Time</th><th>Fingerprint</th><th>Note</th></tr></thead>
+            <tbody>
+              ${attUnknownBody.innerHTML}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  }
 
-  printHTML(hdr + stats + tblHtml + unknownsHtml, `${school} — Attendance Report (${from}${from!==to?" to "+to:""})`);
+  printHTML(hdr + stats + tblHtml + unknownsHtml, `${school} — Attendance (${from}${from!==to?" to "+to:""})`);
 };
-$("reportCsvBtn").onclick=async()=>{
-  const scope=reportScope.value, cls=reportClass.value;
-  let from,to; const today=todayISO();
-  const time=reportTime.value;
-  if(time==="today"){from=today;to=today;}
-  else if(time==="week"){const d=new Date();d.setDate(d.getDate()-6);from=toLocalISO(d);to=today;}
-  else if(time==="month"){const d=new Date();d.setDate(1);from=toLocalISO(d);to=today;}
-  else if(time==="academic"){from=Settings.startDate||today;to=Settings.endDate||today;}
-  else if(time==="custom"){from=reportFrom.value||""; to=reportTo.value||"";}
-  else {from=Settings.startDate||today;to=today;}
-  try{
-    let url="/api/export/csv?type=attendance";
-    if(from) url+="&start="+encodeURIComponent(from);
-    if(to) url+="&end="+encodeURIComponent(to);
-    if(scope==="class"&&cls) url+="&class="+encodeURIComponent(cls);
-    if(scope==="student"){const sid=parseInt(reportStudent.value); if(sid) url+="&studentId="+encodeURIComponent(sid);}
-    const r=await fetch(url,{cache:"no-store"});
-    if(r.ok){
-      const blob=await r.blob();
-      const url2=URL.createObjectURL(blob), a=document.createElement('a');
-      a.href=url2; a.download="report-"+(from||today)+"_"+(to||today)+".csv"; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url2),1500);
-      return;
+
+const handleAttendanceExport = async () => {
+  const preset = attDatePreset ? attDatePreset.value : "today";
+  const today = todayISO();
+  let from = today, to = today;
+  if(preset === "today"){ from = today; to = today; }
+  else if(preset === "yesterday"){ const d = new Date(); d.setDate(d.getDate()-1); from = toLocalISO(d); to = from; }
+  else if(preset === "custom_day"){ from = (attSingleDate && attSingleDate.value) || today; to = from; }
+  else if(preset === "custom_range"){ from = (attFromDate && attFromDate.value) || today; to = (attToDate && attToDate.value) || today; }
+  else if(preset === "week"){ const d = new Date(); d.setDate(d.getDate()-6); from = toLocalISO(d); to = today; }
+  else if(preset === "month"){ const d = new Date(); d.setDate(1); from = toLocalISO(d); to = today; }
+  else if(preset === "academic"){ from = Settings.startDate || Settings.schoolOpeningDate || "2026-06-15"; to = Settings.endDate || today; }
+
+  const isSingleDay = (from === to);
+  const cf = attClassFilter ? attClassFilter.value : "";
+  const bf = attBatchFilter ? attBatchFilter.value : "";
+  const sf = attStatusFilter ? attStatusFilter.value : "";
+
+  if(isSingleDay){
+    try {
+      let url = "/api/export/csv?type=attendance&date=" + encodeURIComponent(from);
+      if(cf) url += "&class=" + encodeURIComponent(cf);
+      if(sf && ["Present","Late","Absent","Not Scheduled","Duplicate","Unknown"].includes(sf)){
+        url += "&status=" + encodeURIComponent(sf.toUpperCase().replace(" ","_"));
+      }
+      const r = await fetch(url, {cache: "no-store"});
+      if(r.ok){
+        const blob = await r.blob();
+        const url2 = URL.createObjectURL(blob), a = document.createElement('a');
+        a.href = url2; a.download = `attendance-${from}${cf?"-"+cf:""}.csv`;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url2), 1500);
+        return;
+      }
+    } catch(e){}
+  }
+
+  // Fallback / multi-day frontend CSV export
+  const rows = [["Date", "Time", "Student", "Roll", "Class", "Batch", "Status", "Fingerprint"]];
+  const trs = attTableBody ? attTableBody.querySelectorAll("tr") : [];
+  trs.forEach(tr => {
+    if(tr.querySelector(".empty")) return;
+    const tds = [...tr.querySelectorAll("td")].map(td => {
+      const clone = td.cloneNode(true);
+      clone.querySelectorAll("button").forEach(b => b.remove());
+      return clone.textContent.trim().replace(/\s+/g, " ");
+    });
+    const sid = tr.getAttribute("data-student");
+    const stu = sid ? Students.find(s => s.id === parseInt(sid)) : null;
+    if(isSingleDay && tds.length >= 6){
+      rows.push([from, tds[0], tds[1], tds[2], tds[3], stu ? (stu.batch||"") : "", tds[4], tds[5]]);
+    } else if(tds.length >= 7){
+      rows.push([tds[0], tds[1], tds[2], tds[3], tds[4], stu ? (stu.batch||"") : "", tds[5], tds[6]]);
     }
-  }catch(e){}
-  const rows=[["Date","Time","Student","Status"]].concat([...reportBody.querySelectorAll("tr")].map(tr=>[...tr.querySelectorAll("td")].map(td=>td.textContent)).filter(r=>r.length>1));
-  exportCSV(rows,"report-"+todayISO()+".csv");
+  });
+  const filename = `attendance-${from}${from!==to ? "-to-"+to : ""}${cf?"-"+cf:""}.csv`;
+  exportCSV(rows, filename);
 };
+
+const handleAttendanceRefresh = async () => {
+  const btn = attRefreshBtn || $("todayRefreshBtn");
+  const prev = btn ? btn.textContent : "Refresh";
+  if(btn){ btn.textContent = "Refreshing…"; btn.disabled = true; }
+  try {
+    await loadTodayAttendance();
+    await renderAttendance();
+  } finally {
+    if(btn){ setTimeout(() => { btn.textContent = prev; btn.disabled = false; }, 300); }
+  }
+};
+
+if(attRefreshBtn) attRefreshBtn.onclick = handleAttendanceRefresh;
+if(attPrintBtn) attPrintBtn.onclick = handleAttendancePrint;
+if(attExportBtn) attExportBtn.onclick = handleAttendanceExport;
+
+// Connect legacy button aliases
+if($("todayRefreshBtn")) $("todayRefreshBtn").onclick = handleAttendanceRefresh;
+if($("todayPrintBtn")) $("todayPrintBtn").onclick = handleAttendancePrint;
+if($("todayExportBtn")) $("todayExportBtn").onclick = handleAttendanceExport;
+if($("reportApplyBtn")) $("reportApplyBtn").onclick = renderAttendance;
+if($("reportPrintBtn")) $("reportPrintBtn").onclick = handleAttendancePrint;
+if($("reportCsvBtn")) $("reportCsvBtn").onclick = handleAttendanceExport;
+
+if(attDatePreset) attDatePreset.addEventListener("change", () => {
+  const v = attDatePreset.value;
+  if(attSingleDate) attSingleDate.style.display = (v === "custom_day") ? "" : "none";
+  if(attFromDate) attFromDate.style.display = (v === "custom_range") ? "" : "none";
+  if(attToDate) attToDate.style.display = (v === "custom_range") ? "" : "none";
+  renderAttendance();
+});
+if(attSingleDate) attSingleDate.addEventListener("change", renderAttendance);
+if(attFromDate) attFromDate.addEventListener("change", renderAttendance);
+if(attToDate) attToDate.addEventListener("change", renderAttendance);
+if(attClassFilter) attClassFilter.addEventListener("change", renderAttendance);
+if(attBatchFilter) attBatchFilter.addEventListener("change", renderAttendance);
+if(attStatusFilter) attStatusFilter.addEventListener("change", renderAttendance);
+if(attSort) attSort.addEventListener("change", renderAttendance);
+
 $("calPrevBtn").onclick=()=>{ calendarMonth.setMonth(calendarMonth.getMonth()-1); renderCalendarMonth(); };
 $("calNextBtn").onclick=()=>{ calendarMonth.setMonth(calendarMonth.getMonth()+1); renderCalendarMonth(); };
 if($("calTodayBtn")) $("calTodayBtn").onclick=()=>{ calendarMonth=new Date(); renderCalendarMonth(); };
@@ -3086,18 +3237,19 @@ searchInput.addEventListener("input",()=>{ Timers.clear("search"); Timers.set("s
 classFilter.addEventListener("change",renderStudentList);
 if(batchFilter) batchFilter.addEventListener("change",renderStudentList);
 if(studentStatusFilter) studentStatusFilter.addEventListener("change",renderStudentList);
-todayClassFilter.addEventListener("change",renderToday);
-todayStatusFilter.addEventListener("change",renderToday);
-todaySort.addEventListener("change",renderToday);
-reportScope.addEventListener("change",()=>{
+if(todayClassFilter) todayClassFilter.addEventListener("change",renderToday);
+if(todayStatusFilter) todayStatusFilter.addEventListener("change",renderToday);
+if(todaySort) todaySort.addEventListener("change",renderToday);
+if(reportScope) reportScope.addEventListener("change",()=>{
   const sc=reportScope.value;
-  reportClass.style.display=(sc==="class")?"":"none";
-  reportStudent.style.display=sc==="student"?"":"none";
-  if(sc==="student") reportStudent.innerHTML='<option value="">Select</option>'+Students.filter(s=>s.active).map(s=>`<option value="${s.id}">${esc(s.name)} — ${esc(s.roll)}</option>`).join("");
+  if(reportClass) reportClass.style.display=(sc==="class")?"":"none";
+  if(reportStudent) {
+    reportStudent.style.display=sc==="student"?"":"none";
+    if(sc==="student") reportStudent.innerHTML='<option value="">Select</option>'+Students.filter(s=>s.active).map(s=>`<option value="${s.id}">${esc(s.name)} — ${esc(s.roll)}</option>`).join("");
+  }
 });
-reportTime.addEventListener("change",()=>{ const show=reportTime.value==="custom"; reportFrom.style.display=show?"":"none"; reportTo.style.display=show?"":"none"; });
-todayTableBody.addEventListener("click",(e)=>{
-  // if correction badge clicked, handle correction first
+if(reportTime) reportTime.addEventListener("change",()=>{ const show=reportTime.value==="custom"; if(reportFrom) reportFrom.style.display=show?"":"none"; if(reportTo) reportTo.style.display=show?"":"none"; });
+const handleTableClick = (e)=>{
   const corr = e.target.closest("[data-correct]");
   if(corr){
     e.stopPropagation();
@@ -3107,7 +3259,9 @@ todayTableBody.addEventListener("click",(e)=>{
   }
   const tr=e.target.closest("tr"); if(!tr) return; const sid=parseInt(tr.dataset.student);
   if(sid){ adminNav.querySelector('[data-tab="students"]').click(); setTimeout(()=>selectStudent(sid),120); }
-});
+};
+if(attTableBody) attTableBody.addEventListener("click", handleTableClick);
+if(todayTableBody && todayTableBody !== attTableBody) todayTableBody.addEventListener("click", handleTableClick);
 // ---- correction (POST /api/correction) ----
 function openCorrection(studentId, date, oldStatus){
   const s=Students.find(x=>x.id===studentId);

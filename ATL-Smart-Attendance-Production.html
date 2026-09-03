@@ -203,10 +203,11 @@ tr:hover td{background:var(--paper)}
     <div class="admin-top"><div class="admin-title" id="adminTitle">Students</div><div style="display:flex;gap:8px;align-items:center"><span style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-3)">Esc to close</span><button class="admin-close" id="adminClose">Close</button></div></div>
     <div class="admin-nav" id="adminNav">
       <button data-tab="students" class="active">Students</button>
-      <button data-tab="today">Today</button>
-      <button data-tab="reports">Reports</button>
+      <button data-tab="attendance">Attendance</button>
       <button data-tab="setup">Setup</button>
       <button data-tab="backup">Backup</button>
+      <button data-tab="today" style="display:none"></button>
+      <button data-tab="reports" style="display:none"></button>
       <button data-tab="calendar" style="display:none"></button>
       <button data-tab="settings" style="display:none"></button>
     </div>
@@ -227,39 +228,84 @@ tr:hover td{background:var(--paper)}
           <div class="detail-pane"><div class="detail-scroll" id="detailScroll"><div class="empty"><b>No student selected</b>Choose a student to view profile, attendance summary, history, and fingerprint controls. Search supports name, roll, class, section, parent phone, fingerprint ID.</div></div></div>
         </div>
       </div>
-      <!-- Today -->
-      <div class="admin-pane hidden" id="pane-today">
-        <div class="tab-toolbar">
-          <div id="todayDateLabel" style="font-size:11px;letter-spacing:0.08em;flex:1 1 0%">Today — --</div>
-          <select id="todayClassFilter"><option value="">All Classes</option></select>
-          <select id="todayStatusFilter"><option value="">All Status</option><option value="Present">Present</option><option value="Late">Late</option><option value="Absent">Absent</option><option value="Not Scheduled">Not Scheduled</option><option value="Unknown">Unknown</option><option value="Duplicate">Duplicate</option></select>
-          <select id="todaySort"><option value="time_desc">Time ↓</option><option value="time_asc">Time ↑</option><option value="name_asc">Name A→Z</option><option value="roll_asc">Roll</option><option value="class_asc">Class</option><option value="status_asc">Status</option></select>
-          <button class="btn" id="todayRefreshBtn">Refresh</button>
-          <button class="btn" id="todayPrintBtn">Print</button>
-          <button class="btn" id="todayExportBtn">Export CSV</button>
+      <!-- Attendance: Unified Live Today & Historical Attendance Workspace -->
+      <div class="admin-pane hidden" id="pane-attendance">
+        <div class="tab-toolbar" style="flex-wrap:wrap;height:auto;min-height:48px;padding:8px 16px;gap:8px">
+          <select id="attDatePreset">
+            <option value="today">Today</option>
+            <option value="yesterday">Yesterday</option>
+            <option value="custom_day">Custom Date</option>
+            <option value="custom_range">Custom Range</option>
+            <option value="week">This Week (7d)</option>
+            <option value="month">This Month</option>
+            <option value="academic">Academic Year</option>
+          </select>
+          <input type="date" id="attSingleDate" style="display:none">
+          <input type="date" id="attFromDate" style="display:none">
+          <input type="date" id="attToDate" style="display:none">
+          <select id="attClassFilter"><option value="">All Classes</option></select>
+          <select id="attBatchFilter"><option value="">All Batches</option></select>
+          <select id="attStatusFilter">
+            <option value="">All Status</option>
+            <option value="Present">Present</option>
+            <option value="Late">Late</option>
+            <option value="Absent">Absent</option>
+            <option value="Not Scheduled">Not Scheduled</option>
+            <option value="Unknown">Unknown</option>
+            <option value="Duplicate">Duplicate</option>
+          </select>
+          <select id="attSort">
+            <option value="time_desc">Time ↓</option>
+            <option value="time_asc">Time ↑</option>
+            <option value="name_asc">Name A→Z</option>
+            <option value="roll_asc">Roll</option>
+            <option value="class_asc">Class</option>
+            <option value="status_asc">Status</option>
+          </select>
+          <button class="btn primary" id="attRefreshBtn">Refresh</button>
+          <button class="btn" id="attPrintBtn">Print</button>
+          <button class="btn" id="attExportBtn">Export CSV</button>
         </div>
         <div class="detail-scroll">
-          <div class="stats-row" id="todayStats"></div>
-          <div class="table-wrap"><div class="table-scroll large"><table><thead><tr><th>Time</th><th>Student</th><th>Roll</th><th>Class</th><th>Status</th><th>Fingerprint</th></tr></thead><tbody id="todayTableBody"></tbody></table></div></div>
-          <div class="table-wrap" style="margin-top:12px"><div style="padding:10px 12px;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;border-bottom:1px solid var(--line)">Unknown attempts</div><div class="table-scroll"><table><thead><tr><th>Time</th><th>Fingerprint</th><th>Note</th></tr></thead><tbody id="todayUnknownBody"></tbody></table></div></div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+            <div id="attDateLabel" style="font-size:11px;letter-spacing:0.06em;color:var(--ink-2);font-weight:500">Today — --</div>
+            <div id="attModeBadge" style="font-size:10px;letter-spacing:0.1em;text-transform:uppercase;padding:2px 8px;border:1px solid var(--line);border-radius:2px;background:var(--paper);color:var(--ink-3)">Live Today</div>
+          </div>
+          <div class="stats-row" id="attStats"></div>
+          <div class="table-wrap">
+            <div class="table-scroll large">
+              <table>
+                <thead id="attTableHead">
+                  <tr><th>Time</th><th>Student</th><th>Roll</th><th>Class</th><th>Status</th><th>Fingerprint</th></tr>
+                </thead>
+                <tbody id="attTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="table-wrap" id="attUnknownWrap" style="margin-top:12px">
+            <div style="padding:10px 12px;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center">
+              <span>Unknown scan attempts</span>
+              <span id="attUnknownCount" style="color:var(--ink-3)">0 attempts</span>
+            </div>
+            <div class="table-scroll">
+              <table>
+                <thead><tr><th>Time</th><th>Fingerprint</th><th>Note</th></tr></thead>
+                <tbody id="attUnknownBody"></tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </div>
-      <!-- Reports -->
-      <div class="admin-pane hidden" id="pane-reports">
-        <div class="tab-toolbar" style="flex-wrap:wrap;height:auto;min-height:48px;padding:8px 16px">
-          <select id="reportScope"><option value="school">Entire school</option><option value="class">One class</option><option value="student">One student</option></select>
-          <select id="reportClass"><option value="">Select class</option></select>
-          <select id="reportStudent" style="display:none"><option value="">Select student</option></select>
-          <select id="reportTime"><option value="today">Today</option><option value="week">This week</option><option value="month">This month</option><option value="year">This year</option><option value="academic">Academic year 2026-27</option><option value="custom">Custom range</option></select>
-          <input type="date" id="reportFrom" style="display:none"><input type="date" id="reportTo" style="display:none">
-          <button class="btn primary" id="reportApplyBtn">Apply</button>
-          <button class="btn" id="reportPrintBtn">Print</button>
-          <button class="btn" id="reportCsvBtn">CSV</button>
-        </div>
-        <div class="detail-scroll">
-          <div class="stats-row" id="reportStats"></div>
-          <div class="table-wrap"><div class="table-scroll large"><table><thead><tr><th>Date</th><th>Time</th><th>Student</th><th>Roll</th><th>Class</th><th>Status</th><th>Working day?</th></tr></thead><tbody id="reportBody"></tbody></table></div></div>
-        </div>
+      <!-- Backward compatibility aliases for legacy ID queries -->
+      <div id="pane-today" class="admin-pane hidden" style="display:none">
+        <div id="todayDateLabel"></div><select id="todayClassFilter"></select><select id="todayStatusFilter"></select><select id="todaySort"></select>
+        <button id="todayRefreshBtn"></button><button id="todayPrintBtn"></button><button id="todayExportBtn"></button>
+        <div id="todayStats"></div><tbody id="todayTableBody"></tbody><tbody id="todayUnknownBody"></tbody>
+      </div>
+      <div id="pane-reports" class="admin-pane hidden" style="display:none">
+        <select id="reportScope"></select><select id="reportClass"></select><select id="reportStudent"></select><select id="reportTime"></select>
+        <input type="date" id="reportFrom"><input type="date" id="reportTo"><button id="reportApplyBtn"></button><button id="reportPrintBtn"></button><button id="reportCsvBtn"></button>
+        <div id="reportStats"></div><tbody id="reportBody"></tbody>
       </div>
       <!-- Setup: School Configuration & Schedule (Unified) -->
       <div class="admin-pane hidden" id="pane-setup">

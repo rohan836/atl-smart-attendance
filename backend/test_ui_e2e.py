@@ -311,8 +311,7 @@ class UiE2eTest(unittest.TestCase):
 
         tabs = [
             ("students", "pane-students", "Students"),
-            ("today", "pane-today", "Today — Attendance"),
-            ("reports", "pane-reports", "Reports"),
+            ("attendance", "pane-attendance", "Today — Attendance"),
             ("setup", "pane-setup", "Setup — School Configuration & Schedule"),
             ("backup", "pane-backup", "Backup — Audit"),
         ]
@@ -787,6 +786,85 @@ class UiE2eTest(unittest.TestCase):
         self.assertIn("BATCH · ROBOTICS-A", badge.inner_text().upper())
 
         # Clean up and close
+        self.page.click("#adminClose")
+        self.page.wait_for_function("!document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
+
+    def test_14_attendance_workspace_live_today_historical_and_filters(self):
+        """Unified Attendance workspace defaults to Live Today, supports Yesterday, Custom Date/Range, filters, and 9 KPI cards."""
+        self.page.goto(f"{_BASE_URL}/", wait_until="networkidle")
+
+        self.page.once("dialog", lambda dialog: dialog.accept("1234"))
+        self.page.click("#openAdminBtn")
+        self.page.wait_for_function("document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
+
+        # 1. Open Attendance tab
+        self.page.click("#adminNav button[data-tab='attendance']")
+        self.page.wait_for_function("!document.getElementById('pane-attendance').classList.contains('hidden')", timeout=3000)
+
+        # 2. Verify default state is Live Today
+        preset = self.page.locator("#attDatePreset")
+        self.assertEqual(preset.input_value(), "today")
+
+        mode_badge = self.page.locator("#attModeBadge")
+        self.assertIn("LIVE TODAY", mode_badge.inner_text().upper())
+
+        date_label = self.page.locator("#attDateLabel")
+        self.assertTrue(date_label.is_visible())
+
+        # Verify 9 KPI cards
+        stat_cards = self.page.locator("#attStats .stat")
+        self.assertEqual(stat_cards.count(), 9)
+        stat_labels = [self.page.locator("#attStats .stat label").nth(i).inner_text().strip().upper() for i in range(9)]
+        expected_labels = ["DATE", "TOTAL STUDENTS", "PRESENT", "LATE", "ABSENT", "NOT SCHEDULED", "UNKNOWN SCANS", "DUPLICATE SCANS", "ATTENDANCE %"]
+        for exp in expected_labels:
+            self.assertIn(exp, stat_labels)
+
+        # Verify table and unknown attempts area
+        self.assertTrue(self.page.locator("#attTableBody").is_visible())
+        self.assertTrue(self.page.locator("#attUnknownWrap").is_visible())
+
+        # 3. Test Yesterday preset
+        preset.select_option("yesterday")
+        self.page.wait_for_timeout(300)
+        self.assertIn("YESTERDAY", mode_badge.inner_text().upper())
+
+        # 4. Test Custom Date preset
+        preset.select_option("custom_day")
+        self.page.wait_for_timeout(300)
+        single_input = self.page.locator("#attSingleDate")
+        self.assertTrue(single_input.is_visible())
+
+        # 5. Test Custom Range preset
+        preset.select_option("custom_range")
+        self.page.wait_for_timeout(300)
+        from_input = self.page.locator("#attFromDate")
+        to_input = self.page.locator("#attToDate")
+        self.assertTrue(from_input.is_visible())
+        self.assertTrue(to_input.is_visible())
+
+        from_input.fill("2026-09-01")
+        to_input.fill("2026-09-03")
+        self.page.click("#attRefreshBtn")
+        self.page.wait_for_timeout(300)
+
+        # Multi-day table head should show 'Working Day?' column
+        th_texts = [self.page.locator("#attTableHead th").nth(i).inner_text().strip().upper() for i in range(self.page.locator("#attTableHead th").count())]
+        self.assertIn("WORKING DAY?", th_texts)
+
+        # 6. Test Class & Batch & Status filter elements
+        class_filter = self.page.locator("#attClassFilter")
+        batch_filter = self.page.locator("#attBatchFilter")
+        status_filter = self.page.locator("#attStatusFilter")
+        self.assertTrue(class_filter.is_visible())
+        self.assertTrue(batch_filter.is_visible())
+        self.assertTrue(status_filter.is_visible())
+
+        # 7. Test Action Buttons
+        self.assertTrue(self.page.locator("#attRefreshBtn").is_visible())
+        self.assertTrue(self.page.locator("#attPrintBtn").is_visible())
+        self.assertTrue(self.page.locator("#attExportBtn").is_visible())
+
+        # Close Admin
         self.page.click("#adminClose")
         self.page.wait_for_function("!document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
 
