@@ -5,23 +5,15 @@ Every agent must follow this workflow. It keeps changes small, verifiable, and p
 ## Workflow
 
 1. **Read `AGENTS.md` first.** Entry point that maps tasks to docs.
-2. **Identify the task and read only the relevant docs.** Use `AGENTS.md` table — `docs/PROJECT.md`, `WORKFLOW.md`, `ADMIN.md`, `ARCHITECTURE.md`, `DATA_MODEL.md`, `DEVELOPMENT.md`, `TESTING.md`, `OPERATIONS.md`, plus `API.md` for endpoints. Do not load unrelated docs.
-3. **Inspect the actual current code before assuming.** Read `backend/app.py`, `gt511c3.py`, `gdrive_backup.py`, `schema.sql`, `ui_app.js`, `ATL-Smart-Attendance-Production.html` as needed. Evidence before synthesis.
-4. **Stay in Plan mode for investigation.** Explore and draft a plan without modifying files.
-5. **Separate confirmed bugs from suspected issues.** Confirmed reproduces with a test or log; suspected needs verification.
-6. **Give evidence, files, risks, tests, and rollback.** For each hypothesis state file/line, risk, covering test, and revert (current production `v1.2.0`, historical `v1.1.0`/`v1.0.1`/`v1.0.0`, `git revert`, or DB `.pre_restore.bak`).
-7. **Wait for approval before Build.** Do not edit until plan is approved.
-8. **Implement only approved scope.** One task at a time; no bundled features or refactors.
-9. **Do not modify unrelated files or architecture.** Keep `ATL-Smart-Attendance-Production.html` (shell/CSS) + `backend/ui_app.js` (behavior). No `css/`/`js/`/`templates/`/components unless proven need.
-10. **Add regression tests for bugs/features.** In `backend/test_app.py`; the fix should have failed before.
-11. **Run the full test suite.** `python -m unittest backend.test_app -v` — all must pass.
-12. **Review `git diff` and check for secrets or runtime data.** No `backend/config.json`, `*gdrive_token.json`, `*.db`, `*.pre_restore.bak`, `uploads/`, `assets/images/students/*`, `__pycache__/`, `*.log`, `.venv/`, `.env`. Confirm `git status` matches intent.
-13. **Commit one logical change at a time.** Clear message, one concern per commit.
-14. **Deploy only when explicitly required.** `powershell -File tools/deploy.ps1` or `bash tools/deploy.sh`; never `attendance.db` or `config.json`.
-15. **Verify production after deploy.** `curl http://192.168.1.8:5000/api/health` (`db_ok:true`), `curl /` title + `__ATL_BRIDGE__`, `systemctl status atl-attendance`.
-16. **Never claim hardware/browser/deployment testing not actually performed.** If Pi/sensor unreachable, say so.
-17. **Update docs when behavior changes.** Keep `AGENTS.md` and `docs/*.md` consistent; docs are truth after code.
-18. **Tag only after real verification.** `git tag -a vX.Y.Z -m "..."` after health and manual Pi checks pass.
+2. **Inspect the repository and relevant docs.** Use the `AGENTS.md` table to consult only relevant docs (`docs/PROJECT.md`, `WORKFLOW.md`, `ADMIN.md`, `ARCHITECTURE.md`, `DATA_MODEL.md`, `DEVELOPMENT.md`, `TESTING.md`, `OPERATIONS.md`, or `API.md`). Read active code in `backend/app.py`, `gt511c3.py`, `gdrive_backup.py`, `schema.sql`, `ui_app.js`, or `ATL-Smart-Attendance-Production.html` as needed.
+3. **Understand the task.** Clarify requirements, identify target files and line ranges, and understand system constraints before editing.
+4. **Implement directly.** Make the requested changes cleanly within the existing architecture: HTML/CSS in `ATL-Smart-Attendance-Production.html`, behavior/events in `backend/ui_app.js`, backend/API in `backend/app.py`. Do not create extraneous files or component directories unless proven necessary.
+5. **Add or update tests.** For bug fixes or new features, add or update covering tests in `backend/test_app.py` (unit) and/or `backend/test_ui_e2e.py` (Playwright E2E).
+6. **Run the test suites.** Run `python -m unittest backend.test_app -v` and `python -m unittest backend.test_ui_e2e -v` to confirm zero regressions.
+7. **Review `git diff`.** Verify that changes are minimal and focused. Ensure no secrets, machine configs, or runtime artifacts (`backend/config.json`, `*gdrive_token.json`, `*.db`, `*.pre_restore.bak`, `uploads/`, `__pycache__/`, `*.log`, `.venv/`, `.env`) are staged.
+8. **Update documentation.** Keep `AGENTS.md` and `docs/*.md` synchronized whenever behavior, constraints, endpoints, or test counts change. Docs are truth after code.
+9. **Commit and push.** Commit one logical concern at a time with a clear, descriptive message, then push to `origin/main`.
+10. **Deploy and verify when requested.** When deployment to the Raspberry Pi is requested, deploy via `powershell -File tools/deploy.ps1` or `bash tools/deploy.sh` and verify service status, `/api/health`, and live terminal functionality on `192.168.1.8`. Never claim verification that was not actually performed.
 
 ## Definition of Done
 
