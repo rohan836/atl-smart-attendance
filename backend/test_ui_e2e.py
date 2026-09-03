@@ -565,13 +565,15 @@ class UiE2eTest(unittest.TestCase):
         backup_btn = self.page.locator("#backupNowBtn")
         self.assertTrue(backup_btn.is_visible())
 
-        # Accept completion alert
-        self.page.once("dialog", lambda dialog: dialog.accept())
         backup_btn.click()
 
         self.page.wait_for_function("document.getElementById('backupNowStatus').textContent.toUpperCase().includes('OK')", timeout=5000)
         status_el = self.page.locator("#backupNowStatus")
         self.assertIn("TELEGRAM: OK", status_el.inner_text().upper())
+
+        # Dismiss glass completion notice
+        self.page.locator(".gconfirm").wait_for(state="visible", timeout=3000)
+        self.page.locator(".gconfirm-ok").click()
 
         self.page.click("#adminClose")
         self.page.wait_for_function("!document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
@@ -682,11 +684,12 @@ class UiE2eTest(unittest.TestCase):
         tbody.wait_for(state="visible", timeout=3000)
         self.assertIn("atl_backup_20260903_010000.db", tbody.inner_text())
 
-        # Click Disconnect (accept confirmation dialog)
+        # Click Disconnect (confirm glass dialog)
         disconnect_btn = self.page.locator("#gdriveDisconnectBtn")
         self.assertTrue(disconnect_btn.is_visible())
-        self.page.once("dialog", lambda dialog: dialog.accept())
         disconnect_btn.click()
+        self.page.locator(".gconfirm").wait_for(state="visible", timeout=3000)
+        self.page.locator(".gconfirm-ok").click()
         self.page.wait_for_timeout(400)
         self.assertTrue(len(disconnect_called) > 0)
 
@@ -749,9 +752,10 @@ class UiE2eTest(unittest.TestCase):
         present_input.fill("07:45")
         late_input.fill("08:15")
 
-        self.page.once("dialog", lambda dialog: dialog.accept())
         save_timing_btn = self.page.locator("#schedSaveTimingBtn")
         save_timing_btn.click()
+        self.page.locator(".gconfirm").wait_for(state="visible", timeout=3000)
+        self.page.locator(".gconfirm-ok").click()
         self.page.wait_for_timeout(400)
 
         # Verify custom timing notice is active and revert button is displayed

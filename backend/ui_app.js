@@ -1387,7 +1387,7 @@ async function persistCalendar(){
     })});
     cacheSave();
     return true;
-  }catch(e){ alert("Failed to save calendar: "+e.message); }
+  }catch(e){ await glassAlert("Failed to save calendar: "+e.message); }
   return false;
 }
 function renderHolidays(){
@@ -1614,6 +1614,7 @@ function openNewStudent(){
       const r=new FileReader(); r.onload=e=>finish(e.target.result); r.readAsDataURL(file);
     } else finish("");
   };
+  try{ enhancePhotoField($("nsPhoto")); }catch(e){}
 }
 function openEditStudent(id){
   const s=Students.find(x=>x.id===id); if(!s) return;
@@ -1629,7 +1630,7 @@ function openEditStudent(id){
       <div class="form-field"><label>Parent / Guardian</label><input id="edParent" value="${esc(s.parent||'')}"></div>
       <div class="form-field"><label>Phone</label><input id="edPhone" value="${esc(s.phone)}"></div>
       <div class="form-field full"><label>Address</label><input id="edAddress" value="${esc(s.address)}"></div>
-      <div class="form-field"><label>Photo (max 2MB)</label><input type="file" id="edPhoto" accept="image/*"></div>
+      <div class="form-field full"><label>Photo (max 2MB)</label><input type="file" id="edPhoto" accept="image/*"></div>
       <div class="form-field"><label>Status</label><select id="edActive"><option value="1" ${s.active?"selected":""}>Active</option><option value="0" ${!s.active?"selected":""}>Inactive</option></select></div>
       <div class="form-field full" id="edPhotoPreview" style="${s.photo ? '' : 'display:none'}"><img src="${esc(s.photo)}" style="width:92px;height:92px;object-fit:cover;border:1px solid var(--line);display:block"><div style="font-size:10px;color:var(--ink-3);margin-top:6px">Current photo</div><button class="btn" id="edClearPhoto" style="margin-top:8px">Clear photo</button></div>
       <div class="form-field full" style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="edCancel">Cancel</button><button class="btn primary" id="edSave">Save changes</button></div>
@@ -1662,7 +1663,7 @@ function openEditStudent(id){
         await api("/api/students/"+id,{method:"PATCH",body:JSON.stringify(payload)});
         closeModal(enrollModal); await loadAll();
         selectStudent(id);
-        alert("Saved.");
+        await glassAlert("Saved.");
       }catch(e){ err.style.display="block"; err.textContent=e.message; }
     };
     if(file){
@@ -1674,6 +1675,10 @@ function openEditStudent(id){
       doSave(null);
     }
   };
+  try{
+    enhancePhotoField($("edPhoto"));
+    const _ec=$("edClearPhoto"); if(_ec) _ec.addEventListener('click',()=>{ const _i=$("edPhoto"); if(_i&&_i._photoRefresh) setTimeout(_i._photoRefresh,0); });
+  }catch(e){}
 }
 function openReEnroll(id){
   const s=Students.find(x=>x.id===id); if(!s) return;
@@ -1693,15 +1698,15 @@ function openReEnroll(id){
 }
 async function deleteStudent(id){
   const s=Students.find(x=>x.id===id); if(!s) return;
-  if(!confirm("Deactivate "+s.name+"? Their fingerprint slot is freed and roll is released. History is kept.")) return;
+  if(!(await glassConfirm("Deactivate "+s.name+"? Their fingerprint slot is freed and roll is released. History is kept.",{title:"Deactivate student",okText:"Deactivate",danger:true}))) return;
   pauseSensorScan();
-  try{ await api("/api/students/"+id,{method:"DELETE"}); await loadAll(); renderStudentDetail(-1); }catch(e){ alert("Failed: "+e.message); }
+  try{ await api("/api/students/"+id,{method:"DELETE"}); await loadAll(); renderStudentDetail(-1); }catch(e){ await glassAlert("Failed: "+e.message); }
   finally{ resumeSensorScan(); }
 }
 async function reactivateStudent(id){
   const s=Students.find(x=>x.id===id); if(!s) return;
-  if(!confirm("Re-activate "+s.name+"?")) return;
-  try{ await api("/api/students/"+id,{method:"PATCH",body:JSON.stringify({active:1})}); await loadAll(); selectStudent(id); }catch(e){ alert("Failed: "+e.message); }
+  if(!(await glassConfirm("Re-activate "+s.name+"?",{title:"Re-activate student",okText:"Re-activate"}))) return;
+  try{ await api("/api/students/"+id,{method:"PATCH",body:JSON.stringify({active:1})}); await loadAll(); selectStudent(id); }catch(e){ await glassAlert("Failed: "+e.message); }
 }
 function apiEnrollStudent(form){
   return api("/api/enroll",{method:"POST",body:JSON.stringify(form)});
@@ -2123,9 +2128,9 @@ adminNav.onclick=(e)=>{
     try{
       const fd=new FormData(); fd.append('file',file);
       const r=await api('/api/students/import',{method:'POST',body:fd});
-      alert(`Import complete: ${r.created||0} created, ${r.updated||0} updated${r.errors?.length?` (${r.errors.length} errors)`:''}`);
+      await glassAlert(`Import complete: ${r.created||0} created, ${r.updated||0} updated${r.errors?.length?` (${r.errors.length} errors)`:''}`);
       await loadAll();
-    }catch(err){ alert('Import failed: '+(err.message||err)); }
+    }catch(err){ await glassAlert('Import failed: '+(err.message||err)); }
     finally{ impBtn.textContent=prev; impBtn.disabled=false; }
   };
 })();
@@ -2420,8 +2425,8 @@ if($("schedSaveTimingBtn")) $("schedSaveTimingBtn").onclick=async()=>{
   const ctx = getScheduleContext();
   const pVal = $("schedPresentCutoff") ? $("schedPresentCutoff").value : "08:00";
   const lVal = $("schedLateCutoff") ? $("schedLateCutoff").value : "08:30";
-  if(!pVal || !lVal){ alert("Both Present and Late cutoffs are required."); return; }
-  if(pVal > lVal){ alert("Present cutoff must be before or equal to Late cutoff."); return; }
+  if(!pVal || !lVal){ await glassAlert("Both Present and Late cutoffs are required."); return; }
+  if(pVal > lVal){ await glassAlert("Present cutoff must be before or equal to Late cutoff."); return; }
 
   if(ctx.type === "global"){
     Settings.presentCutoff = pVal;
@@ -2434,8 +2439,8 @@ if($("schedSaveTimingBtn")) $("schedSaveTimingBtn").onclick=async()=>{
         presentCutoff: pVal, lateCutoff: lVal
       })});
       await persistCalendar();
-      alert("Global timings saved.");
-    } catch(e){ alert("Failed to save timings: "+e.message); }
+      await glassAlert("Global timings saved.");
+    } catch(e){ await glassAlert("Failed to save timings: "+e.message); }
   } else if(ctx.type === "class"){
     let entry = ClassSchedules[ctx.name] || {};
     ClassSchedules[ctx.name] = Object.assign({}, typeof entry==="object"?entry:{}, {
@@ -2446,7 +2451,7 @@ if($("schedSaveTimingBtn")) $("schedSaveTimingBtn").onclick=async()=>{
     ClassSchedulesUI = ClassSchedules;
     cacheSave();
     if(await persistCalendar()){
-      alert(`Timings saved for class ${ctx.name}.`);
+      await glassAlert(`Timings saved for class ${ctx.name}.`);
     }
   } else if(ctx.type === "batch"){
     let entry = BatchSchedules[ctx.name] || {};
@@ -2457,7 +2462,7 @@ if($("schedSaveTimingBtn")) $("schedSaveTimingBtn").onclick=async()=>{
     });
     cacheSave();
     if(await persistCalendar()){
-      alert(`Timings saved for batch ${ctx.name}.`);
+      await glassAlert(`Timings saved for batch ${ctx.name}.`);
     }
   }
   renderScheduleTiming();
@@ -2470,14 +2475,14 @@ if($("schedRevertTimingBtn")) $("schedRevertTimingBtn").onclick=async()=>{
     ClassSchedulesUI = ClassSchedules;
     cacheSave();
     if(await persistCalendar()){
-      alert(`Class ${ctx.name} reverted to global timings.`);
+      await glassAlert(`Class ${ctx.name} reverted to global timings.`);
     }
   } else if(ctx.type === "batch" && BatchSchedules[ctx.name]){
     delete BatchSchedules[ctx.name].presentCutoff;
     delete BatchSchedules[ctx.name].lateCutoff;
     cacheSave();
     if(await persistCalendar()){
-      alert(`Batch ${ctx.name} reverted to inherited timings.`);
+      await glassAlert(`Batch ${ctx.name} reverted to inherited timings.`);
     }
   }
   renderScheduleTiming();
@@ -2540,13 +2545,13 @@ if(classBody) classBody.addEventListener("click", async e=>{
   const delBtn = e.target.closest("[data-del-class]");
   if(delBtn){
     const c = delBtn.dataset.delClass;
-    if(!confirm(`Remove class "${c}"?`)) return;
+    if(!(await glassConfirm(`Remove class "${c}"?`,{title:"Remove class",okText:"Remove",danger:true}))) return;
     try{
       const next = Classes.filter(x=>x!==c);
       await api("/api/settings",{method:"POST",body:JSON.stringify({classes:next})});
       await loadClassesHolidaysSettings();
       renderAll();
-    }catch(err){ alert("Failed to remove class: "+err.message); }
+    }catch(err){ await glassAlert("Failed to remove class: "+err.message); }
     return;
   }
   const btn = e.target.closest("[data-sched-class]");
@@ -2568,13 +2573,13 @@ if(batchBodyEl) batchBodyEl.addEventListener("click", async e=>{
   const delBtn = e.target.closest("[data-del-batch]");
   if(delBtn){
     const b = delBtn.dataset.delBatch;
-    if(!confirm(`Remove batch "${b}"?`)) return;
+    if(!(await glassConfirm(`Remove batch "${b}"?`,{title:"Remove batch",okText:"Remove",danger:true}))) return;
     try{
       const next = (Batches||[]).filter(x=>x!==b);
       await api("/api/settings",{method:"POST",body:JSON.stringify({batches:next})});
       await loadClassesHolidaysSettings();
       renderAll();
-    }catch(err){ alert("Failed to remove batch: "+err.message); }
+    }catch(err){ await glassAlert("Failed to remove batch: "+err.message); }
     return;
   }
   const btn = e.target.closest("[data-sched-batch]");
@@ -2593,21 +2598,21 @@ if(batchBodyEl) batchBodyEl.addEventListener("click", async e=>{
 $("addClassBtn").onclick=async()=>{
   const input=$("newClassName"), name=input.value.trim();
   if(!name) return;
-  if(Classes.some(c=>c.toLowerCase()===name.toLowerCase())){ alert("That class already exists."); return; }
+  if(Classes.some(c=>c.toLowerCase()===name.toLowerCase())){ await glassAlert("That class already exists."); return; }
   try{ await api("/api/settings",{method:"POST",body:JSON.stringify({classes:Classes.concat(name)})}); input.value=""; await loadClassesHolidaysSettings(); renderAll(); }
-  catch(e){ alert("Failed to add class: "+e.message); }
+  catch(e){ await glassAlert("Failed to add class: "+e.message); }
 };
 if($("addBatchBtn")) $("addBatchBtn").onclick=async()=>{
   const input=$("newBatchName"), name=input.value.trim();
   if(!name) return;
-  if((Batches||[]).some(b=>b.toLowerCase()===name.toLowerCase())){ alert("That batch already exists."); return; }
+  if((Batches||[]).some(b=>b.toLowerCase()===name.toLowerCase())){ await glassAlert("That batch already exists."); return; }
   try{
     const next = (Batches||[]).concat(name);
     await api("/api/settings",{method:"POST",body:JSON.stringify({batches:next})});
     input.value="";
     await loadClassesHolidaysSettings();
     renderAll();
-  }catch(e){ alert("Failed to add batch: "+e.message); }
+  }catch(e){ await glassAlert("Failed to add batch: "+e.message); }
 };
 $("settingsSaveBtn").onclick=async()=>{
   try{
@@ -2626,9 +2631,9 @@ $("settingsSaveBtn").onclick=async()=>{
     Settings.presentCutoff = pVal;
     Settings.lateCutoff = lVal;
     Settings.lateAfter = lVal;
-    alert("Settings saved to database.");
+    await glassAlert("Settings saved to database.");
     await loadClassesHolidaysSettings(); renderAll();
-  }catch(e){ alert("Failed: "+e.message); }
+  }catch(e){ await glassAlert("Failed: "+e.message); }
 };
 $("settingsExportBtn").onclick=()=>exportCSV([["Field","Value"],["School name",$("setSchoolName").value],["Address",$("setSchoolAddress").value],["Late threshold",$("setLateThreshold").value],["Academic year",$("setAcademicYear").value]],"school-settings.csv");
 $("backupDownloadBtn").onclick=async()=>{
@@ -2636,7 +2641,7 @@ $("backupDownloadBtn").onclick=async()=>{
     const b = await api("/api/backup", {method:"GET", responseType:"blob"});
     const url=URL.createObjectURL(b), a=document.createElement('a'); a.href=url; a.download="atl-backup-"+todayISO()+".db"; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),1500);
   }catch(e){
-    alert("Backup failed: "+(e.message||(e.body&&e.body.error)||e.status));
+    await glassAlert("Backup failed: "+(e.message||(e.body&&e.body.error)||e.status));
   }
 };
 $("backupFileInput").onchange=async(e)=>{
@@ -2650,7 +2655,7 @@ $("backupFileInput").onchange=async(e)=>{
   }catch(err){
     const msg = err.message || (err.body && err.body.error) || err.status;
     status.textContent="Restore failed: "+msg;
-    try{ alert("Restore failed: "+msg); }catch(_e){}
+    try{ await glassAlert("Restore failed: "+msg); }catch(_e){}
   }finally{
     resumeSensorScan();
   }
@@ -2660,7 +2665,7 @@ if($("auditExportBtn")) $("auditExportBtn").onclick=()=>{
   const rows=[["Time","Action","Details","By"]].concat(Audit.map(a=>[a.time,a.action,a.details,a.by||"Admin"]));
   exportCSV(rows,"audit_"+todayISO()+".csv");
 };
-$("auditClearBtn").onclick=()=>alert("Clear audit is managed on the backend.");
+$("auditClearBtn").onclick=()=>{ try{ glassAlert("Clear audit is managed on the backend."); }catch(e){} };
 
 // --- Unified Backup Manager Controller ---
 let _gdrivePollTimer = null;
@@ -2708,7 +2713,7 @@ function startGDrivePolling(intervalSec){
       if(res && res.status === "success"){
         stopGDrivePolling();
         renderDeviceCodeBox(null);
-        alert("Connected to Google Drive successfully!");
+        await glassAlert("Connected to Google Drive successfully!");
         await loadBackupManagerStatus();
       } else if(res && (res.status === "pending" || res.status === "slow_down")){
         if($("gdriveDevicePollStatus")) $("gdriveDevicePollStatus").textContent = "Waiting for approval…";
@@ -2738,11 +2743,11 @@ async function startDeviceFlow(){
         window.open(res.verificationUrlComplete, "_blank");
       }
     } else {
-      alert((res && res.error) || "Failed to start Google authorization");
+      await glassAlert((res && res.error) || "Failed to start Google authorization");
     }
   } catch(err){
     const m = (err.body && err.body.error) || err.message || "Failed to start Google authorization";
-    alert("Google Drive: " + m);
+    await glassAlert("Google Drive: " + m);
   } finally {
     if(btn){ btn.disabled = false; btn.textContent = "Pair with Google"; }
   }
@@ -3004,7 +3009,7 @@ if($("backupSchedSaveBtn")) $("backupSchedSaveBtn").onclick = async () => {
     setTimeout(() => { if(statusEl) statusEl.textContent = ""; }, 3000);
     await loadBackupManagerStatus();
   } catch(e){
-    alert("Save schedule failed: " + (e.message || (e.body && e.body.error) || "error"));
+    await glassAlert("Save schedule failed: " + (e.message || (e.body && e.body.error) || "error"));
   } finally {
     btn.disabled = false;
     btn.textContent = "Save Schedule";
@@ -3031,7 +3036,7 @@ if($("destCheckTelegram")) $("destCheckTelegram").onchange = async function(){
       body: JSON.stringify({ enabled: this.checked })
     });
   }catch(e){
-    alert("Failed to toggle Telegram backup: " + (e.message || "error"));
+    await glassAlert("Failed to toggle Telegram backup: " + (e.message || "error"));
   }
   await loadBackupManagerStatus();
 };
@@ -3043,7 +3048,7 @@ if($("destCheckUsb")) $("destCheckUsb").onchange = async function(){
       body: JSON.stringify({ enabled: this.checked })
     });
   }catch(e){
-    alert("Failed to toggle USB backup: " + (e.message || "error"));
+    await glassAlert("Failed to toggle USB backup: " + (e.message || "error"));
   }
   await loadBackupManagerStatus();
 };
@@ -3082,7 +3087,7 @@ if($("backupNowBtn")) $("backupNowBtn").onclick = async () => {
   const isUsb = $("destCheckUsb") && $("destCheckUsb").checked;
 
   if(!isGd && !isTg && !isUsb){
-    alert("Please select at least one backup destination.");
+    await glassAlert("Please select at least one backup destination.");
     return;
   }
 
@@ -3121,7 +3126,7 @@ if($("backupNowBtn")) $("backupNowBtn").onclick = async () => {
 
   const summaryText = summaries.join("; ");
   if(statusEl) statusEl.textContent = summaryText;
-  alert(summaryText);
+  await glassAlert(summaryText);
 
   await loadBackupManagerStatus();
   btn.disabled = false;
@@ -3148,12 +3153,12 @@ if($("gdriveDeviceCancelBtn")) $("gdriveDeviceCancelBtn").onclick = cancelDevice
 // Google Drive Management
 if($("gdriveDisconnectBtn")) {
   $("gdriveDisconnectBtn").onclick = async () => {
-    if(!confirm("Disconnect Google Drive cloud backup?")) return;
+    if(!(await glassConfirm("Disconnect Google Drive cloud backup?",{title:"Disconnect Drive",okText:"Disconnect",danger:true}))) return;
     try {
       await api("/api/backup/gdrive/disconnect", {method: "POST"});
       await loadBackupManagerStatus();
     } catch(e) {
-      alert("Disconnect failed: " + (e.message || "error"));
+      await glassAlert("Disconnect failed: " + (e.message || "error"));
     }
   };
 }
@@ -3191,17 +3196,17 @@ if($("gdriveFilesBody")) {
     if(!btn) return;
     const fileId = btn.dataset.gdriveRestore;
     const name = btn.dataset.gdriveName || "cloud backup";
-    if(!confirm(`Restore database from cloud backup "${name}"?\n\nWARNING: Current database will be safely backed up to .pre_restore.bak before replacement.`)) return;
+    if(!(await glassConfirm(`Restore database from cloud backup "${name}"?\n\nWARNING: Current database will be safely backed up to .pre_restore.bak before replacement.`,{title:"Restore from cloud",okText:"Restore",danger:true}))) return;
     pauseSensorScan();
     try {
       btn.disabled = true;
       btn.textContent = "Restoring…";
       await api("/api/backup/gdrive/restore", {method: "POST", body: JSON.stringify({fileId: fileId})});
-      alert(`Database restored successfully from "${name}". Page will now reload.`);
+      await glassAlert(`Database restored successfully from "${name}". Page will now reload.`);
       window.location.reload();
     } catch(err) {
       resumeSensorScan();
-      alert("Restore failed: " + (err.message || "error"));
+      await glassAlert("Restore failed: " + (err.message || "error"));
       btn.disabled = false;
       btn.textContent = "Restore";
     }
@@ -3216,10 +3221,10 @@ if($("telegramBackupNowBtn")) {
       btn.disabled = true;
       btn.textContent = "Sending…";
       const res = await api("/api/backup/telegram/backup", {method: "POST"});
-      alert("Backup sent to Telegram successfully: " + (res.name || "complete"));
+      await glassAlert("Backup sent to Telegram successfully: " + (res.name || "complete"));
       await loadBackupManagerStatus();
     } catch(e) {
-      alert("Telegram backup failed: " + (e.message || "error"));
+      await glassAlert("Telegram backup failed: " + (e.message || "error"));
     } finally {
       btn.disabled = false;
       btn.textContent = "Send backup now";
@@ -3233,7 +3238,7 @@ if($("telegramClearStatusBtn")) {
       await api("/api/backup/telegram/clear-status", {method: "POST"});
       await loadBackupManagerStatus();
     } catch(e) {
-      alert("Failed to clear status: " + (e.message || "error"));
+      await glassAlert("Failed to clear status: " + (e.message || "error"));
     }
   };
 }
@@ -3246,10 +3251,10 @@ if($("usbBackupNowBtn")) {
       btn.disabled = true;
       btn.textContent = "Backing up…";
       const res = await api("/api/backup/usb/backup", {method: "POST"});
-      alert("Backup written to USB drive successfully: " + (res.name || "complete"));
+      await glassAlert("Backup written to USB drive successfully: " + (res.name || "complete"));
       await loadBackupManagerStatus();
     } catch(e) {
-      alert("USB backup failed: " + (e.message || "error"));
+      await glassAlert("USB backup failed: " + (e.message || "error"));
     } finally {
       btn.disabled = false;
       btn.textContent = "Backup to USB now";
@@ -3277,7 +3282,7 @@ if($("usbClearStatusBtn")) {
       await api("/api/backup/usb/clear-status", {method: "POST"});
       await loadBackupManagerStatus();
     } catch(e) {
-      alert("Failed to clear status: " + (e.message || "error"));
+      await glassAlert("Failed to clear status: " + (e.message || "error"));
     }
   };
 }
@@ -3314,8 +3319,8 @@ if($("calSaveBtn")) $("calSaveBtn").onclick=async()=>{
       attendanceStartDate:el("calStart")?el("calStart").value:Settings.startDate,
       lateCutoff:el("calLateAfter")?(el("calLateAfter").value||"08:30"):Settings.lateAfter
     })});
-    await loadClassesHolidaysSettings(); renderAll(); alert("Saved.");
-  }catch(e){ alert("Failed: "+e.message); }
+    await loadClassesHolidaysSettings(); renderAll(); await glassAlert("Saved.");
+  }catch(e){ await glassAlert("Failed: "+e.message); }
 };
 detailScroll.addEventListener("click",(e)=>{
   const btn=e.target.closest("button"); if(!btn) return;
@@ -3400,7 +3405,7 @@ function openCorrection(studentId, date, oldStatus){
       }catch(e){}
       renderAll();
       if(selectedStudentId) renderStudentDetail(selectedStudentId);
-      alert("Correction saved. Audit preserved.");
+      await glassAlert("Correction saved. Audit preserved.");
     }catch(ex){
       err.textContent=ex.message||"Failed to save correction"; err.style.display="block";
     }finally{ btn.textContent=prev; btn.disabled=false; }
@@ -3441,3 +3446,202 @@ setInterval(()=>{
 }, 15000);
 // alias used by the injected backend bridge
 function saveStorage(){ return cacheSave(); }
+/* Glass confirm/alert — frosted replacement for native confirm()/alert() (Promise-based) */
+function glassDialog(opts){
+  opts=opts||{};
+  return new Promise((resolve)=>{
+    const prevFocus=(typeof document!=='undefined'&&document.activeElement)||null;
+    const ov=document.createElement('div'); ov.className='gconfirm-ov';
+    const card=document.createElement('div'); card.className='gconfirm'; card.setAttribute('role','alertdialog'); card.setAttribute('aria-modal','true');
+    const h=document.createElement('h3'); h.textContent=opts.title||'Confirm'; card.appendChild(h);
+    const p=document.createElement('p'); p.textContent=opts.message||''; card.appendChild(p);
+    const row=document.createElement('div'); row.className='gconfirm-row';
+    let done=false;
+    const cleanup=()=>{ ov.remove(); document.removeEventListener('keydown',onKey,true); if(prevFocus&&prevFocus.focus){ try{ prevFocus.focus(); }catch(e){} } };
+    const finish=(v)=>{ if(done) return; done=true; cleanup(); resolve(v); };
+    if(opts.cancelText!==null&&opts.cancelText!==undefined){
+      const c=document.createElement('button'); c.type='button'; c.className='gconfirm-cancel'; c.textContent=opts.cancelText||'Cancel';
+      c.addEventListener('click',()=>finish(false)); row.appendChild(c);
+    }
+    const ok=document.createElement('button'); ok.type='button'; ok.className='gconfirm-ok'+(opts.danger?' danger':''); ok.textContent=opts.okText||'Confirm';
+    ok.addEventListener('click',()=>finish(true)); row.appendChild(ok);
+    card.appendChild(row); ov.appendChild(card); document.body.appendChild(ov);
+    const btns=Array.from(row.querySelectorAll('button'));
+    const onKey=(e)=>{
+      if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); finish(false); }
+      else if(e.key==='Enter'){ e.preventDefault(); e.stopPropagation(); finish(true); }
+      else if(e.key==='Tab'){ e.preventDefault(); e.stopPropagation(); const i=btns.indexOf(document.activeElement); const n=e.shiftKey?(i<=0?btns.length-1:i-1):(i===btns.length-1?0:i+1); btns[n].focus(); }
+    };
+    document.addEventListener('keydown',onKey,true);
+    try{ ok.focus(); }catch(e){}
+  });
+}
+function glassConfirm(message,opts){ opts=opts||{}; opts.message=message; if(opts.cancelText===undefined) opts.cancelText='Cancel'; if(!opts.okText) opts.okText='Confirm'; return glassDialog(opts); }
+function glassAlert(message,okText){ return glassDialog({title:'Notice',message:message,okText:okText||'OK',cancelText:null}); }
+/* Photo dropzone — re-skins native file input, preserves files[0] read path + validation */
+function enhancePhotoField(input){
+  if(!input||input.tagName!=='INPUT'||input.type!=='file'||input.dataset.ph) return;
+  input.dataset.ph='1';
+  const drop=document.createElement('div'); drop.className='photo-drop';
+  input.parentNode.insertBefore(drop,input); drop.appendChild(input);
+  try{ input.tabIndex=-1; }catch(e){}
+  const thumb=document.createElement('div'); thumb.className='photo-thumb'; thumb.innerHTML='<span>Photo</span>';
+  const meta=document.createElement('div'); meta.className='photo-meta';
+  const nm=document.createElement('div'); nm.className='photo-name'; nm.textContent='No photo yet';
+  const sz=document.createElement('div'); sz.className='photo-sub'; sz.textContent='Optional · max 2MB · drag & drop';
+  meta.appendChild(nm); meta.appendChild(sz);
+  const acts=document.createElement('div'); acts.className='photo-acts';
+  const choose=document.createElement('button'); choose.type='button'; choose.className='photo-choose'; choose.textContent='Choose';
+  const rm=document.createElement('button'); rm.type='button'; rm.className='photo-remove'; rm.textContent='Remove'; rm.style.display='none';
+  acts.appendChild(choose); acts.appendChild(rm);
+  drop.appendChild(thumb); drop.appendChild(meta); drop.appendChild(acts);
+  let objUrl=null;
+  const refresh=()=>{
+    const f=input.files&&input.files[0];
+    if(objUrl){ try{ URL.revokeObjectURL(objUrl); }catch(e){} objUrl=null; }
+    if(f){
+      try{ objUrl=URL.createObjectURL(f); thumb.innerHTML=''; const im=document.createElement('img'); im.alt=''; im.src=objUrl; thumb.appendChild(im); }catch(e){}
+      nm.textContent=f.name; sz.textContent=fmtPhotoSize(f.size)+' · kept on save'; rm.style.display='';
+    }else{
+      thumb.innerHTML='<span>Photo</span>'; nm.textContent='No photo yet'; sz.textContent='Optional · max 2MB · drag & drop'; rm.style.display='none';
+    }
+  };
+  const changed=()=>refresh();
+  input.addEventListener('change',changed);
+  input._photoRefresh=refresh;
+  choose.addEventListener('click',()=>{ try{ input.click(); }catch(e){} });
+  rm.addEventListener('click',(e)=>{
+    e.preventDefault();
+    if(input.id==='edPhoto'){ const clr=document.getElementById('edClearPhoto'); if(clr){ clr.click(); } }
+    else{ try{ input.value=''; }catch(_e){} }
+    refresh();
+  });
+  drop.addEventListener('dragover',(e)=>{ e.preventDefault(); drop.classList.add('over'); });
+  drop.addEventListener('dragleave',()=>drop.classList.remove('over'));
+  drop.addEventListener('drop',(e)=>{
+    e.preventDefault(); drop.classList.remove('over');
+    const fs=e.dataTransfer&&e.dataTransfer.files;
+    if(fs&&fs.length){ try{ input.files=fs; }catch(_e){} refresh(); try{ input.dispatchEvent(new Event('change',{bubbles:true})); }catch(_e2){} }
+  });
+  refresh();
+}
+/* Glass dropdowns — custom translucent popups for native <select> (native stays truth, fires change) */
+(function(){
+  if(window.__glassSelectInit) return; window.__glassSelectInit=true;
+  let openWrap=null, popEl=null, hiIdx=-1;
+  function rows(){ return popEl ? Array.from(popEl.querySelectorAll('.gsel-opt:not([aria-disabled="true"])')) : []; }
+  function setHi(i){
+    const rs=rows(); if(!rs.length) return;
+    hiIdx=(i+rs.length)%rs.length;
+    rs.forEach((r,j)=>r.classList.toggle('hi', j===hiIdx));
+    try{ rs[hiIdx].scrollIntoView({block:'nearest'}); }catch(e){}
+  }
+  function closePop(refocus){
+    if(popEl){ popEl.remove(); popEl=null; }
+    const w=openWrap; openWrap=null; hiIdx=-1;
+    if(w){ w.classList.remove('open'); const b=w.querySelector('.gsel-btn'); if(b){ b.setAttribute('aria-expanded','false'); if(refocus) b.focus(); } }
+    document.removeEventListener('pointerdown',onDocDown,true);
+    document.removeEventListener('keydown',onKeyDown,true);
+    window.removeEventListener('resize',onCloseOnly,true);
+    window.removeEventListener('scroll',onCloseOnly,true);
+  }
+  function onCloseOnly(){ closePop(false); }
+  function onDocDown(e){
+    if(!openWrap) return;
+    if(openWrap.contains(e.target)) return;
+    if(popEl && popEl.contains(e.target)) return;
+    closePop(false);
+  }
+  function onKeyDown(e){
+    if(!openWrap || !popEl) return;
+    if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); closePop(true); }
+    else if(e.key==='ArrowDown'){ e.preventDefault(); e.stopPropagation(); setHi(hiIdx+1); }
+    else if(e.key==='ArrowUp'){ e.preventDefault(); e.stopPropagation(); setHi(hiIdx-1); }
+    else if(e.key==='Enter'||e.key===' '){ const rs=rows(); if(rs.length && hiIdx>=0){ e.preventDefault(); e.stopPropagation(); rs[hiIdx].click(); } }
+    else if(e.key==='Tab'){ closePop(false); }
+  }
+  function labelOf(sel){
+    const o=sel.options[sel.selectedIndex];
+    return o ? o.textContent : '';
+  }
+  function pick(sel,btn,v){
+    if(sel.value!==v){ sel.value=v; try{ sel.dispatchEvent(new Event('change',{bubbles:true})); }catch(e){ const ev=document.createEvent('HTMLEvents'); ev.initEvent('change',true,false); sel.dispatchEvent(ev); } }
+    syncBtn(sel,btn); closePop(false); try{ btn.focus(); }catch(e){}
+  }
+  function syncBtn(sel,btn){
+    const lab=btn.querySelector('.gsel-lab'); if(lab) lab.textContent=labelOf(sel);
+    btn.title=labelOf(sel); btn.disabled=!!sel.disabled;
+  }
+  function openPop(wrap,sel,btn){
+    closePop(false);
+    openWrap=wrap; wrap.classList.add('open'); btn.setAttribute('aria-expanded','true');
+    popEl=document.createElement('div'); popEl.className='gsel-pop'; popEl.setAttribute('role','listbox');
+    const map=[];
+    const addOpt=(o)=>{
+      const r=document.createElement('div'); r.className='gsel-opt'; r.setAttribute('role','option');
+      r.textContent=o.textContent; r.dataset.v=o.value;
+      if(o.disabled){ r.setAttribute('aria-disabled','true'); }
+      else{
+        if(o.value===sel.value){ r.classList.add('sel'); r.setAttribute('aria-selected','true'); }
+        r.addEventListener('click',()=>pick(sel,btn,o.value));
+        map.push(r);
+      }
+      popEl.appendChild(r);
+    };
+    Array.from(sel.children).forEach(ch=>{
+      if(ch.tagName==='OPTGROUP'){
+        const g=document.createElement('div'); g.className='gsel-grp'; g.textContent=ch.label||''; popEl.appendChild(g);
+        Array.from(ch.children).forEach(o=>{ if(o.tagName==='OPTION') addOpt(o); });
+      }else if(ch.tagName==='OPTION'){ addOpt(ch); }
+    });
+    document.body.appendChild(popEl);
+    const rc=btn.getBoundingClientRect();
+    popEl.style.minWidth=Math.max(rc.width,140)+'px';
+    const h=Math.min(260,popEl.offsetHeight||260);
+    let top=rc.bottom+4;
+    if(top+h>window.innerHeight-8) top=Math.max(8,rc.top-4-h);
+    let left=Math.min(rc.left,window.innerWidth-popEl.offsetWidth-8);
+    popEl.style.top=top+'px'; popEl.style.left=Math.max(8,left)+'px';
+    hiIdx=map.findIndex(r=>r.classList.contains('sel')); if(hiIdx<0) hiIdx=0;
+    map.forEach((r,j)=>r.classList.toggle('hi',j===hiIdx));
+    const cur=map[hiIdx]; if(cur){ try{cur.scrollIntoView({block:'nearest'});}catch(e){} }
+    document.addEventListener('pointerdown',onDocDown,true);
+    document.addEventListener('keydown',onKeyDown,true);
+    window.addEventListener('resize',onCloseOnly,true);
+    window.addEventListener('scroll',onCloseOnly,true);
+  }
+  function enhance(sel){
+    if(!sel||sel.tagName!=='SELECT'||sel.dataset.gsel) return;
+    sel.dataset.gsel='1';
+    const wrap=document.createElement('span'); wrap.className='gsel';
+    try{
+      if(sel.style.width) wrap.style.width=sel.style.width;
+      if(sel.style.maxWidth) wrap.style.maxWidth=sel.style.maxWidth;
+      ['height','minHeight','padding','border','background','fontSize','borderRadius','outline'].forEach(k=>{ sel.style[k]=''; });
+    }catch(e){}
+    if(sel.closest && sel.closest('.form-field')) wrap.classList.add('gsel-form');
+    sel.parentNode.insertBefore(wrap,sel); wrap.appendChild(sel);
+    try{ sel.tabIndex=-1; sel.setAttribute('aria-hidden','true'); }catch(e){}
+    const btn=document.createElement('button'); btn.type='button'; btn.className='gsel-btn';
+    btn.setAttribute('aria-haspopup','listbox'); btn.setAttribute('aria-expanded','false');
+    const lab=document.createElement('span'); lab.className='gsel-lab'; btn.appendChild(lab);
+    const ch=document.createElement('span'); ch.className='gsel-chev'; ch.textContent='\u25BE'; btn.appendChild(ch);
+    wrap.appendChild(btn);
+    const sync=()=>syncBtn(sel,btn); sel.addEventListener('change',sync); sync();
+    try{ new MutationObserver(sync).observe(sel,{childList:true}); }catch(e){}
+    btn.addEventListener('click',()=>{ if(sel.disabled) return; if(openWrap===wrap){ closePop(false); return; } openPop(wrap,sel,btn); });
+    btn.addEventListener('keydown',(e)=>{
+      if(sel.disabled) return;
+      if(e.key==='ArrowDown'||e.key==='ArrowUp'||e.key==='Enter'||e.key===' '){ e.preventDefault(); if(openWrap!==wrap) openPop(wrap,sel,btn); }
+    });
+  }
+  function enhanceAll(root){
+    try{ (root||document).querySelectorAll('select').forEach(enhance); }catch(e){}
+  }
+  enhanceAll(document);
+  try{
+    new MutationObserver((muts)=>{
+      muts.forEach(m=>{ m.addedNodes.forEach(n=>{ if(!n||!n.querySelectorAll) return; if(n.tagName==='SELECT') enhance(n); enhanceAll(n); }); });
+    }).observe(document.body,{childList:true,subtree:true});
+  }catch(e){}
+})();

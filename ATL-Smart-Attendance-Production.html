@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ATL Smart Attendance Terminal — Complete School System</title>
 <style>
-:root{--bg:#FCFBF7;--bg-left:#FFFFFF;--ink:#0A0A0A;--ink-2:#6B6B6B;--ink-3:#A8A5A0;--line:#E9E6E0;--line-strong:#0A0A0A;--paper:#F6F4EF;--danger:#8A3A3A;--ok:#2F5D34;--mono:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;--sans:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;--serif:Newsreader,Times New Roman,Georgia,serif;--ease:cubic-bezier(0.16,1,0.3,1);--ease-2:cubic-bezier(0.45,0,0.55,1);}
+:root{--bg:#FCFBF7;--bg-left:#FFFFFF;--ink:#0A0A0A;--ink-2:#6B6B6B;--ink-3:#A8A5A0;--line:#E9E6E0;--line-strong:#0A0A0A;--paper:#F6F4EF;--danger:#8A3A3A;--ok:#2F5D34;--mono:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;--sans:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;--serif:Newsreader,Times New Roman,Georgia,serif;--ease:cubic-bezier(0.16,1,0.3,1);--ease-2:cubic-bezier(0.45,0,0.55,1);--glass-bg:rgba(255,255,255,0.55);--glass-bg-strong:rgba(255,255,255,0.72);--glass-line:rgba(255,255,255,0.65);--glass-blur:blur(18px) saturate(1.3);--glass-blur-sm:blur(12px) saturate(1.2);--glass-shadow:0 8px 32px rgba(10,10,10,0.08);--blob-1:#E8A37A;--blob-2:#D97A4A;--on-img:#fff;--on-img-70:rgba(255,255,255,0.7);--on-img-60:rgba(255,255,255,0.6);--hair-w:rgba(255,255,255,0.35);}
 *{margin:0;padding:0;box-sizing:border-box;min-width:0} *::before,*::after{box-sizing:border-box}
 html{height:100%;width:100%;overflow:hidden;overscroll-behavior:none}
 body{height:100%;width:100%;overflow:hidden;background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased;font-family:var(--sans);user-select:none;overscroll-behavior:none}
@@ -115,26 +115,22 @@ tr:hover td{background:var(--paper)}
 .calendar-cell:nth-child(7n){border-right:0}
 .calendar-cell.head{min-height:auto;background:var(--paper);font-size:9px;letter-spacing:0.14em;text-transform:uppercase;font-weight:600;color:var(--ink-3);padding:10px 8px}
 .calendar-cell .day{font-family:var(--mono);font-size:11px}
-.calendar-cell.working{background:#fff;color:var(--ink)} 
-.calendar-cell.non-working{background:#0A0A0A !important;color:#fff !important}
-.calendar-cell.non-working .day{color:#fff !important}
-.calendar-cell.non-working .tag{color:#A8A5A0 !important}
-.calendar-cell.holiday{background:#0A0A0A !important;color:#fff !important}
-.calendar-cell.holiday .day{color:#fff !important}
-.calendar-cell.holiday .tag{color:#A8A5A0 !important}
-.calendar-cell.vacation{background:#0A0A0A !important;color:#fff !important}
-.calendar-cell.vacation .day{color:#fff !important}
-.calendar-cell.vacation .tag{color:#A8A5A0 !important}
-.calendar-cell.override{outline:1px solid var(--ink);outline-offset:-1px}
-.calendar-cell.today{box-shadow:none;outline:2px solid var(--ink);outline-offset:-2px}
-.calendar-cell .tag{position:absolute;bottom:6px;left:6px;right:6px;font-size:8px;letter-spacing:0.08em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink-2)}
-.weekly-day-card{flex:1 1 0%;height:50px;border:1px solid var(--line);border-radius:2px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;user-select:none;transition:all 140ms ease}
-.weekly-day-card.working{background:#0A0A0A;border-color:#0A0A0A}
-.weekly-day-card.working .w-name{font-size:10px;font-weight:700;letter-spacing:0.08em;color:#fff}
-.weekly-day-card.working .w-status{font-size:9px;letter-spacing:0.06em;color:#A8A5A0}
-.weekly-day-card.off{background:#fff;border-color:var(--line)}
-.weekly-day-card.off .w-name{font-size:10px;font-weight:700;letter-spacing:0.08em;color:var(--ink)}
-.weekly-day-card.off .w-status{font-size:9px;letter-spacing:0.06em;color:var(--ink-3)}
+.calendar-cell.working{background:rgba(255,255,255,0.22);color:#FFFFFF;border:1px solid rgba(255,255,255,0.35)} 
+.calendar-cell.working .day{color:#FFFFFF}
+.calendar-cell.working .tag{color:rgba(255,255,255,0.85)}
+.calendar-cell.non-working,.calendar-cell.holiday,.calendar-cell.vacation{background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.5);border:1px solid rgba(255,255,255,0.12)}
+.calendar-cell.non-working .day,.calendar-cell.holiday .day,.calendar-cell.vacation .day{color:rgba(255,255,255,0.65)}
+.calendar-cell.non-working .tag,.calendar-cell.holiday .tag,.calendar-cell.vacation .tag{color:rgba(255,255,255,0.4)}
+.calendar-cell.override{outline:1px solid rgba(255,255,255,0.6);outline-offset:-1px}
+.calendar-cell.today{box-shadow:none;outline:2px solid #FFFFFF;outline-offset:-2px}
+.calendar-cell .tag{position:absolute;bottom:6px;left:6px;right:6px;font-size:8px;letter-spacing:0.08em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:rgba(255,255,255,0.6)}
+.weekly-day-card{flex:1 1 0%;height:50px;border-radius:4px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;user-select:none;transition:all 140ms ease}
+.weekly-day-card.working{background:rgba(255,255,255,0.22);border:1px solid rgba(255,255,255,0.35);color:#FFFFFF}
+.weekly-day-card.working .w-name{font-size:10px;font-weight:700;letter-spacing:0.08em;color:#FFFFFF}
+.weekly-day-card.working .w-status{font-size:9px;letter-spacing:0.06em;color:rgba(255,255,255,0.85)}
+.weekly-day-card.off{background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:rgba(255,255,255,0.5)}
+.weekly-day-card.off .w-name{font-size:10px;font-weight:700;letter-spacing:0.08em;color:rgba(255,255,255,0.7)}
+.weekly-day-card.off .w-status{font-size:9px;letter-spacing:0.06em;color:rgba(255,255,255,0.45)}
 .weekly-table{border:1px solid var(--line);background:#fff;width:100%;border-collapse:collapse}
 .weekly-table th,.weekly-table td{padding:10px 12px;border-bottom:1px solid var(--line);font-size:11px;text-align:left}
 .weekly-table th{font-size:9px;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink-3);background:var(--paper)}
@@ -162,6 +158,889 @@ tr:hover td{background:var(--paper)}
 .finger-line{position:absolute;left:-10px;right:-10px;height:1px;background:var(--ink);top:0;animation:scanSweep 0.92s var(--ease-2) infinite alternate}
 .lift-hint{margin-top:12px;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-3)}
 .inline-error{margin-top:12px;padding:10px 12px;border:1px solid var(--danger);background:#FFF6F5;color:var(--danger);font-size:11px;line-height:1.4}
+/* Frosted glass overlay — surfaces only, no layout change */
+body{background:#A79B90}
+.terminal{background:transparent}
+body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;opacity:1;background:url("/assets/images/ui/glass-bg.jpg") center/cover no-repeat,#A79B90}
+.admin-layer.open{background:rgba(255,255,255,0.12);backdrop-filter:blur(24px) saturate(1.4);-webkit-backdrop-filter:blur(24px) saturate(1.4)}
+.modal{background:rgba(252,251,247,0.38);backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur)}
+.detail-pane,.admin-body,.admin-pane,.detail-scroll,.list-scroll{background:transparent}
+th{background:rgba(255,255,255,0.72)}
+.calendar-cell.working,.weekly-day-card.off{background:rgba(255,255,255,0.55)}
+.calendar-cell.head,.weekly-table th{background:rgba(246,244,239,0.6)}
+.modal-card{background:var(--glass-bg-strong);backdrop-filter:var(--glass-blur-sm);-webkit-backdrop-filter:var(--glass-blur-sm);border:1px solid var(--glass-line);box-shadow:var(--glass-shadow)}
+.detail-card,.stat,.table-wrap{background:var(--glass-bg);backdrop-filter:var(--glass-blur-sm);-webkit-backdrop-filter:var(--glass-blur-sm);border:1px solid var(--glass-line);box-shadow:var(--glass-shadow)}
+.list-pane{background:transparent;border:0}
+.tab-toolbar,.admin-top,.admin-nav{background:transparent}
+.calendar-grid,.weekly-table{background:var(--glass-bg);backdrop-filter:var(--glass-blur-sm);-webkit-backdrop-filter:var(--glass-blur-sm)}
+.identity-layer,.unknown-layer{background:transparent;backdrop-filter:var(--glass-blur-sm);-webkit-backdrop-filter:var(--glass-blur-sm)}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.admin-layer.open,.modal{background:var(--bg)}.modal-card,.detail-card,.stat,.table-wrap,.list-pane,.tab-toolbar,.admin-top,.admin-nav,.calendar-grid,.weekly-table{background:#fff;backdrop-filter:none;-webkit-backdrop-filter:none}}
+/* Borderless reference type — text clickables, white-on-image */
+.admin-top{background:transparent;border-bottom:1px solid var(--hair-w)}
+.admin-title{color:var(--on-img)}
+.admin-top span{color:var(--on-img-60)!important}
+.admin-close{background:transparent;border-color:transparent;color:var(--on-img)}
+.admin-close:hover{border-color:transparent;color:var(--on-img);text-decoration:underline}
+.admin-nav{background:transparent;border-bottom:1px solid var(--hair-w)}
+.admin-nav button{background:transparent;border:0;border-left:1px solid var(--hair-w);color:var(--on-img-70);font-size:10px;letter-spacing:0.18em}
+.admin-nav button:first-child{border-left:0}
+.admin-nav button:last-child{border-right:0}
+.admin-nav button:hover{color:var(--on-img)}
+.admin-nav button.active{background:transparent;color:var(--on-img);box-shadow:inset 0 -2px 0 var(--on-img)}
+.prompt{color:rgba(255,255,255,0.88)}
+.admin-trigger{background:transparent;border-color:transparent;color:rgba(255,255,255,0.75);font-size:10px;letter-spacing:0.18em}
+.admin-trigger:hover{border-color:transparent;color:var(--on-img);text-decoration:underline}
+.btn:not(.primary):not(.danger){background:transparent;border-color:transparent;color:var(--ink)}
+.btn:not(.primary):not(.danger):hover{border-color:transparent;text-decoration:underline}
+.admin-nav button:focus-visible,.admin-close:focus-visible,.admin-trigger:focus-visible{outline:2px solid var(--on-img);outline-offset:2px}
+.btn:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+/* Bottom-half glass unification — melt toolbar + list into frost */
+.tab-toolbar{background:transparent;border-bottom:1px solid rgba(255,255,255,0.15)}
+.tab-toolbar input,.tab-toolbar select{background:transparent;border:0;border-bottom:1px solid transparent;color:#FFFFFF;padding:0 4px;height:30px;outline:0}
+.tab-toolbar input::placeholder{color:rgba(255,255,255,0.55)}
+.tab-toolbar select{cursor:pointer}
+.tab-toolbar input:hover,.tab-toolbar select:hover{border-bottom-color:rgba(255,255,255,0.75)}
+.tab-toolbar input:focus,.tab-toolbar select:focus{border-bottom-color:#FFFFFF}
+option{background:#25201C;color:#FFFFFF}
+option:checked{background:#453E38;color:#FFFFFF}
+.list-pane{background:transparent;border-right:0}
+.student-row{border-bottom:1px solid rgba(255,255,255,0.15)}
+.student-row:hover{background:rgba(255,255,255,0.1)}
+.student-row.active{background:rgba(255,255,255,0.2);color:#FFFFFF;box-shadow:inset 3px 0 0 #FFFFFF}
+.student-row.active .student-roll,.student-row.active .student-class{color:rgba(255,255,255,0.75)}
+.student-thumb{border-color:rgba(255,255,255,0.25)}
+.admin-nav button.active{box-shadow:inset 0 -3px 0 var(--on-img)}
+.empty{color:rgba(255,255,255,0.8);text-shadow:0 1px 3px rgba(0,0,0,0.35)}
+.empty b{color:#FFFFFF;text-shadow:0 1px 3px rgba(0,0,0,0.35)}
+/* Glass dropdowns — themeable popups replacing native select chrome (native stays as truth) */
+.gsel{position:relative;display:inline-flex;vertical-align:middle;min-width:0}
+.tab-toolbar .gsel{flex-shrink:0}
+.gsel>select{position:absolute;inset:0;width:100%;height:100%;opacity:0;pointer-events:none;margin:0}
+.gsel-btn{height:30px;display:inline-flex;align-items:center;gap:8px;border:0;border-bottom:1px solid transparent;background:transparent;padding:0 4px;font-size:11px;letter-spacing:0.04em;color:#FFFFFF;cursor:pointer;white-space:nowrap;max-width:220px;outline:0}
+.tab-toolbar .gsel-btn{background:transparent !important;border:0 !important;border-bottom:1px solid transparent !important;padding:0 4px !important;color:rgba(255,255,255,0.88) !important}
+.tab-toolbar .gsel-btn:hover,.tab-toolbar .gsel.open .gsel-btn{border-bottom-color:rgba(255,255,255,0.75) !important;color:#FFFFFF !important}
+.gsel-btn:hover{border-bottom-color:rgba(255,255,255,0.75)}
+.gsel.open .gsel-btn,.gsel-btn:focus-visible{border-bottom-color:#FFFFFF}
+.gsel-lab{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gsel-chev{font-size:9px;color:rgba(255,255,255,0.7);flex-shrink:0}
+.gsel-form{width:100%}
+.form-field .gsel-btn{width:100%;height:36px;background:transparent;border:0;border-bottom:1px solid var(--line);border-radius:0;justify-content:space-between;padding:0 2px;backdrop-filter:none;-webkit-backdrop-filter:none}
+.form-field .gsel-btn:hover{border-bottom-color:var(--ink)}
+.gsel-pop{position:fixed;z-index:60;max-height:260px;overflow-y:auto;background:rgba(255,255,255,0.78);backdrop-filter:blur(18px) saturate(1.3);-webkit-backdrop-filter:blur(18px) saturate(1.3);border:1px solid var(--glass-line);box-shadow:var(--glass-shadow),0 12px 40px rgba(10,10,10,0.12);padding:4px;scrollbar-gutter:stable}
+.gsel-grp{font-size:9px;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink-3);padding:8px 12px 4px}
+.gsel-opt{display:flex;align-items:center;min-height:36px;padding:6px 12px;font-size:11px;letter-spacing:0.04em;color:var(--ink);cursor:pointer;white-space:nowrap}
+.gsel-opt:hover,.gsel-opt.hi{background:rgba(255,255,255,0.6)}
+.gsel-opt.sel{background:var(--ink);color:#fff}
+.gsel-opt[aria-disabled="true"]{opacity:0.45;cursor:default}
+/* Enrollment photo dropzone + borderless modal fields */
+.photo-drop{position:relative;display:flex;align-items:center;gap:12px;min-height:64px;padding:10px 12px;border:0;border-bottom:1px solid var(--line);background:rgba(255,255,255,0.5)}
+.photo-drop.over{border-bottom-color:var(--ink);background:rgba(255,255,255,0.75)}
+.photo-drop input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.photo-thumb{width:52px;height:52px;flex-shrink:0;border:1px solid var(--line);background:var(--paper);display:flex;align-items:center;justify-content:center;overflow:hidden}
+.photo-thumb span{font-size:8px;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink-3)}
+.photo-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.photo-meta{flex:1 1 auto;min-width:0}
+.photo-name{font-size:12px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.photo-sub{font-size:10px;color:var(--ink-3);margin-top:3px}
+.photo-acts{display:flex;gap:10px;flex-shrink:0}
+.photo-choose{background:transparent;border:0;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;font-weight:600;color:var(--ink);cursor:pointer;padding:6px 2px}
+.photo-choose:hover{text-decoration:underline}
+.photo-remove{background:transparent;border:0;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--danger);cursor:pointer;padding:6px 2px}
+.photo-remove:hover{text-decoration:underline}
+.modal-card .form-field input:not([type=file]):not([type=checkbox]),.modal-card .form-field textarea{background:transparent;border:0;border-bottom:1px solid var(--line);border-radius:0;padding:0 2px}
+.modal-card .form-field input:focus,.modal-card .form-field textarea:focus{border-color:var(--ink);background:transparent;box-shadow:none;outline:0}
+.modal-card .form-field input:-webkit-autofill{-webkit-text-fill-color:var(--ink);transition:background-color 600000s,color 600000s}
+/* Glass confirm/alert dialog — frosted, promise-based, keyboard accessible */
+.gconfirm-ov{position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(167,155,144,0.45);backdrop-filter:blur(14px) saturate(1.2);-webkit-backdrop-filter:blur(14px) saturate(1.2)}
+.gconfirm{width:100%;max-width:420px;background:rgba(255,255,255,0.82);backdrop-filter:blur(18px) saturate(1.3);-webkit-backdrop-filter:blur(18px) saturate(1.3);border:1px solid var(--glass-line);box-shadow:var(--glass-shadow),0 16px 48px rgba(10,10,10,0.14);padding:24px}
+.gconfirm h3{font-family:var(--serif);font-size:20px;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px;color:var(--ink)}
+.gconfirm p{font-size:12px;color:var(--ink-2);line-height:1.6;white-space:pre-line;margin-bottom:20px}
+.gconfirm-row{display:flex;gap:18px;justify-content:flex-end;align-items:center}
+.gconfirm-cancel{background:transparent;border:0;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;font-weight:600;color:var(--ink);cursor:pointer;padding:8px 2px}
+.gconfirm-cancel:hover{text-decoration:underline}
+.gconfirm-ok{height:34px;padding:0 18px;border:1px solid var(--ink);background:var(--ink);color:#fff;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;font-weight:600;cursor:pointer}
+.gconfirm-ok.danger{background:var(--danger);border-color:var(--danger)}
+.gconfirm-ok:focus-visible,.gconfirm-cancel:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+
+/* ============================================================
+   APPLE VISIONOS LUMINOUS FROSTED GLASS DESIGN SYSTEM
+   Clean, luminous white translucency across entire Admin
+   ============================================================ */
+
+/* 1. Global Glass Card Standard */
+.admin-layer.open {
+  background: rgba(255, 255, 255, 0.10) !important;
+  backdrop-filter: blur(24px) saturate(1.3) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(1.3) !important;
+}
+
+.admin-pane,
+.admin-body,
+.detail-pane,
+.detail-scroll,
+.list-scroll {
+  background: transparent !important;
+}
+
+/* Base Glass Cards across all 4 workspaces */
+.detail-card,
+#backupManagerCard,
+.table-wrap,
+#attUnknownWrap,
+#schedTimingCard,
+.modal-card {
+  background: rgba(255, 255, 255, 0.10) !important;
+  backdrop-filter: blur(24px) saturate(1.3) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(1.3) !important;
+  border: 1px solid rgba(255, 255, 255, 0.25) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15) !important;
+  color: #FFFFFF !important;
+}
+
+/* Eliminate nested table-wrap frosted double-wash inside detail cards */
+.detail-card .table-wrap,
+#pane-backup .detail-card .table-wrap,
+#pane-setup .detail-card .table-wrap {
+  background: transparent !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* 2. High-Contrast Monochrome Typography */
+.admin-layer,
+.admin-title,
+.detail-card,
+.table-wrap td,
+#pane-attendance table td,
+#pane-setup table td,
+#pane-backup table td,
+#attUnknownWrap td,
+.admin-pane label,
+.tab-toolbar label,
+.detail-field label,
+.detail-field span,
+.stat b {
+  color: #FFFFFF !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35) !important;
+}
+
+/* Secondary labels and table column headers */
+th,
+.table-wrap th,
+#pane-attendance th,
+#pane-setup th,
+#pane-backup th,
+#attUnknownWrap th,
+.student-meta,
+.student-roll,
+.student-class,
+.detail-field label,
+.admin-pane label,
+.tag,
+.w-status {
+  color: rgba(255, 255, 255, 0.8) !important;
+  font-weight: 500 !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35) !important;
+}
+
+/* Navigation & Top Bar */
+.admin-top {
+  background: transparent !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
+}
+
+.admin-title {
+  font-family: var(--serif) !important;
+  font-size: 16px !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+}
+
+.admin-close {
+  background: transparent !important;
+  border: 0 !important;
+  color: rgba(255, 255, 255, 0.8) !important;
+  font-size: 10px !important;
+  letter-spacing: 0.14em !important;
+  text-transform: uppercase !important;
+  cursor: pointer !important;
+  transition: color 160ms ease !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35) !important;
+}
+.admin-close:hover {
+  color: #FFFFFF !important;
+  text-decoration: underline !important;
+}
+
+.admin-nav {
+  background: transparent !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
+}
+
+.admin-nav button {
+  background: transparent !important;
+  border: 0 !important;
+  border-left: 1px solid rgba(255, 255, 255, 0.15) !important;
+  color: rgba(255, 255, 255, 0.75) !important;
+  font-size: 10.5px !important;
+  letter-spacing: 0.16em !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35) !important;
+  transition: all 180ms ease !important;
+}
+.admin-nav button:first-child {
+  border-left: 0 !important;
+}
+.admin-nav button:hover {
+  color: #FFFFFF !important;
+}
+.admin-nav button.active {
+  background: transparent !important;
+  color: #FFFFFF !important;
+  box-shadow: inset 0 -2.5px 0 #FFFFFF !important;
+}
+
+/* 3. Thin White Specular Hairlines (Universal Dividers) */
+tr,
+td,
+.student-row,
+.tab-toolbar {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
+}
+
+#pane-attendance td,
+#pane-setup td,
+#pane-backup td,
+#attUnknownWrap td,
+#pane-students .student-row {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
+  border-top: 0 !important;
+  border-left: 0 !important;
+  border-right: 0 !important;
+}
+
+/* 4. Attendance Workspace (#pane-attendance) */
+#pane-attendance .detail-scroll {
+  padding: 20px 32px 36px 32px !important;
+  background: transparent !important;
+}
+
+#pane-attendance .tab-toolbar {
+  background: transparent !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
+  padding: 10px 32px !important;
+  min-height: 48px !important;
+  display: flex !important;
+  align-items: center !important;
+  flex-wrap: wrap !important;
+  gap: 16px !important;
+}
+
+#pane-attendance .tab-toolbar select,
+#pane-attendance .tab-toolbar .gsel-btn {
+  background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath fill='none' stroke='rgba(255,255,255,0.72)' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round' d='M1 1l3 3 3-3'/%3E%3C/svg%3E") no-repeat right 2px center !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  border: 0 !important;
+  border-bottom: 1px solid transparent !important;
+  border-radius: 0 !important;
+  color: rgba(255, 255, 255, 0.88) !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  height: 30px !important;
+  padding: 0 16px 0 2px !important;
+  cursor: pointer !important;
+  outline: none !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35) !important;
+  transition: border-color 160ms ease, color 160ms ease !important;
+}
+
+#pane-attendance .tab-toolbar select:hover,
+#pane-attendance .tab-toolbar select:focus,
+#pane-attendance .tab-toolbar .gsel-btn:hover {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.75) !important;
+  color: #FFFFFF !important;
+}
+
+#pane-attendance .tab-toolbar .btn {
+  background: transparent !important;
+  border: 0 !important;
+  border-bottom: 1px solid transparent !important;
+  border-radius: 0 !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.14em !important;
+  text-transform: uppercase !important;
+  height: 30px !important;
+  padding: 0 4px !important;
+  cursor: pointer !important;
+  outline: none !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35) !important;
+  transition: border-color 160ms ease, color 160ms ease !important;
+}
+
+#pane-attendance .tab-toolbar .btn:hover {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.75) !important;
+  color: #FFFFFF !important;
+}
+
+/* Hide Stray APPLY Button until custom date/range input is active */
+#attApplyBtn {
+  display: none !important;
+}
+#pane-attendance .tab-toolbar #attApplyBtn:not([style*="display: none"]):not([style*="display:none"]) {
+  display: inline-flex !important;
+}
+
+/* Metadata label above KPIs (#attDateLabel) */
+#attDateLabel {
+  color: rgba(255, 255, 255, 0.9) !important;
+  font-weight: 500 !important;
+  font-size: 11px !important;
+  letter-spacing: 0.08em !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* Frosted glass LIVE TODAY pill badge (kills solid green) */
+#attModeBadge {
+  background: rgba(255, 255, 255, 0.12) !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  color: #FFFFFF !important;
+  border-radius: 20px !important;
+  padding: 3px 10px !important;
+  font-weight: 600 !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* KPI Row: 9 floating columns with 26px numbers & hairlines */
+#attStats.stats-row {
+  display: flex !important;
+  width: 100% !important;
+  margin: 18px 0 28px 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+#attStats .stat {
+  flex: 1 1 0% !important;
+  min-width: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.2) !important;
+  padding: 2px 18px !important;
+}
+
+#attStats .stat:first-child {
+  padding-left: 0 !important;
+}
+
+#attStats .stat:last-child {
+  border-right: none !important;
+  padding-right: 0 !important;
+}
+
+#attStats .stat b,
+#attStats b {
+  display: block !important;
+  font-family: var(--mono) !important;
+  font-size: 26px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.02em !important;
+  line-height: 1.2 !important;
+  color: #FFFFFF !important;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5) !important;
+  margin-bottom: 6px !important;
+}
+
+#attStats .stat label {
+  display: block !important;
+  font-family: var(--sans) !important;
+  font-size: 9px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.14em !important;
+  text-transform: uppercase !important;
+  color: rgba(255, 255, 255, 0.8) !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35) !important;
+}
+
+/* Identical floating frosted cards with 32px un-collapsed vertical separation */
+#pane-attendance .table-wrap,
+#attUnknownWrap {
+  background: rgba(255, 255, 255, 0.12) !important;
+  backdrop-filter: blur(24px) saturate(1.3) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(1.3) !important;
+  border: 1px solid rgba(255, 255, 255, 0.25) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15) !important;
+  overflow: hidden !important;
+  margin-top: 0 !important;
+}
+
+#attUnknownWrap {
+  margin-top: 32px !important;
+  display: block !important;
+  clear: both !important;
+}
+
+#pane-attendance table,
+#attUnknownWrap table {
+  border: none !important;
+  border-collapse: collapse !important;
+  width: 100% !important;
+  background: transparent !important;
+}
+
+#pane-attendance tr,
+#attUnknownWrap tr {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12) !important;
+  background: transparent !important;
+  border-top: 0 !important;
+  border-left: 0 !important;
+  border-right: 0 !important;
+}
+
+#pane-attendance th,
+#attUnknownWrap th,
+#attTableHead th {
+  background: transparent !important;
+  color: #FFFFFF !important;
+  font-weight: 500 !important;
+  font-size: 11px !important;
+  letter-spacing: 0.14em !important;
+  text-transform: uppercase !important;
+  padding: 14px 20px 12px 20px !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12) !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4) !important;
+  border-top: 0 !important;
+  border-left: 0 !important;
+  border-right: 0 !important;
+}
+
+#pane-attendance td,
+#attUnknownWrap td,
+#attTableBody td,
+#attUnknownBody td {
+  padding: 14px 20px !important;
+  color: #FFFFFF !important;
+  font-weight: 500 !important;
+  font-size: 11px !important;
+  background: transparent !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12) !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4) !important;
+  border-top: 0 !important;
+  border-left: 0 !important;
+  border-right: 0 !important;
+}
+
+#pane-attendance tr:hover td,
+#attUnknownWrap tr:hover td {
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+#pane-attendance .table-scroll,
+#attUnknownWrap .table-scroll {
+  border: none !important;
+  background: transparent !important;
+}
+
+#attUnknownWrap > div:first-child {
+  display: none !important;
+}
+
+/* Status badges & Unknown scans empty state */
+#pane-attendance .badge {
+  background: rgba(255, 255, 255, 0.15) !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  color: #FFFFFF !important;
+  border-radius: 4px !important;
+  padding: 2px 8px !important;
+  font-size: 9px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.1em !important;
+  text-transform: uppercase !important;
+  white-space: nowrap !important;
+}
+
+#attUnknownWrap table tbody,
+#attUnknownWrap .empty,
+#attUnknownWrap table tbody tr td {
+  color: #FFFFFF !important;
+  font-weight: 600 !important;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.4) !important;
+}
+
+#attUnknownWrap .empty {
+  padding: 20px !important;
+  text-align: center !important;
+  background: transparent !important;
+}
+
+#attUnknownWrap .empty b {
+  font-family: var(--serif) !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.14em !important;
+  color: #FFFFFF !important;
+  text-transform: uppercase !important;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* 5. Backup Tab (Eliminate Opaque Inner Blocks) */
+#backupManagerCard div[style*="background:var(--paper)"],
+#backupManagerCard div[style*="background: var(--paper)"],
+#backupManagerCard div[style*="border-radius:4px"],
+#destRowGdrive,
+#destRowTelegram,
+#destRowUsb,
+#gdriveActionBox,
+#telegramDetailsBox,
+#usbDetailsBox,
+#gdriveUserCodeDisplay,
+#gdriveAuthBox {
+  background: transparent !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  border-radius: 8px !important;
+  color: #FFFFFF !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35) !important;
+}
+
+#pane-backup .table-wrap,
+#pane-backup table,
+#pane-backup tbody,
+#pane-backup thead,
+#pane-backup tr,
+#pane-backup th,
+#pane-backup td,
+#auditBody,
+#auditBody tr,
+#auditBody td {
+  background: transparent !important;
+  color: #FFFFFF !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35) !important;
+}
+
+#auditTable th,
+#pane-backup th {
+  color: rgba(255, 255, 255, 0.8) !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.12em !important;
+  text-transform: uppercase !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
+  padding: 12px 14px !important;
+}
+
+#auditBody td,
+#pane-backup td {
+  padding: 10px 14px !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
+}
+
+#auditTable tr:hover td,
+#pane-backup tr:hover td {
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* 6. Setup Tab (Eliminate White Pill Bars & Opaque Blocks) */
+#holidayBody .empty,
+#overrideBody .empty,
+#classBody .empty,
+#batchBody .empty,
+#pane-setup .empty,
+#holidayBody .empty div,
+#overrideBody .empty div {
+  background: transparent !important;
+  border: 1px dashed rgba(255, 255, 255, 0.25) !important;
+  border-radius: 8px !important;
+  color: #FFFFFF !important;
+  box-shadow: none !important;
+  padding: 24px 16px !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35) !important;
+}
+
+#holidayBody .empty b,
+#overrideBody .empty b,
+#classBody .empty b,
+#batchBody .empty b,
+#pane-setup .empty b {
+  color: #FFFFFF !important;
+  font-family: var(--serif) !important;
+  font-size: 14px !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  display: block !important;
+  margin-bottom: 6px !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35) !important;
+}
+
+#pane-setup thead tr,
+#pane-setup thead th,
+#pane-setup th {
+  background: transparent !important;
+  color: rgba(255, 255, 255, 0.8) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
+}
+
+#pane-setup table {
+  background: transparent !important;
+}
+
+#pane-setup div[style*="max-height"],
+#pane-setup div[style*="overflow-y:auto"] {
+  background: transparent !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  border-radius: 8px !important;
+}
+
+/* Setup & Backup Inputs, selects, and calendar cells: background: rgba(255, 255, 255, 0.08) */
+#pane-setup input,
+#pane-setup select,
+#pane-backup input,
+#pane-backup select,
+#setSchoolName,
+#setSchoolAddress,
+#setAcademicYear,
+#setAttendanceStart,
+#setPresentCutoff,
+#setLateThreshold,
+#newClassName,
+#newBatchName,
+#calClassSelect,
+#schedPresentCutoff,
+#schedLateCutoff,
+#backupSchedTime,
+#backupSchedFreq,
+#backupSchedInterval {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 0 !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.25) !important;
+  border-radius: 4px !important;
+  box-shadow: none !important;
+  color: #FFFFFF !important;
+  outline: none !important;
+  color-scheme: dark !important;
+  transition: all 160ms ease !important;
+}
+
+#pane-setup input:focus,
+#pane-setup select:focus,
+#pane-backup input:focus,
+#pane-backup select:focus {
+  background: rgba(255, 255, 255, 0.16) !important;
+  border-bottom-color: #FFFFFF !important;
+}
+
+/* Calendar Grid & Cells */
+.calendar-grid {
+  background: transparent !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  border-radius: 8px !important;
+  overflow: hidden !important;
+}
+
+.calendar-cell {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #FFFFFF !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+.calendar-cell.head {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: rgba(255, 255, 255, 0.8) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+.calendar-cell.working {
+  background: rgba(255, 255, 255, 0.16) !important;
+  color: #FFFFFF !important;
+}
+
+.calendar-cell.non-working,
+.calendar-cell.holiday,
+.calendar-cell.vacation {
+  background: rgba(255, 255, 255, 0.05) !important;
+  color: rgba(255, 255, 255, 0.6) !important;
+}
+
+div.calendar-cell[style*="background:#fff"],
+div.calendar-cell[style*="background: #fff"] {
+  background: rgba(255, 255, 255, 0.03) !important;
+}
+
+.calendar-cell .day {
+  color: #FFFFFF !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35) !important;
+}
+
+.calendar-cell .tag {
+  color: rgba(255, 255, 255, 0.75) !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35) !important;
+}
+
+.weekly-day-card.working {
+  background: rgba(255, 255, 255, 0.18) !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  color: #FFFFFF !important;
+}
+.weekly-day-card.off {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: rgba(255, 255, 255, 0.6) !important;
+}
+
+/* 7. Students Tab (Borderless Filters at Rest) */
+#pane-students .tab-toolbar {
+  background: transparent !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
+  gap: 16px !important;
+}
+
+#pane-students .tab-toolbar input,
+#pane-students .tab-toolbar select,
+#pane-students .tab-toolbar .gsel-btn {
+  background: transparent !important;
+  border: 0 !important;
+  border-bottom: 1px solid transparent !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  color: rgba(255, 255, 255, 0.88) !important;
+  outline: none !important;
+  padding: 0 4px !important;
+  height: 30px !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35) !important;
+  transition: border-color 160ms ease, color 160ms ease !important;
+}
+
+#pane-students .tab-toolbar select {
+  background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath fill='none' stroke='rgba(255,255,255,0.72)' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round' d='M1 1l3 3 3-3'/%3E%3C/svg%3E") no-repeat right 2px center !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  padding-right: 14px !important;
+  cursor: pointer !important;
+}
+
+#pane-students .tab-toolbar input:hover,
+#pane-students .tab-toolbar input:focus,
+#pane-students .tab-toolbar select:hover,
+#pane-students .tab-toolbar select:focus,
+#pane-students .tab-toolbar .gsel-btn:hover {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.75) !important;
+  color: #FFFFFF !important;
+}
+
+#pane-students .tab-toolbar input::placeholder {
+  color: rgba(255, 255, 255, 0.55) !important;
+}
+
+.list-pane,
+#pane-students .list-pane {
+  background: transparent !important;
+  border: none !important;
+  border-right: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+  width: 360px !important;
+}
+
+#pane-students .student-row {
+  background: transparent !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
+  color: #FFFFFF !important;
+  transition: background 160ms ease !important;
+}
+
+#pane-students .student-row:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
+#pane-students .student-row.active {
+  background: rgba(255, 255, 255, 0.2) !important;
+  color: #FFFFFF !important;
+  box-shadow: inset 3px 0 0 #FFFFFF !important;
+}
+
+#pane-students .empty,
+#studentListEmpty,
+#studentDetailEmpty,
+.empty {
+  color: rgba(255, 255, 255, 0.8) !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35) !important;
+}
+
+#pane-students .empty b,
+#studentListEmpty b,
+#studentDetailEmpty b,
+.empty b {
+  color: #FFFFFF !important;
+  font-family: var(--serif) !important;
+  font-size: 18px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35) !important;
+  display: block !important;
+  margin-bottom: 8px !important;
+}
+
+/* 8. Action Buttons */
+.btn:not(.primary):not(.danger) {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border: 1px solid rgba(255, 255, 255, 0.25) !important;
+  color: #FFFFFF !important;
+  border-radius: 4px !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35) !important;
+  transition: all 180ms ease !important;
+}
+
+.btn:not(.primary):not(.danger):hover {
+  background: rgba(255, 255, 255, 0.2) !important;
+  border-color: rgba(255, 255, 255, 0.5) !important;
+  text-decoration: none !important;
+}
+
+.btn.primary,
+#newStudentToolbarBtn,
+#backupNowBtn,
+#gdriveDeviceStartBtn {
+  background: rgba(255, 255, 255, 0.25) !important;
+  color: #FFFFFF !important;
+  border: 1px solid rgba(255, 255, 255, 0.4) !important;
+  font-weight: 600 !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border-radius: 4px !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35) !important;
+  transition: all 180ms ease !important;
+}
+
+.btn.primary:hover,
+#newStudentToolbarBtn:hover,
+#backupNowBtn:hover,
+#gdriveDeviceStartBtn:hover {
+  background: rgba(255, 255, 255, 0.38) !important;
+  border-color: rgba(255, 255, 255, 0.65) !important;
+}
+
+.btn.danger {
+  background: rgba(138, 58, 58, 0.25) !important;
+  border: 1px solid rgba(255, 100, 100, 0.4) !important;
+  color: #FFCDD2 !important;
+  border-radius: 4px !important;
+}
+
+.btn.danger:hover {
+  background: rgba(138, 58, 58, 0.45) !important;
+  border-color: rgba(255, 100, 100, 0.7) !important;
+}
+
 @media print{.terminal,.admin-layer,.modal{display:none!important} body{overflow:visible!important;height:auto!important} .print-root{display:block!important}}
 .print-root{display:none}
 </style>
@@ -284,7 +1163,7 @@ tr:hover td{background:var(--paper)}
               </table>
             </div>
           </div>
-          <div class="table-wrap" id="attUnknownWrap" style="margin-top:12px">
+          <div class="table-wrap" id="attUnknownWrap">
             <div style="padding:10px 12px;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center">
               <span>Unknown scan attempts</span>
               <span id="attUnknownCount" style="color:var(--ink-3)">0 attempts</span>
