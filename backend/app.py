@@ -494,11 +494,10 @@ SCAN_BRIDGE_SCRIPT = """<script>
     }catch(e){}
   }
   function poll(){
-    var admin = document.getElementById("adminLayer");
     var enroll = document.getElementById("enrollModal");
-    var adminOpen = admin && admin.classList.contains("open");
-    var enrollOpen = enroll && enroll.classList.contains("open");
-    if(adminOpen || enrollOpen){
+    var scanModal = document.getElementById("scanModal");
+    var enrollOpen = (enroll && enroll.classList.contains("open")) || (scanModal && scanModal.classList.contains("open"));
+    if(enrollOpen){
       fetch('/api/scan/last', {cache:'no-store'}).then(function(r){ return r.ok ? r.json() : null; }).then(function(d){
         if (!d || typeof d.seq !== 'number') return;
         if (last === -1){ last = d.seq; return; }

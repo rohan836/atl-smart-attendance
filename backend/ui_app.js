@@ -491,11 +491,14 @@ window.handleRealScan = async function(fid, info){
   const seq=Number(info.seq||0);
   if(seq && seq<=_lastHandledScanSeq) return;
   if(seq) _lastHandledScanSeq=seq;
+  const isAdminOpen = typeof adminLayer !== "undefined" && adminLayer && adminLayer.classList.contains("open");
   if(fid && String(fid).indexOf("__unknown__")===0){
-    setState("identifying");
-    await new Promise(r=>setTimeout(r, 180));
-    if(seq && seq < _lastHandledScanSeq) return;
-    showUnknown();
+    if(!isAdminOpen){
+      setState("identifying");
+      await new Promise(r=>setTimeout(r, 180));
+      if(seq && seq < _lastHandledScanSeq) return;
+      showUnknown();
+    }
     loadTodayAttendance().then(()=>{ if(currentTab==="attendance" || currentTab==="today") renderAttendance(); });
     return;
   }
@@ -512,26 +515,30 @@ window.handleRealScan = async function(fid, info){
     }catch(e){}
   }
   if(!s){
-    setState("identifying");
-    await new Promise(r=>setTimeout(r, 180));
-    if(seq && seq < _lastHandledScanSeq) return;
-    showUnknown();
+    if(!isAdminOpen){
+      setState("identifying");
+      await new Promise(r=>setTimeout(r, 180));
+      if(seq && seq < _lastHandledScanSeq) return;
+      showUnknown();
+    }
     loadTodayAttendance().then(()=>{ if(currentTab==="attendance" || currentTab==="today") renderAttendance(); });
     return;
   }
-  setState("identifying");
-  await new Promise(r=>setTimeout(r, 180));
-  if(seq && seq < _lastHandledScanSeq) return;
-  const status = info.status ? statusUI(info.status) : "Present";
-  const time = info.time || new Date().toTimeString().slice(0,8);
-  showIdentity(s, status, time, info.date ? fmtDate(info.date) : "");
+  if(!isAdminOpen){
+    setState("identifying");
+    await new Promise(r=>setTimeout(r, 180));
+    if(seq && seq < _lastHandledScanSeq) return;
+    const status = info.status ? statusUI(info.status) : "Present";
+    const time = info.time || new Date().toTimeString().slice(0,8);
+    showIdentity(s, status, time, info.date ? fmtDate(info.date) : "");
+  }
   loadTodayAttendance().then(()=>{ if(currentTab==="attendance" || currentTab==="today") renderAttendance(); });
 };
 let _scanLoopActive=true, _scanRequestInFlight=false, _scanLoopTimer=null;
 function pauseSensorScan(){ _scanLoopActive=false; if(_scanLoopTimer){ clearTimeout(_scanLoopTimer); _scanLoopTimer=null; } if(promptText){ promptText.classList.remove("scanning","identifying","detecting","is-hidden"); } }
 function resumeSensorScan(){
   _scanLoopActive=true;
-  if(!_resultHold) setState("ready");
+  if(!_resultHold && (!adminLayer || !adminLayer.classList.contains("open"))) setState("ready");
   if(_scanRequestInFlight){
     if(!_scanLoopTimer) _scanLoopTimer=setTimeout(sensorScanLoop, 400);
     return;
@@ -554,8 +561,8 @@ function returnToFrontPage(rawStudent){
 async function sensorScanLoop(){
   if(!_scanLoopActive || _scanRequestInFlight) return;
   if(_resultHold){ _scanLoopTimer=setTimeout(sensorScanLoop, 180); return; }
-  if(adminLayer && adminLayer.classList.contains("open")){ _scanLoopTimer=setTimeout(sensorScanLoop,500); return; }
-  if(enrollModal && enrollModal.classList.contains("open")){ _scanLoopTimer=setTimeout(sensorScanLoop,500); return; }
+  const isEnrollOpen = (enrollModal && enrollModal.classList.contains("open")) || ($("scanModal") && $("scanModal").classList.contains("open"));
+  if(isEnrollOpen){ _scanLoopTimer=setTimeout(sensorScanLoop,500); return; }
   _scanRequestInFlight=true;
   let nextDelay=150;
   try{
@@ -581,7 +588,7 @@ async function sensorScanLoop(){
       if(_resultHold){
         // hold active — result visible, do not overwrite prompt or schedule duplicate
       } else {
-        setState("ready");
+        if(!adminLayer || !adminLayer.classList.contains("open")) setState("ready");
         _scanLoopTimer=setTimeout(sensorScanLoop,nextDelay);
       }
     }
@@ -1687,7 +1694,9 @@ function openReEnroll(id){
 async function deleteStudent(id){
   const s=Students.find(x=>x.id===id); if(!s) return;
   if(!confirm("Deactivate "+s.name+"? Their fingerprint slot is freed and roll is released. History is kept.")) return;
+  pauseSensorScan();
   try{ await api("/api/students/"+id,{method:"DELETE"}); await loadAll(); renderStudentDetail(-1); }catch(e){ alert("Failed: "+e.message); }
+  finally{ resumeSensorScan(); }
 }
 async function reactivateStudent(id){
   const s=Students.find(x=>x.id===id); if(!s) return;
@@ -2009,7 +2018,7 @@ async function openAdmin(){
   if(activeTabName === "today" || activeTabName === "reports") activeTabName = "attendance";
   const pane=document.getElementById("pane-"+activeTabName);
   if(pane) pane.style.opacity="0.6";
-  pauseSensorScan(); adminLayer.classList.add("open"); renderAll();
+  adminLayer.classList.add("open"); renderAll();
   setTimeout(()=>{ if(pane) pane.style.opacity=""; updateTabs(); }, 80);
 }
 function updateTabs(){
@@ -2633,6 +2642,7 @@ $("backupDownloadBtn").onclick=async()=>{
 $("backupFileInput").onchange=async(e)=>{
   const file=e.target.files&&e.target.files[0]; if(!file) return;
   const status=$("backupStatus"); status.textContent="Restoring…";
+  pauseSensorScan();
   try{
     const form=new FormData(); form.append("file",file);
     const body = await api("/api/restore", {method:"POST", body:form});
@@ -2641,6 +2651,8 @@ $("backupFileInput").onchange=async(e)=>{
     const msg = err.message || (err.body && err.body.error) || err.status;
     status.textContent="Restore failed: "+msg;
     try{ alert("Restore failed: "+msg); }catch(_e){}
+  }finally{
+    resumeSensorScan();
   }
   e.target.value="";
 };
@@ -3180,6 +3192,7 @@ if($("gdriveFilesBody")) {
     const fileId = btn.dataset.gdriveRestore;
     const name = btn.dataset.gdriveName || "cloud backup";
     if(!confirm(`Restore database from cloud backup "${name}"?\n\nWARNING: Current database will be safely backed up to .pre_restore.bak before replacement.`)) return;
+    pauseSensorScan();
     try {
       btn.disabled = true;
       btn.textContent = "Restoring…";
@@ -3187,6 +3200,7 @@ if($("gdriveFilesBody")) {
       alert(`Database restored successfully from "${name}". Page will now reload.`);
       window.location.reload();
     } catch(err) {
+      resumeSensorScan();
       alert("Restore failed: " + (err.message || "error"));
       btn.disabled = false;
       btn.textContent = "Restore";

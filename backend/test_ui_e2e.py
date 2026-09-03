@@ -882,11 +882,13 @@ class UiE2eTest(unittest.TestCase):
         preset.select_option("today")
         self.page.wait_for_timeout(300)
 
-        # 8. Test live auto-refresh while on currentTab='attendance'
+        # 8. Test live auto-refresh while on currentTab='attendance' without interrupting identityLayer
         self.page.evaluate("window.handleRealScan('F-1', {status: 'Present', time: '08:05:00', student: {id: 1, name: 'Aarav Sharma', class: 'Grade 10-A', roll: '10A-01'}})")
         self.page.wait_for_timeout(500)
         # Verify table has rows updated live
         self.assertTrue(self.page.locator("#attTableBody tr").count() >= 1)
+        # Verify identityLayer is NOT active/visible (suppressed while Admin is open)
+        self.assertFalse(self.page.evaluate("document.getElementById('identityLayer').classList.contains('visible')"))
 
         # 9. Test Action Buttons
         self.assertTrue(self.page.locator("#attRefreshBtn").is_visible())

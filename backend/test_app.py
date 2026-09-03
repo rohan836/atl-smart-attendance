@@ -1776,12 +1776,12 @@ class ApiTest(unittest.TestCase):
         self.assertIn('_noPrompt', ui)
         self.assertIn('FormData', ui)
 
-    def test_bridge_does_not_call_handleRealScan_while_admin_open(self):
+    def test_bridge_does_not_call_handleRealScan_while_enroll_open(self):
         import pathlib
         app_text = pathlib.Path(atl.ROOT / "backend" / "app.py").read_text()
-        self.assertIn('adminLayer', app_text)
         self.assertIn('enrollModal', app_text)
-        self.assertIn('adminOpen', app_text)
+        self.assertIn('scanModal', app_text)
+        self.assertIn('enrollOpen', app_text)
         self.assertIn('window.handleRealScan', app_text)
 
     def test_reconcile_background_no_prompt(self):

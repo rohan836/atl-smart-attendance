@@ -28,7 +28,7 @@ No working-tree backup HTML is kept — current production release is `v1.2.0` (
 
 ## Active scan and bridge
 
-Scanning is DB-driven. `sensorScanLoop()` posts `POST /api/scan {waitSec:2}` when Admin and the enroll modal are closed; the backend under `SENSOR_LOCK` runs `GT511C3.identify()` with a bounded wait, capture retries, and identify. Terminal errors `NO_FINGER`, `SENSOR_BUSY`, `SENSOR_DISCONNECT`/UART create no event. The injected bridge polls `GET /api/scan/last` every 2 seconds, maps integer `fingerId` to string `fid "F-<n>"`, upserts the student via `mapStudent()`, and calls `window.handleRealScan(fid, {status,time,date,seq,student})`. Unknown scans resolve as `__unknown__<seq>`. Enroll and re-enroll success call `returnToFrontPage()` which closes the modal and Admin and re-arms the loop.
+Scanning is DB-driven. `sensorScanLoop()` posts `POST /api/scan {waitSec:2}` on the kiosk and in the background while Admin is open (suppressing full-screen identity popup); pauses exclusively during enrollment (`enrollModal`/`scanModal`) and sensor maintenance. The backend under `SENSOR_LOCK` runs `GT511C3.identify()` with a bounded wait, capture retries, and identify. Terminal errors `NO_FINGER`, `SENSOR_BUSY`, `SENSOR_DISCONNECT`/UART create no event. The injected bridge polls `GET /api/scan/last` every 2 seconds, maps integer `fingerId` to string `fid "F-<n>"`, upserts the student via `mapStudent()`, and calls `window.handleRealScan(fid, {status,time,date,seq,student})`. Unknown scans resolve as `__unknown__<seq>`. Enroll and re-enroll success call `returnToFrontPage()` which closes the modal and Admin and re-arms the loop.
 
 ## UI and state
 

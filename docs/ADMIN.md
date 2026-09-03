@@ -1,6 +1,6 @@
 # ADMIN — Responsibilities and functions
 
-Admin is gated behind the terminal's `Admin` trigger and is organized into four unified tabs: **Students**, **Attendance**, **Setup**, and **Backup**. It is the only place that mutates roster, schedules, and school settings. The terminal scan loop pauses while Admin or the enroll modal is open and resumes on close.
+Admin is gated behind the terminal's `Admin` trigger and is organized into four unified tabs: **Students**, **Attendance**, **Setup**, and **Backup**. It is the only place that mutates roster, schedules, and school settings. The terminal scan loop continues in the background while Admin is open (recording scans and refreshing Attendance live while suppressing the full-screen identity popup); it pauses exclusively during enrollment modals and sensor maintenance.
 
 ## Students
 
