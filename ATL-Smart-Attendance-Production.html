@@ -243,8 +243,10 @@ tr:hover td{background:var(--paper)}
           <input type="date" id="attSingleDate" style="display:none">
           <input type="date" id="attFromDate" style="display:none">
           <input type="date" id="attToDate" style="display:none">
+          <button class="btn primary" id="attApplyBtn" style="display:none">Apply</button>
           <select id="attClassFilter"><option value="">All Classes</option></select>
           <select id="attBatchFilter"><option value="">All Batches</option></select>
+          <select id="attStudentFilter" style="max-width:180px"><option value="">All Students</option></select>
           <select id="attStatusFilter">
             <option value="">All Status</option>
             <option value="Present">Present</option>
@@ -262,7 +264,7 @@ tr:hover td{background:var(--paper)}
             <option value="class_asc">Class</option>
             <option value="status_asc">Status</option>
           </select>
-          <button class="btn primary" id="attRefreshBtn">Refresh</button>
+          <button class="btn" id="attRefreshBtn">Refresh</button>
           <button class="btn" id="attPrintBtn">Print</button>
           <button class="btn" id="attExportBtn">Export CSV</button>
         </div>
@@ -296,17 +298,9 @@ tr:hover td{background:var(--paper)}
           </div>
         </div>
       </div>
-      <!-- Backward compatibility aliases for legacy ID queries -->
-      <div id="pane-today" class="admin-pane hidden" style="display:none">
-        <div id="todayDateLabel"></div><select id="todayClassFilter"></select><select id="todayStatusFilter"></select><select id="todaySort"></select>
-        <button id="todayRefreshBtn"></button><button id="todayPrintBtn"></button><button id="todayExportBtn"></button>
-        <div id="todayStats"></div><tbody id="todayTableBody"></tbody><tbody id="todayUnknownBody"></tbody>
-      </div>
-      <div id="pane-reports" class="admin-pane hidden" style="display:none">
-        <select id="reportScope"></select><select id="reportClass"></select><select id="reportStudent"></select><select id="reportTime"></select>
-        <input type="date" id="reportFrom"><input type="date" id="reportTo"><button id="reportApplyBtn"></button><button id="reportPrintBtn"></button><button id="reportCsvBtn"></button>
-        <div id="reportStats"></div><tbody id="reportBody"></tbody>
-      </div>
+      <!-- Backward compatibility anchors for legacy tab/pane references -->
+      <div id="pane-today" class="admin-pane hidden" style="display:none"></div>
+      <div id="pane-reports" class="admin-pane hidden" style="display:none"></div>
       <!-- Setup: School Configuration & Schedule (Unified) -->
       <div class="admin-pane hidden" id="pane-setup">
         <div class="detail-scroll">

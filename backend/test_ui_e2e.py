@@ -833,33 +833,62 @@ class UiE2eTest(unittest.TestCase):
         self.page.wait_for_timeout(300)
         single_input = self.page.locator("#attSingleDate")
         self.assertTrue(single_input.is_visible())
+        apply_btn = self.page.locator("#attApplyBtn")
+        self.assertTrue(apply_btn.is_visible())
 
-        # 5. Test Custom Range preset
+        # 5. Test Custom Range preset and Apply button
         preset.select_option("custom_range")
         self.page.wait_for_timeout(300)
         from_input = self.page.locator("#attFromDate")
         to_input = self.page.locator("#attToDate")
         self.assertTrue(from_input.is_visible())
         self.assertTrue(to_input.is_visible())
+        self.assertTrue(apply_btn.is_visible())
 
         from_input.fill("2026-09-01")
         to_input.fill("2026-09-03")
-        self.page.click("#attRefreshBtn")
+        apply_btn.click()
         self.page.wait_for_timeout(300)
 
         # Multi-day table head should show 'Working Day?' column
         th_texts = [self.page.locator("#attTableHead th").nth(i).inner_text().strip().upper() for i in range(self.page.locator("#attTableHead th").count())]
         self.assertIn("WORKING DAY?", th_texts)
 
-        # 6. Test Class & Batch & Status filter elements
+        # 6. Test Class, Batch, Status, and Student filter elements
         class_filter = self.page.locator("#attClassFilter")
         batch_filter = self.page.locator("#attBatchFilter")
         status_filter = self.page.locator("#attStatusFilter")
+        student_filter = self.page.locator("#attStudentFilter")
         self.assertTrue(class_filter.is_visible())
         self.assertTrue(batch_filter.is_visible())
         self.assertTrue(status_filter.is_visible())
+        self.assertTrue(student_filter.is_visible())
 
-        # 7. Test Action Buttons
+        # 7. Test One Student Selection and authoritative metrics
+        # Select first student in dropdown
+        self.page.wait_for_function("document.getElementById('attStudentFilter').options.length > 1", timeout=3000)
+        first_student_id = self.page.evaluate("document.getElementById('attStudentFilter').options[1].value")
+        first_student_name = self.page.evaluate("document.getElementById('attStudentFilter').options[1].textContent")
+        student_filter.select_option(first_student_id)
+        self.page.wait_for_timeout(400)
+
+        # Verify single student mode badge and KPI cards
+        self.assertIn("STUDENT:", mode_badge.inner_text().upper())
+        self.assertIn("STUDENT", [self.page.locator("#attStats .stat label").nth(i).inner_text().strip().upper() for i in range(9)])
+        self.assertIn("ELIGIBLE DAYS", [self.page.locator("#attStats .stat label").nth(i).inner_text().strip().upper() for i in range(9)])
+
+        # Reset student filter back to All Students
+        student_filter.select_option("")
+        preset.select_option("today")
+        self.page.wait_for_timeout(300)
+
+        # 8. Test live auto-refresh while on currentTab='attendance'
+        self.page.evaluate("window.handleRealScan('F-1', {status: 'Present', time: '08:05:00', student: {id: 1, name: 'Aarav Sharma', class: 'Grade 10-A', roll: '10A-01'}})")
+        self.page.wait_for_timeout(500)
+        # Verify table has rows updated live
+        self.assertTrue(self.page.locator("#attTableBody tr").count() >= 1)
+
+        # 9. Test Action Buttons
         self.assertTrue(self.page.locator("#attRefreshBtn").is_visible())
         self.assertTrue(self.page.locator("#attPrintBtn").is_visible())
         self.assertTrue(self.page.locator("#attExportBtn").is_visible())

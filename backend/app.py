@@ -2586,7 +2586,7 @@ def export_csv():
             return csv_data, 200, {**headers, "Content-Type":"text/csv; charset=utf-8"}
         else:
             # attendance
-            writer.writerow(["date","time","studentId","name","roll","class","status","fingerId","result","source"])
+            writer.writerow(["date","time","studentId","name","roll","class","batch","status","fingerId","result","source"])
             # build query
             where = []
             params = []
@@ -2612,18 +2612,21 @@ def export_csv():
             if status:
                 where.append("e.status=?")
                 params.append(status)
-            # class filter needs join
-            sql = "SELECT e.*, s.name as sname, s.roll as sroll, s.grade as sgrade, s.fingerId as sfid FROM events e LEFT JOIN students s ON e.studentId=s.id"
+            batch = request.args.get("batch")
+            # class and batch filters need join
+            sql = "SELECT e.*, s.name as sname, s.roll as sroll, s.grade as sgrade, s.batch as sbatch, s.fingerId as sfid FROM events e LEFT JOIN students s ON e.studentId=s.id"
             if where:
                 sql += " WHERE " + " AND ".join(where)
             if cls:
-                # filter after join
-                sql += (" AND " if where else " WHERE ") + " lower(s.grade)=lower(?)"
+                sql += (" AND " if (where or params) else " WHERE ") + " lower(s.grade)=lower(?)"
                 params.append(cls)
+            if batch:
+                sql += (" AND " if (where or cls or params) else " WHERE ") + " s.batch=?"
+                params.append(batch)
             sql += " ORDER BY e.date DESC, e.time DESC LIMIT 5000"
             rows = db.execute(sql, params).fetchall()
             for r in rows:
-                writer.writerow([r["date"], r["time"], r["studentId"] or "", r["sname"] or "", r["sroll"] or "", r["sgrade"] or "", r["status"] or "", r["fingerId"] or r["sfid"] or "", r["result"] or "", r["source"] or ""])
+                writer.writerow([r["date"], r["time"], r["studentId"] or "", r["sname"] or "", r["sroll"] or "", r["sgrade"] or "", r["sbatch"] or "", r["status"] or "", r["fingerId"] or r["sfid"] or "", r["result"] or "", r["source"] or ""])
             csv_data = output.getvalue()
             headers = {"Content-Disposition": f"attachment; filename=attendance_{start or date or today_ist()}_{end or ''}.csv".replace("__","_")}
             return csv_data, 200, {**headers, "Content-Type":"text/csv; charset=utf-8"}
