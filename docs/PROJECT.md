@@ -10,13 +10,13 @@ The target hardware is `lancer@192.168.1.8` (Pi 3 Model B, Debian 13). The same 
 
 The front page is a biometric terminal, not a dashboard — markup and CSS/layout live in `ATL-Smart-Attendance-Production.html`, behavior lives in `backend/ui_app.js`. Idle shows centered `PLACE YOUR FINGER` (11px, 0.22em) and a single `Admin` trigger bottom-middle. A finger on the sensor triggers identify, classify, record, and display. On success the UI shows a frameless result — photo, name, roll, class, section/batch, student ID, status and time — for about four seconds, then fades back to idle. Unknown fingerprints show `NOT RECOGNIZED` for under three seconds.
 
-Admin is gated behind the terminal. Six tabs — Students, Today, Reports, Calendar, Settings, Backup — manage the school day without leaving the device. Students holds roster and enrollments; Today shows today's attendance; Reports aggregates ranges; Calendar owns schedules; Settings owns school identity and classes; Backup owns export and restore.
+Admin is gated behind the terminal. Four unified tabs — **Students**, **Attendance**, **Setup**, and **Backup** — manage the school day without leaving the device. Students holds roster and enrollments; Attendance unifies live today operations with historical reporting and single-student metrics; Setup unifies school configuration, classes/batches, Global/Class/Batch schedule contexts, and Month View; Backup manages Google Drive, Telegram, and USB destinations.
 
 All operational truth lives in two places: the GT-511C3 template store (200 slots, IDs 1-199) and SQLite at `/var/lib/atl/attendance.db` on the Pi. Browser LocalStorage (`atl_*`) is a display cache only — it omits photos and is refreshed from `/api/*` on load and every 15 seconds. Never treat LocalStorage as authoritative.
 
 ## Who it serves
 
-Students scan once per scheduled day. Teachers and office staff use Today and Reports to verify counts and eligibility. The administrator owns calendars, holidays, overrides, class lists, and backups. Deployment is single-school, single Pi, single sensor, single database.
+Students scan once per scheduled day. Teachers and office staff use Attendance to verify counts and eligibility. The administrator owns calendars, holidays, overrides, class lists, and backups. Deployment is single-school, single Pi, single sensor, single database.
 
 ## Behavior principles
 
