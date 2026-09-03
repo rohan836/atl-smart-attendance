@@ -2,7 +2,7 @@
 
 This file is the first source of rules for any coding agent. Read it before changing code. It points to the right doc for each task.
 
-Production release: `v1.2.0` (`bf575451`). Current `main`: `bf575451` (Unified Backup Manager UI + Telegram secondary cloud backup + USB local storage backup + synchronized multi-destination scheduling + 116 backend tests + 12 Playwright E2E tests). Historical rollback tags: `v1.1.0` (`da89bdf`), `v1.0.1` (`32e5ef7`), `v1.0.0` (`c0fe411`). For new work, start from current `main`. Never modify historical release tags. See `docs/VERSIONS.md`.
+Production release: `v1.2.0` (`bf575451`). Current `main`: Unified Attendance workspace (Today default + historical + single-student metrics + streaming CSV + Apply action) + Unified Setup (Global/Class/Batch scheduling + Month View) + Unified Backup Manager (Google Drive, Telegram, USB) with 116 backend tests + 14 Playwright E2E tests. Historical rollback tags: `v1.1.0` (`da89bdf`), `v1.0.1` (`32e5ef7`), `v1.0.0` (`c0fe411`). For new work, start from current `main`. Never modify historical release tags. See `docs/VERSIONS.md`.
 
 ## What this project is
 

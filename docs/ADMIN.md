@@ -12,13 +12,14 @@ Detail cards show the last 60 events and actions: Edit (whitelisted `PATCH /api/
 
 Unifies live operations and historical reporting into a single screen:
 - **Default View:** Defaults immediately to today's live attendance upon opening, with a green `LIVE TODAY` badge, working day vs. holiday status, and scheduled vs. not scheduled breakdown.
-- **Unified Filter Bar:** Fast date controls (Today, Yesterday, Custom Date, Custom Date Range, Last 7 Days, This Month, Academic Year), Class filter, Batch filter, Status filter (All, Present, Late, Absent, Not Scheduled, Duplicate), and Sort ordering.
+- **Unified Filter Bar:** Fast date controls (Today, Yesterday, Custom Date, Custom Date Range, Last 7 Days, This Month, Academic Year), explicit `Apply` button for custom dates, Class filter, Batch filter, Student filter/search (`All Students` or single student), Status filter (All, Present, Late, Absent, Not Scheduled, Duplicate), and Sort ordering.
+- **Single Student Reporting:** Direct single student selection in Attendance toolbar, authoritative student metrics via `/api/reports?studentId`, student-specific 9 KPI cards (`Eligible days`, `Attended`, `Attendance %`), student-specific editorial Print output, and single-student CSV export.
 - **9 KPI Cards:** In both live and historical modes: `Date`, `Total students`, `Present`, `Late`, `Absent`, `Not Scheduled`, `Unknown scans`, `Duplicate scans`, and `Attendance %`.
 - **Dynamic Attendance Table:**
   - *Single-Day Mode:* Columns for Time, Student, Roll, Class, Status with `[Correct]` button, and Fingerprint ID.
   - *Multi-Day Mode:* Columns for Date, Time, Student, Roll, Class, Status with `[Correct]` button, and Working Day (`Scheduled` vs `Not Scheduled`).
 - **Operational Data:** Live unknown scan attempts list with count, time, fingerprint slot, and note.
-- **Actions:** In-place `Refresh` (re-loads sensor events and recalculates), `Print` (professional editorial report layout with header, metadata, 9 KPI cards, table, and unknown attempts), and `Export CSV` (backend export for single day, frontend export for multi-day ranges).
+- **Actions:** In-place `Refresh` (re-loads sensor events and recalculates), live auto-refresh on real scans and 15-second background poller, `Print` (professional editorial report layout with header, metadata, 9 KPI cards, table, and unknown attempts), and `Export CSV` (streaming backend export for both single-day and multi-day ranges with class, batch, student, and status filtering).
 
 ## Setup (Unified School Configuration & Schedule)
 
