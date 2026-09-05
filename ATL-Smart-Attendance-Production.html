@@ -4769,10 +4769,8 @@
       background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath fill='none' stroke='%23F2F3F6' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round' d='M1 1l3 3 3-3'/%3E%3C/svg%3E") no-repeat right 2px center !important;
       appearance: none !important;
       -webkit-appearance: none !important;
-      /* Text-only like the preset pills: no underline bars under
-         All Classes / All Batches / All Students / Status / Sort */
       border: 0 !important;
-      border-bottom: 1px solid transparent !important;
+      border-bottom: 1px solid rgba(242, 243, 246, 0.2) !important;
       border-radius: 0 !important;
       height: 28px !important;
       padding: 0 16px 0 2px !important;
@@ -4794,15 +4792,14 @@
       letter-spacing: normal !important;
     }
 
-    /* Custom Date single field (the only inline date control left;
-       range/academic pick via frost popup): text-only, no box, no
-       underline — same voice as the pills and filters */
+    /* Revealed custom date/range controls: first-class frost fields so
+       the Custom options land on a usable, visible row */
     #pane-attendance .tab-toolbar #attSingleDate,
     #pane-attendance .tab-toolbar #attFromDate,
     #pane-attendance .tab-toolbar #attToDate {
       background: transparent !important;
       border: 0 !important;
-      border-bottom: 1px solid transparent !important;
+      border-bottom: 1px solid rgba(242, 243, 246, 0.2) !important;
       border-radius: 0 !important;
       color: #F2F3F6 !important;
       font-family: var(--sans) !important;
@@ -4829,8 +4826,7 @@
     #pane-attendance .tab-toolbar .seg-strip {
       display: inline-flex !important;
       align-items: center !important;
-      flex-wrap: nowrap !important;
-      flex: 0 0 auto !important;
+      flex-wrap: wrap !important;
       gap: 4px 16px !important;
       background: transparent !important;
       border: none !important;
@@ -4923,7 +4919,7 @@
     #pane-attendance .tab-toolbar select:hover,
     #pane-attendance .tab-toolbar select:focus,
     #pane-attendance .tab-toolbar .gsel-btn:hover {
-      border-bottom-color: transparent !important;
+      border-bottom-color: #F2F3F6 !important;
       color: #F2F3F6 !important;
     }
 
@@ -4996,50 +4992,6 @@
       overflow: hidden !important;
       text-overflow: ellipsis !important;
       min-width: 0 !important;
-    }
-
-    /* TOOLBAR GEOMETRY LOCK — one fixed bar zone in all four panes.
-       Students/attendance/setup/backup toolbars share an identical
-       box (52px, single row, same pads/gaps/bars), so switching
-       sections never moves the bars or the content below. Overflow
-       scrolls barlessly inside the bar instead of wrapping it. */
-    #pane-students .tab-toolbar,
-    #pane-attendance .tab-toolbar,
-    #pane-setup .tab-toolbar,
-    #pane-backup .tab-toolbar {
-      height: 52px !important;
-      min-height: 52px !important;
-      max-height: 52px !important;
-      flex: 0 0 auto !important;
-      flex-wrap: nowrap !important;
-      justify-content: flex-start !important;
-      align-items: center !important;
-      gap: 18px !important;
-      padding: 0 clamp(16px, 3vw, 32px) !important;
-      margin: 0 0 20px 0 !important;
-      overflow-x: auto !important;
-      overflow-y: hidden !important;
-      scrollbar-width: none !important;
-      -ms-overflow-style: none !important;
-      border-bottom: 1px solid rgba(242, 243, 246, 0.12) !important;
-      background: transparent !important;
-      box-sizing: border-box !important;
-    }
-
-    #pane-students .tab-toolbar::-webkit-scrollbar,
-    #pane-attendance .tab-toolbar::-webkit-scrollbar,
-    #pane-setup .tab-toolbar::-webkit-scrollbar,
-    #pane-backup .tab-toolbar::-webkit-scrollbar {
-      display: none !important;
-      width: 0 !important;
-    }
-
-    /* Search rides the single row (basis auto, not 100%) — narrow
-       screens scroll the bar instead of growing it. */
-    #pane-students .tab-toolbar .search-wrap {
-      flex: 0 1 420px !important;
-      min-width: 180px !important;
-      max-width: 584px !important;
     }
 
     /* Mode indicator ("LIVE TODAY"): subtle monochrome text */
@@ -6723,20 +6675,20 @@
       margin-bottom: 8px !important;
     }
 
-    /* Left bar owns tabs + add, stacked: same 340/280/360 width
+    /* Left bar owns tabs + add, stacked: same 280/240/300 width
        + 24px gutter as #cubeGrid, so controls end at the wall and
        never leak into the detail side (display + edit only). Both
        views share one geometry — no width/height shift on switch. */
     #pane-setup .setup-card-classes .setup-panel-header.compact {
       display: flex !important;
-      align-items: center !important;
-      gap: 12px !important;
+      align-items: stretch !important;
+      gap: 0 !important;
     }
 
     #pane-setup .setup-card-classes .cube-left-head {
-      flex: 0 1 340px !important;
-      min-width: 280px !important;
-      max-width: 360px !important;
+      flex: 0 1 280px !important;
+      min-width: 240px !important;
+      max-width: 300px !important;
       padding-right: 24px !important;
       box-sizing: border-box !important;
       display: flex !important;
@@ -6833,9 +6785,10 @@
     }
 
     /* Class rows, master-detail: mirrors the Students split-view —
-       left list (340/280/360 + 24px gutter), 1px wall, solid
-       schedule editor right. Tile click swaps the right card only
-       (renderCubeDetail), same as selectStudent. */
+       compressed left list (280/240/300 + 24px gutter), 1px wall,
+       compact month right. Tile click swaps the editor below
+       (renderCubeDetail into #scheduleEditor), same as
+       selectStudent. */
     #pane-setup #classCubes {
       display: flex !important;
       align-items: stretch !important;
@@ -6844,9 +6797,9 @@
     }
 
     #pane-setup #cubeGrid {
-      flex: 0 1 340px !important;
-      min-width: 280px !important;
-      max-width: 360px !important;
+      flex: 0 1 280px !important;
+      min-width: 240px !important;
+      max-width: 300px !important;
       padding-right: 24px !important;
       box-sizing: border-box !important;
       display: flex !important;
@@ -6885,7 +6838,19 @@
       box-sizing: border-box !important;
     }
 
-    /* Narrow screens: list stacks over the editor (same 1160px
+    /* Class/batch solid editor, full width in the month's old slot
+       (transparent flow, same as the month section around it). */
+    #pane-setup #scheduleEditor {
+      background: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
+      border-radius: 0 !important;
+      padding: 0 !important;
+      margin-bottom: 28px !important;
+      min-width: 0 !important;
+    }
+
+    /* Narrow screens: list stacks over the month (same 1160px
        breakpoint as the setup grid); wall turns horizontal. */
     @media (max-width: 1160px) {
       #pane-setup #classCubes {
@@ -6911,14 +6876,16 @@
       }
     }
 
-    /* Cubes match month cells exactly (56px box, 8px stack gap,
-       4px radius, same frost) — one cube language both sides. */
+    /* Cubes copy the student-row block exactly (68px frost tile,
+       0 14px pad, 4px radius, 8px stack gap, 0.06/0.1/0.2 fills,
+       pole-law active text) — motion stripped per no-animation
+       rule (no translate, no transition; cursor is the answer). */
     #pane-setup .class-cube {
       min-height: 56px !important;
       display: flex !important;
       align-items: center !important;
       gap: 12px !important;
-      padding: 6px 14px !important;
+      padding: 0 14px !important;
       margin-bottom: 8px !important;
       background: rgba(242, 243, 246, 0.06) !important;
       backdrop-filter: blur(12px) saturate(1.2) !important;
@@ -7058,6 +7025,121 @@
       box-shadow: none !important;
       overflow: visible !important;
       gap: 8px !important;
+    }
+
+    /* GEOMETRY RESTORE — reference month-view proportions (CSS-only,
+       no DOM/JS change): compact top offset, narrow left column,
+       shared toolbar row + row-for-row cube/cell alignment via grid,
+       caption below grid, 160px truncated context slot. */
+    #pane-setup .setup-grid {
+      margin-top: 32px !important;
+    }
+
+    /* Shared two-column grid: toolbar shares row 1 with the add row,
+       left cubes align row-for-row with month cells (56px + 8px gap). */
+    #pane-setup .setup-card-classes .setup-subcard-section {
+      display: grid !important;
+      grid-template-columns: minmax(220px, 260px) 1px minmax(0, 1fr) !important;
+      column-gap: 20px !important;
+      row-gap: 8px !important;
+      align-items: start !important;
+    }
+
+    #pane-setup #classCubes,
+    #pane-setup #classDetail {
+      display: contents !important;
+    }
+
+    #pane-setup .setup-card-classes .setup-panel-header.compact {
+      grid-column: 1 !important;
+      grid-row: 1 !important;
+      min-width: 0 !important;
+    }
+
+    #pane-setup .setup-card-classes .cube-left-head,
+    #pane-setup #cubeGrid {
+      padding-right: 0 !important;
+    }
+
+    #pane-setup .cube-wall {
+      grid-column: 2 !important;
+      grid-row: 1 / span 2 !important;
+      align-self: stretch !important;
+    }
+
+    #pane-setup #classDetail .setup-monthview-header {
+      grid-column: 3 !important;
+      grid-row: 1 !important;
+      min-width: 0 !important;
+    }
+
+    #pane-setup #cubeGrid {
+      grid-column: 1 !important;
+      grid-row: 2 !important;
+      min-width: 0 !important;
+    }
+
+    #pane-setup #classDetail #calendarGrid {
+      grid-column: 3 !important;
+      grid-row: 2 !important;
+      margin: 0 !important;
+      min-width: 0 !important;
+    }
+
+    /* Month header cards match cube height so rows line up exactly. */
+    #pane-setup #calendarGrid .weekly-day-card {
+      height: 56px !important;
+    }
+
+    #pane-setup #classDetail #calTemplateLegend {
+      grid-column: 3 !important;
+      grid-row: 3 !important;
+      margin: 8px 0 0 !important;
+    }
+
+    #pane-setup .setup-card-classes .setup-caption {
+      grid-column: 1 / -1 !important;
+    }
+
+    #pane-setup #calClassSelect {
+      max-width: 160px !important;
+      overflow: hidden !important;
+      text-overflow: ellipsis !important;
+      white-space: nowrap !important;
+    }
+
+    #pane-setup .setup-monthview-legend .gsel:has(> select#calClassSelect) > .gsel-btn {
+      max-width: 160px !important;
+      overflow: hidden !important;
+    }
+
+    /* Narrow screens: stack list over month again. */
+    @media (max-width: 1160px) {
+      #pane-setup .setup-card-classes .setup-subcard-section {
+        display: flex !important;
+        flex-direction: column !important;
+      }
+      #pane-setup #classCubes {
+        display: flex !important;
+        flex-direction: column !important;
+      }
+      #pane-setup #classDetail {
+        display: flex !important;
+        flex-direction: column !important;
+      }
+      #pane-setup #classDetail .setup-monthview-header {
+        order: 1 !important;
+      }
+      #pane-setup #classDetail #calendarGrid {
+        order: 2 !important;
+      }
+      #pane-setup #classDetail #calTemplateLegend {
+        order: 3 !important;
+      }
+      #pane-setup .cube-wall {
+        width: 100% !important;
+        height: 1px !important;
+      }
     }
 
     /* Bottom bar is its own row after the grid — never attached to it */
@@ -8478,7 +8560,7 @@
     html[data-ink="dark"] #adminLayer #pane-attendance .tab-toolbar select:hover,
     html[data-ink="dark"] #adminLayer #pane-attendance .tab-toolbar select:focus,
     html[data-ink="dark"] #adminLayer #pane-attendance .tab-toolbar .gsel-btn:hover {
-      border-bottom-color: transparent !important;
+      border-bottom-color: #181A20 !important;
     }
 
     /* D13 — students filter underlines (same 0.2/FFF family) */
@@ -8907,9 +8989,6 @@
         <div id="pane-reports" class="admin-pane hidden" style="display:none"></div>
         <!-- Setup: School Configuration & Schedule (Unified) -->
         <div class="admin-pane hidden" id="pane-setup">
-          <!-- Empty toolbar spacer: same 52px bar zone as the other
-               panes (bars + gap identical on every section switch) -->
-          <div class="tab-toolbar" aria-hidden="true"></div>
           <div class="detail-scroll">
             <!-- Row 1: Classes & Batches -->
             <div class="setup-grid">
@@ -8936,8 +9015,32 @@
                   </div>
 
                   <!-- Left: one list at a time (CLASSES|BATCHES tabs);
-                       wall; right: solid schedule editor. No popup. -->
-                  <div id="classCubes"></div>
+                       wall; right: compact month view. Editor lives
+                       below in #scheduleEditor. No popup. -->
+                  <div id="classCubes">
+                    <div id="cubeGrid"></div>
+                    <div class="cube-wall"></div>
+                    <div id="classDetail">
+                      <div class="setup-monthview-header">
+                        <div class="setup-monthview-legend">
+                          <span class="setup-monthview-title">Month View</span>
+                          <span class="setup-legend-item">WORKING</span>
+                          <span class="setup-legend-item off">NON-WORKING</span>
+                          <span class="setup-legend-item">OVERRIDE</span>
+                          <select id="calClassSelect">
+                            <option value="">All classes (global)</option>
+                          </select>
+                        </div>
+                        <div class="setup-monthview-nav">
+                          <button class="btn" id="calPrevBtn">‹ Prev</button>
+                          <div id="calMonthLabel">September 2026</div>
+                          <button class="btn" id="calNextBtn">Next ›</button>
+                          <button class="btn" id="calTodayBtn">Today</button>
+                        </div>
+                      </div>
+                      <div class="calendar-grid" id="calendarGrid"></div>
+                    </div>
+                  </div>
 
                   <div class="setup-caption">Classes are editable; adding a class here also creates it when enrolling a student.</div>
                 </div>
@@ -8946,6 +9049,8 @@
             </div>
 
             <div class="setup-weekly-card">
+              <!-- Schedule context lives on the month bar now (middle,
+                   right of OVERRIDE) — header retired, priority stays. -->
               <!-- Priority note -->
               <div class="setup-weekly-footer">
                 <div>Evaluation Priority: 1. Date Override → 2. Holiday / Vacation → 3. Weekly Schedule</div>
@@ -8954,24 +9059,8 @@
             </div>
 
             <div class="setup-monthview-section">
-              <div class="setup-monthview-header">
-                <div class="setup-monthview-legend">
-                  <span class="setup-monthview-title">Month View</span>
-                  <span class="setup-legend-item">WORKING</span>
-                  <span class="setup-legend-item off">NON-WORKING</span>
-                  <span class="setup-legend-item">OVERRIDE</span>
-                  <select id="calClassSelect">
-                    <option value="">All classes (global)</option>
-                  </select>
-                </div>
-                <div class="setup-monthview-nav">
-                  <button class="btn" id="calPrevBtn">‹ Prev</button>
-                  <div id="calMonthLabel">September 2026</div>
-                  <button class="btn" id="calNextBtn">Next ›</button>
-                  <button class="btn" id="calTodayBtn">Today</button>
-                </div>
-              </div>
-              <div class="calendar-grid" id="calendarGrid"></div>
+              <!-- Class/batch solid editor (was the right pane) -->
+              <div id="scheduleEditor"></div>
 
               <!-- Row 3: Holidays & Special Date Overrides (2 columns, below the grid) -->
               <div style="display:flex;gap:12px;margin:12px 0 0;flex-wrap:wrap">
@@ -9118,9 +9207,6 @@
         <div id="pane-settings" class="admin-pane hidden" style="display:none"></div>
         <!-- Backup -->
         <div class="admin-pane hidden" id="pane-backup">
-          <!-- Empty toolbar spacer: same 52px bar zone as the other
-               panes (bars + gap identical on every section switch) -->
-          <div class="tab-toolbar" aria-hidden="true"></div>
           <div class="detail-scroll">
             <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start">
               <!-- Unified Backup Manager Card -->
