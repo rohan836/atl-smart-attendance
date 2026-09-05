@@ -729,61 +729,61 @@ class UiE2eTest(unittest.TestCase):
         self.assertIn("Batches", select_html)
         self.assertIn("batch:Robotics-A", select_html)
 
-        # 2. Check default Global schedule context via the month pill
+        # 2. Open the schedule popup from the batch row button
         month_label = self.page.locator("#calMonthContextLabel")
-        self.assertIn("Global", month_label.inner_text())
-
-        # 3. Switch to Class context (first available class)
-        class_opt = self.page.locator("#calClassSelect optgroup[label='Classes'] option").first
-        class_val = class_opt.get_attribute("value")
-        cal_select.select_option(class_val)
-        self.page.wait_for_timeout(300)
-
-        self.assertIn("Class:", month_label.inner_text())
-
-        # 4. Set custom timings for this class
-        badge = self.page.locator("#schedContextBadge")
-        notice = self.page.locator("#schedInheritNotice")
-        present_input = self.page.locator("#schedPresentCutoff")
-        late_input = self.page.locator("#schedLateCutoff")
-        present_input.fill("07:45")
-        late_input.fill("08:15")
-
-        save_timing_btn = self.page.locator("#schedSaveTimingBtn")
-        save_timing_btn.click()
-        self.page.locator(".gconfirm").wait_for(state="visible", timeout=3000)
-        self.page.locator(".gconfirm-ok").click()
-        self.page.wait_for_timeout(400)
-
-        # Verify custom timing notice is active and revert button is displayed
-        revert_btn = self.page.locator("#schedRevertTimingBtn")
-        self.assertTrue(revert_btn.is_visible())
-        self.assertIn("CUSTOM CLASS TIMING ACTIVE", notice.inner_text().upper())
-
-        # 5. Switch to Batch context
-        cal_select.select_option("batch:Robotics-A")
-        self.page.wait_for_timeout(300)
-
-        self.assertIn("BATCH · ROBOTICS-A", badge.inner_text().upper())
-        self.assertIn("Batch: Robotics-A", month_label.inner_text())
-        self.assertIn("INHERITING", notice.inner_text().upper())
-
-        # 6. Toggle a working day in weekly schedule for this batch
-        sunday_card = self.page.locator("#calendarGrid .weekly-day-card").first
-        initially_working = "working" in (sunday_card.get_attribute("class") or "")
-        sunday_card.click()
-        self.page.wait_for_timeout(400)
-        after_working = "working" in (sunday_card.get_attribute("class") or "")
-        self.assertNotEqual(initially_working, after_working)
-
-        # 7. Test Quick Schedule jump button from Batches list
         sched_btn = self.page.locator("#batchBody [data-sched-batch='Robotics-A']")
         self.assertTrue(sched_btn.is_visible())
         sched_btn.click()
-        self.page.wait_for_function("!document.getElementById('pane-setup').classList.contains('hidden')", timeout=3000)
-
-        self.assertEqual(cal_select.input_value(), "batch:Robotics-A")
+        self.page.wait_for_function("document.getElementById('classScheduleModal').classList.contains('open')", timeout=3000)
+        self.assertIn("BATCH SCHEDULE: ROBOTICS-A", self.page.locator("#csTitle").inner_text().upper())
         self.assertIn("Batch: Robotics-A", month_label.inner_text())
+
+        # 3. Toggle a weekday in the popup — grid header reflects, no Setup editing
+        cs_day = self.page.locator("#csDays .weekly-day-card").first
+        before = "working" in (cs_day.get_attribute("class") or "")
+        cs_day.click()
+        self.page.wait_for_timeout(400)
+        after = "working" in (cs_day.get_attribute("class") or "")
+        self.assertNotEqual(before, after)
+        grid_first_cls = self.page.locator("#calendarGrid .weekly-day-card").first.get_attribute("class") or ""
+        self.assertEqual("working" in grid_first_cls, after)
+        self.assertIsNone(self.page.evaluate("document.querySelector('#calendarGrid [data-day]')"))
+
+        # 4. Set custom timings in the popup and save
+        self.page.locator("#csPresentCutoff").fill("07:45")
+        self.page.locator("#csLateCutoff").fill("08:15")
+        self.page.locator("#csSaveTiming").click()
+        self.page.locator(".gconfirm").wait_for(state="visible", timeout=3000)
+        self.page.locator(".gconfirm-ok").click()
+        self.page.wait_for_function("!document.getElementById('classScheduleModal').classList.contains('open')", timeout=3000)
+
+        # 5. Saved times verified via reopened popup + grid resolution; Setup keeps no timing remnants
+        self.page.locator("#batchBody [data-sched-batch='Robotics-A']").click()
+        self.page.wait_for_function("document.getElementById('classScheduleModal').classList.contains('open')", timeout=3000)
+        self.assertEqual(self.page.locator("#csPresentCutoff").input_value(), "07:45")
+        self.assertEqual(self.page.locator("#csLateCutoff").input_value(), "08:15")
+        self.assertIn("CUSTOM BATCH TIMING ACTIVE", self.page.locator("#csTimingNotice").inner_text().upper())
+        self.page.locator("#csClose").click()
+        self.page.wait_for_function("!document.getElementById('classScheduleModal').classList.contains('open')", timeout=3000)
+        grid_first_cls = self.page.locator("#calendarGrid .weekly-day-card").first.get_attribute("class") or ""
+        self.assertEqual("working" in grid_first_cls, after)
+        self.assertIsNone(self.page.evaluate("document.getElementById('schedTimingCard')"))
+        self.assertIsNone(self.page.evaluate("document.getElementById('schedPresentCutoff')"))
+        self.assertIsNone(self.page.evaluate("document.getElementById('schedLateCutoff')"))
+        self.assertIsNone(self.page.evaluate("document.getElementById('schedContextBadge')"))
+        self.assertIsNone(self.page.evaluate("document.getElementById('schedInheritNotice')"))
+        self.assertIsNone(self.page.evaluate("document.getElementById('calScheduleBanner')"))
+        self.assertIsNone(self.page.evaluate("document.getElementById('schedSaveTimingBtn')"))
+        self.assertIsNone(self.page.evaluate("document.getElementById('schedRevertTimingBtn')"))
+        self.assertIsNone(self.page.evaluate("document.getElementById('calResetWeekBtn')"))
+
+        # 6. Class row opens the popup with the class context
+        class_sched_btn = self.page.locator("#classBody [data-sched-class]").first
+        class_sched_btn.click()
+        self.page.wait_for_function("document.getElementById('classScheduleModal').classList.contains('open')", timeout=3000)
+        self.assertIn("CLASS SCHEDULE:", self.page.locator("#csTitle").inner_text().upper())
+        self.page.locator("#csClose").click()
+        self.page.wait_for_function("!document.getElementById('classScheduleModal').classList.contains('open')", timeout=3000)
 
         # Clean up and close
         self.page.click("#adminClose")

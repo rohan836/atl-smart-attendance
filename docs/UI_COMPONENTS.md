@@ -135,10 +135,11 @@ for canonical frost numbers see `docs/UI_TOKENS.md`.
   `#overrideModal` forms with the holiday validators). Every month
   day cell opens a read-only day window (resolved badge +
   global-vs-template source line + Close) — no editing verbs.
-  Per-context Present/Late timing lives in the Setup timing bar (inputs prefilled
-  from the active context with the inherit notice, `Save` +
-  `Inherit` revert, three-branch save with validators and
-  confirmations). Single-POST persist throughout. Validated `YYYY-MM-DD[..YYYY-MM-DD]:type:name`
+  Schedule editing lives in one popup (`#classScheduleModal`,
+  opened from class/batch `Schedule →` with that context — weekday
+  toggles + Present/Late cutoffs + inherit notice + `Save`/`Close`,
+  single persist); Setup views, popup edits — no timing remnants
+  in Setup. Single-POST persist throughout. Validated `YYYY-MM-DD[..YYYY-MM-DD]:type:name`
   (`holiday|vacation|exam`, exam = working). Precedence:
   override → holiday/vacation/exam → weekly; weekly per-student
   Grade|Batch → batch → class → global; default Sun off, Mon–Sat on.

@@ -26,8 +26,9 @@ Unifies live operations and historical reporting into a single screen:
 Unifies school settings, classes, batches, rules, calendar, holidays, and schedule inheritance:
 - **School Information & Rules:** Name, address, academic year, attendance start date, present cutoff, and late cutoff.
 - **Classes & Batches:** Manage classes and section batches with student counts and quick schedule jumps.
-- **Schedule Context Selector:** Switch between Global, Class, and Batch contexts with visual inheritance notices and timing controls (`Save`, `Inherit` revert) in the Setup timing bar.
-- **Weekly Template, Holidays & Overrides:** Recurring weekday toggles live in the Month View header row (click/Enter/Space per active context); holiday ranges (`holiday`, `vacation`, `exam`) and single-date overrides are created, edited, and removed through their list tables (`+ Add Holiday`, `+ Add Override`, table Edit/Remove via `#holidayModal`/`#overrideModal`). Month cells are read-only resolved display; the day window offers an `Add override for this date…` shortcut into the override modal (door only — tables stay the single editor).
+- **Schedule Context Selector:** Switch between Global, Class, and Batch contexts (month pill follows the active one).
+- **Schedule popup (single editor):** Class/batch `Schedule →` row buttons open `#classScheduleModal` for that context — weekday toggles, Present/Late cutoffs with inherit notice, `Save` + `Close`, one persist path. Setup shows the selector, read-only month, and tables — editing lives only in the popup.
+- **Weekly Template, Holidays & Overrides:** Month View (headers + resolved day cells) is display-only; weekday toggles and per-context Present/Late timing live in the schedule popup. Holiday ranges (`holiday`, `vacation`, `exam`) and single-date overrides are created, edited, and removed through their list tables (`+ Add Holiday`, `+ Add Override`, table Edit/Remove via `#holidayModal`/`#overrideModal`). Month cells open the read-only day window; the window offers an `Add override for this date…` shortcut into the override modal (door only — tables stay the single editor).
 
 ## Backup
 

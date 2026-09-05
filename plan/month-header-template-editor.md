@@ -89,6 +89,28 @@ header weekday → its month column re-resolves. `test_13` green.
 - `test_15` rewritten to the table flow (add / reload-persist /
   edit-prefill + rename / direct remove for both tables, read-only
   window asserts); other 14 unmodified.
+
+## Schedule editor moves into one popup (Setup display-only)
+- New `#classScheduleModal` (cs* IDs): opened by class/batch
+  `Schedule →` with that context; weekday toggles lift the retired
+  header-toggle branches verbatim (+ popup refresh), timing save
+  lifts the bar handler verbatim (validators, 3 branches,
+  double-POST, mirror sync; tail closes + refreshes instead).
+- Setup surrenders editing: headers/cells/bar display-only
+  (bar inputs disabled + picker trigger hidden), Save/Inherit +
+  reset-week handlers and buttons deleted with their CSS.
+- No second editor: single `persistCalendar` path kept.
+- REGRESSION FLAGGED: Inherit-revert dropped (popup is Save +
+  Close) — custom timings stand until overwritten.
+- `test_13` rewritten to the popup flow; `test_15` unchanged.
+
+## Setup remnants deleted (Setup views, popup edits)
+- Deleted: `#calScheduleBanner` + banner renderer, Weekly Template
+  title/sub block, full timing bar (inputs, badge, notice),
+  `renderScheduleTiming`, reset-week + bar handlers, all their CSS
+  both inks. Selector, month, tables, foot notes untouched.
+- `test_13` step 5 asserts via reopened popup values + grid
+  resolution, plus absence asserts for every deleted ID.
 - Shortcut door (no new editor): read-only window gains `Add
   override for this date…` → prefilled `#overrideModal`, verbatim
   save path; `test_15` 9b covers prefill + save + cleanup.

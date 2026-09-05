@@ -2232,7 +2232,6 @@
     .setup-weekly-card,
     #backupManagerCard,
     .detail-pane .table-wrap,
-    #schedTimingCard,
     .table-wrap,
     .table-scroll,
     .stats-row,
@@ -4198,7 +4197,8 @@
     html[data-ink="dark"] #holidayModal#holidayModal textarea,
     html[data-ink="dark"] #overrideModal#overrideModal input:not([type="file"]):not([type="checkbox"]),
     html[data-ink="dark"] #overrideModal#overrideModal select,
-    html[data-ink="dark"] #overrideModal#overrideModal textarea {
+    html[data-ink="dark"] #overrideModal#overrideModal textarea,
+    html[data-ink="dark"] #classScheduleModal#classScheduleModal input:not([type="file"]):not([type="checkbox"]) {
       border-bottom-color: rgba(24, 26, 32, 0.35) !important;
     }
 
@@ -4213,7 +4213,8 @@
     html[data-ink="dark"] #holidayModal#holidayModal textarea:focus,
     html[data-ink="dark"] #overrideModal#overrideModal input:focus,
     html[data-ink="dark"] #overrideModal#overrideModal select:focus,
-    html[data-ink="dark"] #overrideModal#overrideModal textarea:focus {
+    html[data-ink="dark"] #overrideModal#overrideModal textarea:focus,
+    html[data-ink="dark"] #classScheduleModal#classScheduleModal input:focus {
       border-bottom-color: #181A20 !important;
     }
 
@@ -4606,6 +4607,202 @@
       font-weight: 400 !important;
       letter-spacing: normal !important;
       text-transform: none !important;
+    }
+
+    /* ============================================================
+       CLASS/BATCH SCHEDULE POPUP — the single schedule editor.
+       Same locked dialog treatment (veil, card, type, actions);
+       weekday buttons reuse .weekly-day-card both inks, so only
+       the row grid is scoped here. Zero persist change.
+       ============================================================ */
+    #classScheduleModal.modal {
+      background: transparent !important;
+    }
+
+    #classScheduleModal .modal-card {
+      background: var(--frost-bg) !important;
+      backdrop-filter: var(--frost-blur) !important;
+      -webkit-backdrop-filter: var(--frost-blur) !important;
+      border: none !important;
+      border-radius: 3px !important;
+      box-shadow: none !important;
+    }
+
+    #classScheduleModal .modal-card,
+    #classScheduleModal .modal-card * {
+      font-family: var(--sans) !important;
+      text-shadow: none !important;
+    }
+
+    #classScheduleModal h3 {
+      font-size: 14px !important;
+      font-weight: 500 !important;
+      letter-spacing: 0.01em !important;
+      text-transform: none !important;
+      color: #F2F3F6 !important;
+    }
+
+    #csDays {
+      display: grid !important;
+      grid-template-columns: repeat(7, minmax(0, 1fr)) !important;
+      gap: 6px !important;
+      margin: 12px 0 14px !important;
+    }
+
+    #csDays .weekly-day-card {
+      cursor: pointer !important;
+    }
+
+    #classScheduleModal label {
+      color: rgba(242, 243, 246, 0.7) !important;
+      opacity: 1 !important;
+      font-size: 9.5px !important;
+      font-weight: 400 !important;
+      letter-spacing: 0.04em !important;
+      text-transform: uppercase !important;
+    }
+
+    #classScheduleModal input:not([type=file]):not([type=checkbox]) {
+      background: transparent !important;
+      border: none !important;
+      border-bottom: 1px solid rgba(242, 243, 246, 0.2) !important;
+      border-radius: 0 !important;
+      color: #F2F3F6 !important;
+      font-size: 13px !important;
+      font-weight: 400 !important;
+      letter-spacing: normal !important;
+      box-shadow: none !important;
+      color-scheme: dark !important;
+    }
+
+    #classScheduleModal input:focus {
+      border-bottom-color: #F2F3F6 !important;
+      background: transparent !important;
+      box-shadow: none !important;
+    }
+
+    /* Button row sits alone — pin row layout explicitly */
+    #classScheduleModal .form-field:has(#csSaveTiming) {
+      flex-direction: row !important;
+      align-items: center !important;
+      justify-content: flex-end !important;
+      gap: 12px !important;
+    }
+
+    /* Both actions plain clickable text (no split-brain) */
+    #classScheduleModal #csSaveTiming,
+    #classScheduleModal .btn.primary,
+    #classScheduleModal #csClose,
+    #classScheduleModal .btn:not(.primary) {
+      background: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
+      border-radius: 0 !important;
+      color: rgba(242, 243, 246, 0.85) !important;
+      font-weight: 500 !important;
+      font-size: 10.5px !important;
+      letter-spacing: 0.04em !important;
+      text-transform: uppercase !important;
+      text-decoration: none !important;
+      height: auto !important;
+      padding: 4px 6px !important;
+      cursor: pointer !important;
+      white-space: nowrap !important;
+      transition: none !important;
+    }
+
+    #classScheduleModal #csSaveTiming:hover,
+    #classScheduleModal .btn.primary:hover,
+    #classScheduleModal #csClose:hover,
+    #classScheduleModal .btn:not(.primary):hover {
+      background: transparent !important;
+      border: none !important;
+      color: #181A20 !important;
+      text-decoration: none !important;
+    }
+
+    #classScheduleModal #csTimingNotice {
+      background: transparent !important;
+      border: none !important;
+      color: rgba(242, 243, 246, 0.45) !important;
+      font-family: var(--sans) !important;
+      font-size: 10.5px !important;
+      font-weight: 400 !important;
+      padding: 0 !important;
+      text-transform: none !important;
+    }
+
+    /* (1) Clock glyph: the boxed native indicator is retired by D5
+       below — the custom frost trigger left standing already wears
+       the text language (small, ink-2, no box), both inks. */
+    /* (2) No OS blue: drag-select across time numbers gets an
+       ink-tone wash inside the popup, both inks */
+    #classScheduleModal input[type="time"]::selection {
+      background: rgba(242, 243, 246, 0.15) !important;
+      color: #F2F3F6 !important;
+    }
+
+    html[data-ink="dark"] #classScheduleModal#classScheduleModal input[type="time"]::selection {
+      background: rgba(24, 26, 32, 0.15) !important;
+      color: #181A20 !important;
+    }
+
+    /* (3) Day buttons read as plain clickable text inside the popup
+       only: no fill, border, radius, shadow, transform, or motion.
+       Working = full ink, off = dim ink-3; hover shifts text color
+       alone. Name + status stay stacked, grid gaps untouched. */
+    #csDays .weekly-day-card,
+    #csDays .weekly-day-card.working,
+    #csDays .weekly-day-card.off,
+    #csDays .weekly-day-card:hover {
+      background: transparent !important;
+      border: none !important;
+      border-radius: 0 !important;
+      box-shadow: none !important;
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+      transform: none !important;
+      transition: none !important;
+    }
+
+    #csDays .weekly-day-card.working .w-name,
+    #csDays .weekly-day-card.working .w-status {
+      color: #F2F3F6 !important;
+    }
+
+    #csDays .weekly-day-card.off .w-name,
+    #csDays .weekly-day-card.off .w-status {
+      color: var(--ink-3) !important;
+    }
+
+    #csDays .weekly-day-card.working:hover .w-name,
+    #csDays .weekly-day-card.working:hover .w-status {
+      color: rgba(242, 243, 246, 0.55) !important;
+    }
+
+    #csDays .weekly-day-card.off:hover .w-name,
+    #csDays .weekly-day-card.off:hover .w-status {
+      color: rgba(242, 243, 246, 0.8) !important;
+    }
+
+    html[data-ink="dark"] #csDays#csDays .weekly-day-card.working .w-name,
+    html[data-ink="dark"] #csDays#csDays .weekly-day-card.working .w-status {
+      color: #181A20 !important;
+    }
+
+    html[data-ink="dark"] #csDays#csDays .weekly-day-card.off .w-name,
+    html[data-ink="dark"] #csDays#csDays .weekly-day-card.off .w-status {
+      color: rgba(24, 26, 32, 0.45) !important;
+    }
+
+    html[data-ink="dark"] #csDays#csDays .weekly-day-card.working:hover .w-name,
+    html[data-ink="dark"] #csDays#csDays .weekly-day-card.working:hover .w-status {
+      color: var(--ink-2) !important;
+    }
+
+    html[data-ink="dark"] #csDays#csDays .weekly-day-card.off:hover .w-name,
+    html[data-ink="dark"] #csDays#csDays .weekly-day-card.off:hover .w-status {
+      color: rgba(24, 26, 32, 0.7) !important;
     }
 
     /* 4. Attendance Workspace (#pane-attendance) */
@@ -6037,8 +6234,6 @@
     #newClassName,
     #newBatchName,
     #calClassSelect,
-    #schedPresentCutoff,
-    #schedLateCutoff,
     #backupSchedTime,
     #backupSchedFreq,
     #backupSchedInterval {
@@ -6471,7 +6666,10 @@
     #holidayModal input[type="date"]:focus::-webkit-datetime-edit-year-field,
     #overrideModal input[type="date"]:focus::-webkit-datetime-edit-day-field,
     #overrideModal input[type="date"]:focus::-webkit-datetime-edit-month-field,
-    #overrideModal input[type="date"]:focus::-webkit-datetime-edit-year-field {
+    #overrideModal input[type="date"]:focus::-webkit-datetime-edit-year-field,
+    #classScheduleModal input[type="time"]:focus::-webkit-datetime-edit-hour-field,
+    #classScheduleModal input[type="time"]:focus::-webkit-datetime-edit-minute-field,
+    #classScheduleModal input[type="time"]:focus::-webkit-datetime-edit-ampm-field {
       background: rgba(242, 243, 246, 0.25) !important;
       color: #F2F3F6 !important;
     }
@@ -6494,7 +6692,10 @@
     html[data-ink="dark"] #holidayModal input[type="date"]:focus::-webkit-datetime-edit-year-field,
     html[data-ink="dark"] #overrideModal input[type="date"]:focus::-webkit-datetime-edit-day-field,
     html[data-ink="dark"] #overrideModal input[type="date"]:focus::-webkit-datetime-edit-month-field,
-    html[data-ink="dark"] #overrideModal input[type="date"]:focus::-webkit-datetime-edit-year-field {
+    html[data-ink="dark"] #overrideModal input[type="date"]:focus::-webkit-datetime-edit-year-field,
+    html[data-ink="dark"] #classScheduleModal input[type="time"]:focus::-webkit-datetime-edit-hour-field,
+    html[data-ink="dark"] #classScheduleModal input[type="time"]:focus::-webkit-datetime-edit-minute-field,
+    html[data-ink="dark"] #classScheduleModal input[type="time"]:focus::-webkit-datetime-edit-ampm-field {
       background: rgba(24, 26, 32, 0.2) !important;
       color: #181A20 !important;
     }
@@ -6868,23 +7069,6 @@
       gap: 14px !important;
     }
 
-    .setup-weekly-header .setup-panel-title {
-      font-family: var(--sans) !important;
-      font-size: 11px !important;
-      font-weight: 500 !important;
-      letter-spacing: 0.06em !important;
-      text-transform: uppercase !important;
-      color: #F2F3F6 !important;
-    }
-
-    .setup-weekly-header .setup-panel-sub {
-      font-family: var(--sans) !important;
-      font-size: 10.5px !important;
-      font-weight: 400 !important;
-      color: rgba(242, 243, 246, 0.45) !important;
-      margin-top: 3px !important;
-    }
-
     .setup-weekly-actions {
       display: flex !important;
       gap: 14px !important;
@@ -6914,30 +7098,6 @@
     #calClassSelect:hover,
     #calClassSelect:focus {
       border-bottom-color: #F2F3F6 !important;
-    }
-
-    #calResetWeekBtn {
-      background: transparent !important;
-      border: none !important;
-      box-shadow: none !important;
-      border-radius: 0 !important;
-      color: rgba(242, 243, 246, 0.75) !important;
-      font-family: var(--sans) !important;
-      font-size: 10.5px !important;
-      font-weight: 500 !important;
-      letter-spacing: 0.04em !important;
-      text-transform: uppercase !important;
-      text-decoration: underline !important;
-      padding: 2px 4px !important;
-      height: auto !important;
-      cursor: pointer !important;
-      outline: none !important;
-      transition: color 140ms ease !important;
-    }
-
-    #calResetWeekBtn:hover {
-      color: #F2F3F6 !important;
-      background: transparent !important;
     }
 
     /* -------------------------------------------------------------
@@ -7041,131 +7201,6 @@
       text-transform: uppercase !important;
     }
 
-    /* Schedule Timing Bar */
-    #schedTimingCard {
-      display: flex !important;
-      justify-content: flex-start !important;
-      align-items: center !important;
-      background: transparent !important;
-      border: none !important;
-      border-top: 1px solid rgba(242, 243, 246, 0.12) !important;
-      border-bottom: 1px solid rgba(242, 243, 246, 0.12) !important;
-      border-radius: 0 !important;
-      padding: 14px 0 !important;
-      margin: 18px 0 14px 0 !important;
-      flex-wrap: wrap !important;
-      gap: 12px !important;
-      box-shadow: none !important;
-      width: 100% !important;
-      box-sizing: border-box !important;
-    }
-
-    .setup-timing-inputs {
-      display: flex !important;
-      align-items: center !important;
-      gap: 8px !important;
-      font-size: 11px !important;
-      font-weight: 500 !important;
-      letter-spacing: 0.04em !important;
-      color: rgba(242, 243, 246, 0.8) !important;
-      text-transform: uppercase !important;
-      flex-wrap: wrap !important;
-      min-width: 0 !important;
-    }
-
-    .setup-timing-title {
-      font-family: var(--sans) !important;
-      font-weight: 500 !important;
-      color: #F2F3F6 !important;
-    }
-
-    .setup-time-inline,
-    #schedPresentCutoff,
-    #schedLateCutoff {
-      height: 28px !important;
-      border: 0 !important;
-      border-bottom: 1px solid rgba(242, 243, 246, 0.25) !important;
-      background: transparent !important;
-      padding: 0 4px !important;
-      font-family: var(--mono) !important;
-      font-size: 13px !important;
-      color: #F2F3F6 !important;
-      border-radius: 0 !important;
-      outline: none !important;
-      color-scheme: dark !important;
-      transition: border-color 160ms ease !important;
-    }
-
-    .setup-time-inline:focus,
-    #schedPresentCutoff:focus,
-    #schedLateCutoff:focus {
-      background: transparent !important;
-      border-bottom-color: #F2F3F6 !important;
-    }
-
-    #schedSaveTimingBtn {
-      background: rgba(242, 243, 246, 0.14) !important;
-      border: 1px solid rgba(242, 243, 246, 0.35) !important;
-      border-radius: 4px !important;
-      color: #F2F3F6 !important;
-      font-family: var(--sans) !important;
-      font-size: 10.5px !important;
-      font-weight: 500 !important;
-      letter-spacing: 0.04em !important;
-      text-transform: uppercase !important;
-      padding: 4px 12px !important;
-      height: 28px !important;
-      cursor: pointer !important;
-      box-shadow: none !important;
-      transition: all 140ms ease !important;
-    }
-
-    #schedSaveTimingBtn:hover {
-      background: rgba(242, 243, 246, 0.22) !important;
-      border-color: rgba(242, 243, 246, 0.6) !important;
-    }
-
-    #schedRevertTimingBtn {
-      background: transparent !important;
-      border: 1px solid rgba(242, 243, 246, 0.25) !important;
-      border-radius: 4px !important;
-      color: rgba(242, 243, 246, 0.8) !important;
-      font-family: var(--sans) !important;
-      font-size: 10.5px !important;
-      font-weight: 500 !important;
-      letter-spacing: 0.04em !important;
-      text-transform: uppercase !important;
-      padding: 4px 10px !important;
-      height: 28px !important;
-      cursor: pointer !important;
-      box-shadow: none !important;
-      transition: all 140ms ease !important;
-    }
-
-    #schedContextBadge {
-      background: transparent !important;
-      border: none !important;
-      color: rgba(242, 243, 246, 0.75) !important;
-      font-family: var(--sans) !important;
-      font-size: 9.5px !important;
-      font-weight: 500 !important;
-      letter-spacing: 0.04em !important;
-      text-transform: uppercase !important;
-      padding: 0 !important;
-      border-radius: 0 !important;
-      box-shadow: none !important;
-    }
-
-    #schedInheritNotice {
-      background: transparent !important;
-      border: none !important;
-      color: rgba(242, 243, 246, 0.45) !important;
-      font-family: var(--sans) !important;
-      font-size: 10.5px !important;
-      font-weight: 400 !important;
-      padding: 0 !important;
-    }
-
     .setup-weekly-footer {
       display: flex !important;
       justify-content: space-between !important;
@@ -7182,45 +7217,6 @@
     #pane-setup .weekly-day-card .w-name,
     #pane-setup .weekly-day-card .w-status {
       letter-spacing: 0.04em !important;
-    }
-
-    #schedPresentCutoff,
-    #schedLateCutoff {
-      border-bottom: 1px solid rgba(242, 243, 246, 0.2) !important;
-    }
-
-    #pane-setup #schedSaveTimingBtn {
-      border-radius: 3px !important;
-    }
-
-    /* Inherit is a secondary text action (same pattern as Reset week) */
-    #schedRevertTimingBtn {
-      background: transparent !important;
-      border: none !important;
-      box-shadow: none !important;
-      border-radius: 0 !important;
-      color: rgba(242, 243, 246, 0.75) !important;
-      font-family: var(--sans) !important;
-      font-size: 10.5px !important;
-      font-weight: 500 !important;
-      letter-spacing: 0.04em !important;
-      text-transform: uppercase !important;
-      text-decoration: underline !important;
-      padding: 2px 4px !important;
-      height: auto !important;
-      cursor: pointer !important;
-      outline: none !important;
-      transition: color 140ms ease !important;
-    }
-
-    #schedRevertTimingBtn:hover {
-      color: #F2F3F6 !important;
-      background: transparent !important;
-    }
-
-    /* Inherit notice keeps natural case inside the uppercase timing row */
-    #schedInheritNotice {
-      text-transform: none !important;
     }
 
     /* ============================================================
@@ -7395,8 +7391,7 @@
     #newStudentToolbarBtn,
     #settingsSaveBtn,
     #backupNowBtn,
-    #gdriveDeviceStartBtn,
-    #schedSaveTimingBtn {
+    #gdriveDeviceStartBtn {
       background: rgba(242, 243, 246, 0.14) !important;
       border: 1px solid rgba(242, 243, 246, 0.35) !important;
       border-radius: 4px !important;
@@ -7417,8 +7412,7 @@
     #newStudentToolbarBtn:hover,
     #settingsSaveBtn:hover,
     #backupNowBtn:hover,
-    #gdriveDeviceStartBtn:hover,
-    #schedSaveTimingBtn:hover {
+    #gdriveDeviceStartBtn:hover {
       background: rgba(242, 243, 246, 0.22) !important;
       border-color: rgba(242, 243, 246, 0.6) !important;
     }
@@ -7439,7 +7433,6 @@
     #backupSchedSaveBtn,
     #addClassBtn,
     #addBatchBtn,
-    #pane-setup #schedSaveTimingBtn,
     #pane-setup #settingsSaveBtn {
       background: transparent !important;
       border: none !important;
@@ -7464,7 +7457,6 @@
     #backupSchedSaveBtn:hover,
     #addClassBtn:hover,
     #addBatchBtn:hover,
-    #pane-setup #schedSaveTimingBtn:hover,
     #pane-setup #settingsSaveBtn:hover {
       background: transparent !important;
       border: none !important;
@@ -7533,8 +7525,6 @@
     #classBody .btn,
     #batchBody button,
     #batchBody .btn,
-    #calResetWeekBtn,
-    #schedRevertTimingBtn,
     #calResetMonthBtn,
     #calPrevBtn,
     #calNextBtn,
@@ -7569,8 +7559,6 @@
     #auditExportBtn:hover,
     #auditClearBtn:hover,
     #pane-setup #settingsExportBtn:hover,
-    #calResetWeekBtn:hover,
-    #schedRevertTimingBtn:hover,
     #calResetMonthBtn:hover,
     .gconfirm-cancel:hover {
       text-decoration: none !important;
@@ -7607,7 +7595,6 @@
     #destStatusGdrive,
     #destStatusTelegram,
     #destStatusUsb,
-    #schedContextBadge,
     #calMonthContextLabel,
     #attModeBadge {
       background: transparent !important;
@@ -7670,12 +7657,18 @@
     html.ink-switching #overrideModal#overrideModal#overrideModal *,
     html.ink-switching #overrideModal#overrideModal#overrideModal *::before,
     html.ink-switching #overrideModal#overrideModal#overrideModal *::after,
+    html.ink-switching #classScheduleModal#classScheduleModal#classScheduleModal *,
+    html.ink-switching #classScheduleModal#classScheduleModal#classScheduleModal *::before,
+    html.ink-switching #classScheduleModal#classScheduleModal#classScheduleModal *::after,
     html.ink-switching #holidayModal#holidayModal#holidayModal *,
     html.ink-switching #holidayModal#holidayModal#holidayModal *::before,
     html.ink-switching #holidayModal#holidayModal#holidayModal *::after,
     html.ink-switching #overrideModal#overrideModal#overrideModal *,
     html.ink-switching #overrideModal#overrideModal#overrideModal *::before,
     html.ink-switching #overrideModal#overrideModal#overrideModal *::after,
+    html.ink-switching #classScheduleModal#classScheduleModal#classScheduleModal *,
+    html.ink-switching #classScheduleModal#classScheduleModal#classScheduleModal *::before,
+    html.ink-switching #classScheduleModal#classScheduleModal#classScheduleModal *::after,
     html.ink-switching .gconfirm-ov.gconfirm-ov.gconfirm-ov *,
     html.ink-switching .gconfirm-ov.gconfirm-ov.gconfirm-ov *::before,
     html.ink-switching .gconfirm-ov.gconfirm-ov.gconfirm-ov *::after,
@@ -7698,6 +7691,8 @@
     html[data-ink="dark"] #holidayModal#holidayModal *:not(option),
     html[data-ink="dark"] #overrideModal#overrideModal,
     html[data-ink="dark"] #overrideModal#overrideModal *:not(option),
+    html[data-ink="dark"] #classScheduleModal#classScheduleModal,
+    html[data-ink="dark"] #classScheduleModal#classScheduleModal *:not(option),
     html[data-ink="dark"] .gconfirm-ov.gconfirm-ov,
     html[data-ink="dark"] .gconfirm-ov.gconfirm-ov *:not(option) {
       color: rgba(24, 26, 32, 0.8) !important;
@@ -7738,6 +7733,8 @@
     html[data-ink="dark"] #overrideModal#overrideModal input,
     html[data-ink="dark"] #overrideModal#overrideModal select,
     html[data-ink="dark"] #overrideModal#overrideModal textarea,
+    html[data-ink="dark"] #classScheduleModal#classScheduleModal h3,
+    html[data-ink="dark"] #classScheduleModal#classScheduleModal input,
     html[data-ink="dark"] .gconfirm-ov.gconfirm-ov .gconfirm h3 {
       color: #181A20 !important;
     }
@@ -7781,6 +7778,8 @@
     html[data-ink="dark"] #holidayModal#holidayModal #holidayCancel:hover,
     html[data-ink="dark"] #overrideModal#overrideModal #overrideSave:hover,
     html[data-ink="dark"] #overrideModal#overrideModal #overrideCancel:hover,
+    html[data-ink="dark"] #classScheduleModal#classScheduleModal #csSaveTiming:hover,
+    html[data-ink="dark"] #classScheduleModal#classScheduleModal #csClose:hover,
     html[data-ink="dark"] #adminLayer#adminLayer #newStudentToolbarBtn:hover,
     html[data-ink="dark"] #adminLayer#adminLayer #attApplyBtn:hover,
     html[data-ink="dark"] #adminLayer#adminLayer #backupNowBtn:hover,
@@ -7788,7 +7787,6 @@
     html[data-ink="dark"] #adminLayer#adminLayer #backupSchedSaveBtn:hover,
     html[data-ink="dark"] #adminLayer#adminLayer #addClassBtn:hover,
     html[data-ink="dark"] #adminLayer#adminLayer #addBatchBtn:hover,
-    html[data-ink="dark"] #adminLayer#adminLayer #schedSaveTimingBtn:hover,
     html[data-ink="dark"] #adminLayer#adminLayer #settingsSaveBtn:hover,
     html[data-ink="dark"] #adminLayer#adminLayer #importStudentsBtn:hover,
     html[data-ink="dark"] #adminLayer#adminLayer #exportStudentsBtn:hover,
@@ -7822,6 +7820,7 @@
     html[data-ink="dark"] #correctionModal#correctionModal button:hover,
     html[data-ink="dark"] #holidayModal#holidayModal button:hover,
     html[data-ink="dark"] #overrideModal#overrideModal button:hover,
+    html[data-ink="dark"] #classScheduleModal#classScheduleModal button:hover,
     html[data-ink="dark"] .gconfirm-ov.gconfirm-ov button:hover {
       color: #F2F3F6 !important;
     }
@@ -7849,7 +7848,8 @@
     #holidayModal input[type="time"]::-webkit-calendar-picker-indicator,
     #holidayModal input[type="date"]::-webkit-calendar-picker-indicator,
     #overrideModal input[type="time"]::-webkit-calendar-picker-indicator,
-    #overrideModal input[type="date"]::-webkit-calendar-picker-indicator {
+    #overrideModal input[type="date"]::-webkit-calendar-picker-indicator,
+    #classScheduleModal input[type="time"]::-webkit-calendar-picker-indicator {
       display: none !important;
     }
 
@@ -7869,7 +7869,8 @@
     #holidayModal#holidayModal input[type="time"],
     #holidayModal#holidayModal input[type="date"],
     #overrideModal#overrideModal input[type="time"],
-    #overrideModal#overrideModal input[type="date"] {
+    #overrideModal#overrideModal input[type="date"],
+    #classScheduleModal#classScheduleModal input[type="time"] {
       color-scheme: light !important;
       accent-color: #181A20 !important;
     }
@@ -8314,9 +8315,7 @@
     html[data-ink="dark"] #adminLayer .setup-input-compact,
     html[data-ink="dark"] #adminLayer .setup-time-input,
     html[data-ink="dark"] #adminLayer #setPresentCutoff,
-    html[data-ink="dark"] #adminLayer #setLateThreshold,
-    html[data-ink="dark"] #adminLayer #schedPresentCutoff,
-    html[data-ink="dark"] #adminLayer #schedLateCutoff {
+    html[data-ink="dark"] #adminLayer #setLateThreshold {
       border-bottom-color: rgba(24, 26, 32, 0.35) !important;
     }
 
@@ -8513,6 +8512,7 @@
     html[data-ink="dark"] #correctionModal#correctionModal .dt-trig,
     html[data-ink="dark"] #holidayModal#holidayModal .dt-trig,
     html[data-ink="dark"] #overrideModal#overrideModal .dt-trig,
+    html[data-ink="dark"] #classScheduleModal#classScheduleModal .dt-trig,
     html[data-ink="dark"] #enrollModal#enrollModal .dt-trig {
       color: rgba(24, 26, 32, 0.6) !important;
     }
@@ -8522,6 +8522,7 @@
     html[data-ink="dark"] #correctionModal#correctionModal .dt-trig:hover,
     html[data-ink="dark"] #holidayModal#holidayModal .dt-trig:hover,
     html[data-ink="dark"] #overrideModal#overrideModal .dt-trig:hover,
+    html[data-ink="dark"] #classScheduleModal#classScheduleModal .dt-trig:hover,
     html[data-ink="dark"] #enrollModal#enrollModal .dt-trig:hover {
       color: #F2F3F6 !important;
     }
@@ -8892,32 +8893,10 @@
 
             <div class="setup-weekly-card">
               <div class="setup-weekly-header">
-                <div>
-                  <div class="setup-panel-title">Weekly Template</div>
-                  <div class="setup-panel-sub">Configure standard working days & timing for terminal attendance</div>
-                </div>
                 <div class="setup-weekly-actions">
                   <select id="calClassSelect">
                     <option value="">All classes (global)</option>
                   </select>
-                  <button class="btn" id="calResetWeekBtn">Reset week to Mon-Sat</button>
-                </div>
-              </div>
-
-              <!-- Schedule Timing Bar -->
-              <div id="schedTimingCard">
-                <div class="setup-timing-inputs">
-                  <span class="setup-timing-title">Schedule Timing:</span>
-                  <span>Start</span>
-                  <input type="time" id="schedPresentCutoff" value="08:00">
-                  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0">
-                    <span id="schedContextBadge">GLOBAL SCHEDULE</span>
-                    <span id="schedInheritNotice">Global fallback (configured in Attendance Rules)</span>
-                  </div>
-                  <span>End</span>
-                  <input type="time" id="schedLateCutoff" value="08:30">
-                  <button class="btn primary" id="schedSaveTimingBtn">Save</button>
-                  <button class="btn" id="schedRevertTimingBtn" style="display:none">Inherit</button>
                 </div>
               </div>
 
@@ -8925,73 +8904,6 @@
               <div class="setup-weekly-footer">
                 <div>Evaluation Priority: 1. Date Override → 2. Holiday / Vacation → 3. Weekly Schedule</div>
                 <div>Holidays & Non-working days are never marked absent</div>
-              </div>
-            </div>
-
-            <!-- Row 3: Holidays & Special Date Overrides (2 columns) -->
-            <div style="display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap">
-              <!-- Holidays & Vacations -->
-              <div class="detail-card" style="flex:1 1 360px;padding:14px 16px">
-                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
-                  <div>
-                    <div style="display:flex;align-items:center;gap:6px">
-                      <span
-                        style="font-size:11px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase">Holidays &
-                        Vacations</span>
-                      <span id="holidayCountBadge" class="pill" style="font-size:9px;padding:1px 6px">0</span>
-                    </div>
-                    <div style="font-size:10px;color:var(--ink-2);margin-top:2px">Multi-day breaks & exams · No absences
-                      marked</div>
-                  </div>
-                  <button class="btn" id="addHolidayBtn"
-                    style="font-size:10px;font-weight:700;letter-spacing:0.08em;padding:4px 10px">+ Add Holiday</button>
-                </div>
-                <div class="table-wrap" style="margin-top:6px;max-height:160px;overflow-y:auto">
-                  <table style="width:100%;font-size:11px">
-                    <thead>
-                      <tr style="background:var(--paper)">
-                        <th style="text-align:left;padding:6px 8px;font-size:9px">NAME</th>
-                        <th style="padding:6px 8px;font-size:9px">START</th>
-                        <th style="padding:6px 8px;font-size:9px">END</th>
-                        <th style="padding:6px 8px;font-size:9px">TYPE</th>
-                        <th style="text-align:right;padding:6px 8px;font-size:9px">ACTION</th>
-                      </tr>
-                    </thead>
-                    <tbody id="holidayBody"></tbody>
-                  </table>
-                </div>
-              </div>
-
-              <!-- Special Date Overrides -->
-              <div class="detail-card" style="flex:1 1 360px;padding:14px 16px">
-                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
-                  <div>
-                    <div style="display:flex;align-items:center;gap:6px">
-                      <span
-                        style="font-size:11px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase">Special
-                        Date Overrides</span>
-                      <span id="overrideCountBadge" class="pill" style="font-size:9px;padding:1px 6px">0</span>
-                    </div>
-                    <div style="font-size:10px;color:var(--ink-2);margin-top:2px">Single-day exceptions to the weekly
-                      schedule</div>
-                  </div>
-                  <button class="btn" id="addOverrideBtn"
-                    style="font-size:10px;font-weight:700;letter-spacing:0.08em;padding:4px 10px">+ Add
-                    Override</button>
-                </div>
-                <div class="table-wrap" style="margin-top:6px;max-height:160px;overflow-y:auto">
-                  <table style="width:100%;font-size:11px">
-                    <thead>
-                      <tr style="background:var(--paper)">
-                        <th style="text-align:left;padding:6px 8px;font-size:9px">DATE</th>
-                        <th style="padding:6px 8px;font-size:9px">BECOMES</th>
-                        <th style="padding:6px 8px;font-size:9px">NOTE</th>
-                        <th style="text-align:right;padding:6px 8px;font-size:9px">ACTION</th>
-                      </tr>
-                    </thead>
-                    <tbody id="overrideBody"></tbody>
-                  </table>
-                </div>
               </div>
             </div>
 
@@ -9012,6 +8924,73 @@
                 </div>
               </div>
               <div class="calendar-grid" id="calendarGrid"></div>
+
+              <!-- Row 3: Holidays & Special Date Overrides (2 columns, below the grid) -->
+              <div style="display:flex;gap:12px;margin:12px 0 0;flex-wrap:wrap">
+                <!-- Holidays & Vacations -->
+                <div class="detail-card" style="flex:1 1 360px;padding:14px 16px">
+                  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+                    <div>
+                      <div style="display:flex;align-items:center;gap:6px">
+                        <span
+                          style="font-size:11px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase">Holidays &
+                          Vacations</span>
+                        <span id="holidayCountBadge" class="pill" style="font-size:9px;padding:1px 6px">0</span>
+                      </div>
+                      <div style="font-size:10px;color:var(--ink-2);margin-top:2px">Multi-day breaks & exams · No absences
+                        marked</div>
+                    </div>
+                    <button class="btn" id="addHolidayBtn"
+                      style="font-size:10px;font-weight:700;letter-spacing:0.08em;padding:4px 10px">+ Add Holiday</button>
+                  </div>
+                  <div class="table-wrap" style="margin-top:6px;max-height:160px;overflow-y:auto">
+                    <table style="width:100%;font-size:11px">
+                      <thead>
+                        <tr style="background:var(--paper)">
+                          <th style="text-align:left;padding:6px 8px;font-size:9px">NAME</th>
+                          <th style="padding:6px 8px;font-size:9px">START</th>
+                          <th style="padding:6px 8px;font-size:9px">END</th>
+                          <th style="padding:6px 8px;font-size:9px">TYPE</th>
+                          <th style="text-align:right;padding:6px 8px;font-size:9px">ACTION</th>
+                        </tr>
+                      </thead>
+                      <tbody id="holidayBody"></tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <!-- Special Date Overrides -->
+                <div class="detail-card" style="flex:1 1 360px;padding:14px 16px">
+                  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+                    <div>
+                      <div style="display:flex;align-items:center;gap:6px">
+                        <span
+                          style="font-size:11px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase">Special
+                          Date Overrides</span>
+                        <span id="overrideCountBadge" class="pill" style="font-size:9px;padding:1px 6px">0</span>
+                      </div>
+                      <div style="font-size:10px;color:var(--ink-2);margin-top:2px">Single-day exceptions to the weekly
+                        schedule</div>
+                    </div>
+                    <button class="btn" id="addOverrideBtn"
+                      style="font-size:10px;font-weight:700;letter-spacing:0.08em;padding:4px 10px">+ Add
+                      Override</button>
+                  </div>
+                  <div class="table-wrap" style="margin-top:6px;max-height:160px;overflow-y:auto">
+                    <table style="width:100%;font-size:11px">
+                      <thead>
+                        <tr style="background:var(--paper)">
+                          <th style="text-align:left;padding:6px 8px;font-size:9px">DATE</th>
+                          <th style="padding:6px 8px;font-size:9px">BECOMES</th>
+                          <th style="padding:6px 8px;font-size:9px">NOTE</th>
+                          <th style="text-align:right;padding:6px 8px;font-size:9px">ACTION</th>
+                        </tr>
+                      </thead>
+                      <tbody id="overrideBody"></tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -9331,6 +9310,18 @@
       <h3>Add special date override</h3>
       <p>Specific date overrides weekly schedule. Priority: override → holiday → weekly.</p>
       <div id="overrideModalBody"></div>
+    </div>
+  </div>
+  <div class="modal" id="classScheduleModal">
+    <div class="modal-card">
+      <h3 id="csTitle">Schedule</h3>
+      <div id="csDays"></div>
+      <div class="form-grid">
+        <div class="form-field"><label>Present cutoff</label><input type="time" id="csPresentCutoff" value="08:00"></div>
+        <div class="form-field"><label>Late cutoff</label><input type="time" id="csLateCutoff" value="08:30"></div>
+        <div class="form-field full"><div id="csTimingNotice" style="font-size:10.5px;color:var(--ink-2);line-height:1.5;"></div></div>
+        <div class="form-field full" style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="csClose">Close</button><button class="btn primary" id="csSaveTiming">Save</button></div>
+      </div>
     </div>
   </div>
   <div class="modal" id="correctionModal">
