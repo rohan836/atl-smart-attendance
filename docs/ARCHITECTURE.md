@@ -32,7 +32,7 @@ Scanning is DB-driven. `sensorScanLoop()` posts `POST /api/scan {waitSec:2}` on 
 
 ## UI and state
 
-Theme is light editorial: `bg #FCFBF7 panel #FFFFFF ink #0A0A0A ink-2 #6B6B6B ink-3 #A8A5A0 line #E9E6E0 paper #F6F4EF ok #2F5D34 danger #8A3A3A`, Inter/Newsreader/monospace. The maintained logic is `ui_app.js`; the HTML stub is replaced at serve time and not edited. Redesign: HTML/CSS in the Production.html, behavior in `ui_app.js`; do not create `css/`/`js/`/`templates/`/components unless proven need. Data load is `cacheLoad() → loadClassesHolidaysSettings() → loadStudents() → loadHistory() → loadTodayAttendance() → cacheSave()` every 15s while visible. LocalStorage omits photos; all writes via API.
+Theme is light editorial: `bg #FCFBF7 panel #F2F3F6 ink #181A20 ink-2 #6B6B6B ink-3 #A8A5A0 line #E9E6E0 paper #F6F4EF ok #2F5D34 danger #8A3A3A`, Inter/Newsreader/monospace. The maintained logic is `ui_app.js`; the HTML stub is replaced at serve time and not edited. Redesign: HTML/CSS in the Production.html, behavior in `ui_app.js`; do not create `css/`/`js/`/`templates/`/components unless proven need. Data load is `cacheLoad() → loadClassesHolidaysSettings() → loadStudents() → loadHistory() → loadTodayAttendance() → cacheSave()` every 15s while visible. LocalStorage omits photos; all writes via API.
 
 ## File map
 

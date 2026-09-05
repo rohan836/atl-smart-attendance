@@ -290,6 +290,16 @@ async function loadAll(){
   await loadTodayAttendance();
   cacheSave();
   renderAll();
+  ensureFirstStudent();
+}
+/* First student is always selected — never an empty detail pane */
+function ensureFirstStudent(){
+  if(!Students.length){ selectedStudentId=null; return; }
+  if(!Students.some(s=>s.id===selectedStudentId)){
+    const sorted=[...Students].sort((a,b)=>((b.active-a.active)||String(a.name).localeCompare(String(b.name))));
+    selectedStudentId=sorted[0].id;
+  }
+  try{ renderStudentDetail(selectedStudentId); }catch(e){}
 }
 // ---- DOM ----
 const promptText=$("promptText"),
@@ -320,21 +330,29 @@ const promptText=$("promptText"),
   holidayBody=$("holidayBody"), overrideBody=$("overrideBody"),
   calendarGrid=$("calendarGrid"), calMonthLabel=$("calMonthLabel"),
   classBody=$("classBody"), auditBody=$("auditBody"),
-  enrollModal=$("enrollModal"), holidayModal=$("holidayModal"),
-  overrideModal=$("overrideModal"), correctionModal=$("correctionModal"),
+  enrollModal=$("enrollModal"),
+  correctionModal=$("correctionModal"),
+  daySheetModal=$("daySheetModal"), daySheetTitle=$("daySheetTitle"), daySheetBody=$("daySheetBody"),
   enrollTitle=$("enrollTitle"), enrollSub=$("enrollSub"), enrollBody=$("enrollBody");
 
 const Timers={ _ids:{}, set(n,id){ this.clear(n); this._ids[n]=id; },
   clear(n){ if(this._ids[n]){ clearTimeout(this._ids[n]); clearInterval(this._ids[n]); } delete this._ids[n]; },
   clearAll(){ Object.keys(this._ids).forEach(k=>{ clearTimeout(this._ids[k]); clearInterval(this._ids[k]); }); this._ids={}; } };
 let currentTab="students", selectedStudentId=null, calendarMonth=new Date();
+/* Academic-year override span (null = follow Settings); set by the year popup */
+let attAcadFrom=null, attAcadTo=null;
 
 function openModal(m){ m.classList.add("open"); }
 function closeModal(m){ m.classList.remove("open"); }
-[enrollModal, holidayModal, overrideModal, correctionModal].forEach(m=>{
+[enrollModal, correctionModal, daySheetModal].forEach(m=>{
   if(!m) return;
+  /* Veil dismiss needs press AND release on the veil: a drag that
+     starts inside (e.g. finishing a text selection outside the card)
+     fires click targeting m but must never close the window. */
+  m.addEventListener("mousedown", (e)=>{ m._veilDown=(e.target===m); });
   m.addEventListener("click", (e)=>{
-    if(e.target!==m) return;
+    if(e.target!==m || !m._veilDown) return;
+    m._veilDown=false;
     if(m===enrollModal){ _enrollAbort=true; if(_enrollPoll) clearTimeout(_enrollPoll); }
     closeModal(m);
     if(m===enrollModal) resumeSensorScan();
@@ -687,7 +705,7 @@ function renderStudentDetail(id){
           <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn primary" data-action="edit" data-id="${s.id}">Edit information</button>
             <button class="btn" data-action="reenroll" data-id="${s.id}">Re-enroll fingerprint</button>
-            ${s.active ? `<button class="btn danger" data-action="delete" data-id="${s.id}">Deactivate</button>` : `<button class="btn primary" data-action="reactivate" data-id="${s.id}">Re-activate</button>`}
+            ${s.active ? `<button class="btn danger icon-del" data-action="delete" data-id="${s.id}" aria-label="Deactivate">${TRASH_ICON}</button>` : `<button class="btn primary" data-action="reactivate" data-id="${s.id}">Re-activate</button>`}
             <button class="btn" data-action="print" data-id="${s.id}">Print profile</button>
             <button class="btn" data-correct data-correct-sid="${s.id}" data-correct-date="${esc(todayISO())}" data-correct-status="Present" style="border-style:dashed">Correct today</button>
           </div>
@@ -750,8 +768,8 @@ async function renderAttendance(){
     if(attFromDate) attFromDate.style.display = "none";
     if(attToDate) attToDate.style.display = "none";
   } else if(preset === "academic"){
-    from = Settings.startDate || Settings.schoolOpeningDate || "2026-06-15";
-    to = Settings.endDate || today;
+    from = attAcadFrom || Settings.startDate || Settings.schoolOpeningDate || "2026-06-15";
+    to = attAcadTo || Settings.endDate || today;
     if(attSingleDate) attSingleDate.style.display = "none";
     if(attFromDate) attFromDate.style.display = "none";
     if(attToDate) attToDate.style.display = "none";
@@ -777,10 +795,10 @@ async function renderAttendance(){
   if(attModeBadge){
     if(selStudent){
       attModeBadge.textContent = "STUDENT: " + selStudent.name.toUpperCase();
-      attModeBadge.style.cssText = "font-size:10px;letter-spacing:0.1em;text-transform:uppercase;padding:2px 8px;border:1px solid #2F5D34;border-radius:2px;background:#2F5D34;color:#fff;font-weight:600";
+      attModeBadge.style.cssText = "font-size:10px;letter-spacing:0.1em;text-transform:uppercase;padding:2px 8px;border:1px solid #2F5D34;border-radius:2px;background:#2F5D34;color:#F2F3F6;font-weight:600";
     } else if(isToday){
       attModeBadge.textContent = "Live Today";
-      attModeBadge.style.cssText = "font-size:10px;letter-spacing:0.1em;text-transform:uppercase;padding:2px 8px;border:1px solid #2F5D34;border-radius:2px;background:#2F5D34;color:#fff;font-weight:600";
+      attModeBadge.style.cssText = "font-size:10px;letter-spacing:0.1em;text-transform:uppercase;padding:2px 8px;border:1px solid #2F5D34;border-radius:2px;background:#2F5D34;color:#F2F3F6;font-weight:600";
     } else if(preset === "yesterday"){
       attModeBadge.textContent = "Yesterday";
       attModeBadge.style.cssText = "font-size:10px;letter-spacing:0.1em;text-transform:uppercase;padding:2px 8px;border:1px solid var(--line);border-radius:2px;background:var(--paper);color:var(--ink-2)";
@@ -947,32 +965,39 @@ async function renderAttendance(){
     unks = isToday ? Unknowns : [];
   }
 
-  // Update attDateLabel
-  const isGlobalWorking = isWorkingDayUI(from);
-  const workingLabel = isGlobalWorking ? "Working day" : "Holiday / Vacation";
+  // Update attDateLabel — concise mono readout; never stretches the row
+  const _CM=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const _fmtC=iso=>{ const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(iso||""); if(!m) return iso||"—"; return (+m[3])+" "+_CM[+m[2]-1]+" "+m[1].slice(2); };
+  const _span=(from===to)?_fmtC(from):(_fmtC(from)+" → "+_fmtC(to));
+  const workingTag = isWorkingDayUI(from) ? "" : " · Off";
   if(selStudent){
-    const stuDesc = `Student: ${selStudent.name} (Roll: ${selStudent.roll||"—"}, Class: ${selStudent.class||"—"}${selStudent.batch ? " · Batch: " + selStudent.batch : ""})`;
-    attDateLabel.textContent = `${stuDesc} — Attendance Record (${from === to ? from : from + " → " + to})`;
+    attDateLabel.textContent = `${selStudent.name} · ${_span}`;
   } else if(isToday){
-    const schedInfo = cf ? `${cf} — ${scheduled} scheduled, ${notScheduledCount} not scheduled` : `${scheduled} scheduled, ${notScheduledCount} not scheduled`;
-    attDateLabel.textContent = `${fmtDate(today)} — ${workingLabel} — ${schedInfo}`;
+    attDateLabel.textContent = `Today · ${_fmtC(today)}${workingTag} · ${scheduled} scheduled`;
   } else if(isSingleDay){
-    const schedInfo = `${scheduled} scheduled, ${notScheduledCount} not scheduled`;
-    attDateLabel.textContent = `${fmtDate(from)} (${from}) — ${workingLabel} — ${schedInfo}`;
+    attDateLabel.textContent = `${_fmtC(from)}${workingTag} · ${scheduled} scheduled`;
   } else {
     let dayCount = 1;
     try {
       const d1 = new Date(from+"T00:00:00"), d2 = new Date(to+"T00:00:00");
       dayCount = Math.round((d2 - d1)/(1000*60*60*24)) + 1;
     } catch(e){}
-    attDateLabel.textContent = `Date Range: ${fmtDate(from)} to ${fmtDate(to)} (${from} → ${to}, ${dayCount} days)${cf?` · Class: ${cf}`:""}${bf?` · Batch: ${bf}`:""}`;
+    attDateLabel.textContent = `${_span} · ${dayCount}d`;
   }
 
-  // Render 9 KPI cards
-  const dateCardVal = isSingleDay ? from : `${from} → ${to}`;
+  // Render 9 KPI cards (date value stays concise + single-line — never wraps)
+  const _isoP=iso=>{ const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(iso||""); return m?[m[1],m[2],+m[3]]:null; };
+  const _fP=p=>p?p[2]+" "+_CM[+p[1]-1]+" "+p[0].slice(2):"—";
+  let dateCardVal;
+  if(isSingleDay){ dateCardVal=_fmtC(from); }
+  else {
+    const a=_isoP(from), b=_isoP(to);
+    if(a&&b&&a[0]===b[0]&&a[1]===b[1]) dateCardVal=`${a[2]} | ${b[2]} ${_CM[+a[1]-1]} ${a[0].slice(2)}`;
+    else if(a&&b&&a[0]===b[0]) dateCardVal=`${a[2]} ${_CM[+a[1]-1]} | ${b[2]} ${_CM[+b[1]-1]} ${a[0].slice(2)}`;
+    else dateCardVal=`${_fmtC(from)} | ${_fmtC(to)}`;
+  }
   if(selStudent && rpt && typeof rpt === "object" && "eligible" in rpt){
     attStats.innerHTML = `
-      <div class="stat"><b>${esc(dateCardVal)}</b><label>Date</label></div>
       <div class="stat"><b>${esc(selStudent.name)}</b><label>Student</label></div>
       <div class="stat"><b>${rpt.present ?? 0}</b><label>Present</label></div>
       <div class="stat"><b>${rpt.late ?? 0}</b><label>Late</label></div>
@@ -980,10 +1005,10 @@ async function renderAttendance(){
       <div class="stat"><b>${rpt.eligible ?? 0}</b><label>Eligible days</label></div>
       <div class="stat"><b>${rpt.attended ?? 0}</b><label>Attended</label></div>
       <div class="stat"><b>${dup}</b><label>Duplicate scans</label></div>
-      <div class="stat"><b>${rpt.rate ?? 0}%</b><label>Attendance %</label></div>`;
+      <div class="stat"><b>${rpt.rate ?? 0}%</b><label>Attendance %</label></div>
+      <div class="stat"><b>${esc(dateCardVal)}</b><label>Date</label></div>`;
   } else {
     attStats.innerHTML = `
-      <div class="stat"><b>${esc(dateCardVal)}</b><label>Date</label></div>
       <div class="stat"><b>${totalStudents}</b><label>Total students</label></div>
       <div class="stat"><b>${present}</b><label>Present</label></div>
       <div class="stat"><b>${late}</b><label>Late</label></div>
@@ -991,7 +1016,8 @@ async function renderAttendance(){
       <div class="stat"><b>${notScheduledCount}</b><label>Not Scheduled</label></div>
       <div class="stat"><b>${unks.length}</b><label>Unknown scans</label></div>
       <div class="stat"><b>${dup}</b><label>Duplicate scans</label></div>
-      <div class="stat"><b>${pct}%</b><label>Attendance %</label></div>`;
+      <div class="stat"><b>${pct}%</b><label>Attendance %</label></div>
+      <div class="stat"><b>${esc(dateCardVal)}</b><label>Date</label></div>`;
   }
 
   // Render Table Head
@@ -1397,47 +1423,18 @@ function renderHolidays(){
     holidayBody.innerHTML=`<tr><td colspan="5"><div class="empty" style="padding:14px;border:1px dashed var(--line);background:var(--paper);border-radius:2px;font-size:11px;color:var(--ink-2)"><b>No holidays or vacations configured.</b>Click + Add holiday to schedule.</div></td></tr>`;
     return;
   }
-  holidayBody.innerHTML=Holidays.map(h=>`<tr><td>${esc(h.name)}</td><td>${esc(h.start)}</td><td>${esc(h.end)}</td><td><span class="badge">${esc(h.type)}</span></td><td style="text-align:right"><div style="display:flex;gap:6px;justify-content:flex-end"><button class="btn" data-edit-holiday="${esc(h.start)}" style="padding:2px 6px;font-size:9px">Edit</button><button class="btn danger" data-del-holiday="${esc(h.start)}" style="padding:2px 6px;font-size:9px">Remove</button></div></td></tr>`).join("");
+  holidayBody.innerHTML=Holidays.map(h=>`<tr><td>${esc(h.name)}</td><td>${esc(h.start)}</td><td>${esc(h.end)}</td><td><span class="badge">${esc(h.type)}</span></td><td style="text-align:right"><div style="display:flex;gap:6px;justify-content:flex-end"><button class="btn" data-edit-holiday="${esc(h.start)}" style="padding:2px 6px;font-size:9px">Edit</button><button class="btn danger icon-del" data-del-holiday="${esc(h.start)}" aria-label="Remove holiday">${TRASH_ICON}</button></div></td></tr>`).join("");
 }
 function renderOverrides(){
   const oBadge = $("overrideCountBadge"); if(oBadge) oBadge.textContent = Overrides.length;
   if(!overrideBody) return;
   if(!Overrides.length){
-    overrideBody.innerHTML=`<tr><td colspan="4"><div class="empty" style="padding:14px;border:1px dashed var(--line);background:var(--paper);border-radius:2px;font-size:11px;color:var(--ink-2)"><b>⚡ No date overrides configured.</b>Click + Add override for single-day exceptions.</div></td></tr>`;
+    overrideBody.innerHTML=`<tr><td colspan="4"><div class="empty" style="padding:14px;border:1px dashed var(--line);background:var(--paper);border-radius:2px;font-size:11px;color:var(--ink-2)"><b>No date overrides configured.</b>Click + Add override for single-day exceptions.</div></td></tr>`;
     return;
   }
-  overrideBody.innerHTML=Overrides.map(o=>`<tr><td>${esc(o.date)}</td><td>${o.isWorking?"Working":"Holiday"}</td><td>${esc(o.note)}</td><td style="text-align:right"><div style="display:flex;gap:6px;justify-content:flex-end"><button class="btn" data-edit-override="${esc(o.date)}" style="padding:2px 6px;font-size:9px">Edit</button><button class="btn danger" data-del-override="${esc(o.date)}" style="padding:2px 6px;font-size:9px">Remove</button></div></td></tr>`).join("");
+  overrideBody.innerHTML=Overrides.map(o=>`<tr><td>${esc(o.date)}</td><td>${o.isWorking?"Working":"Holiday"}</td><td>${esc(o.note)}</td><td style="text-align:right"><div style="display:flex;gap:6px;justify-content:flex-end"><button class="btn" data-edit-override="${esc(o.date)}" style="padding:2px 6px;font-size:9px">Edit</button><button class="btn danger icon-del" data-del-override="${esc(o.date)}" aria-label="Remove override">${TRASH_ICON}</button></div></td></tr>`).join("");
 }
 function renderWeekly(){
-  const ctx = getScheduleContext();
-  let wd = Settings.workingDays;
-  if(ctx.type === "class") wd = getWorkingDaysForClass(ctx.name);
-  else if(ctx.type === "batch") wd = getWorkingDaysForBatch(ctx.name);
-
-  const shortDays=["SUN","MON","TUE","WED","THU","FRI","SAT"];
-  const fullDays=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
-
-  const daysRow = $("weeklyDaysRow");
-  if(daysRow){
-    daysRow.innerHTML = shortDays.map((name, idx)=>{
-      const on = asBool(wd[idx] ?? wd[String(idx)]);
-      const cls = on ? "weekly-day-card working" : "weekly-day-card off";
-      const status = on ? "WORKING" : "OFF";
-      return `<div class="${cls}" data-day="${idx}">
-        <div class="w-name">${name}</div>
-        <div class="w-status">${status}</div>
-      </div>`;
-    }).join("");
-  }
-
-  const tbody = document.querySelector("#weeklyTable tbody");
-  if(tbody){
-    tbody.innerHTML = fullDays.map((name, idx)=>{
-      const on = asBool(wd[idx] ?? wd[String(idx)]);
-      return `<tr><td>${name}</td><td><div class="toggle ${on?"on":""}" data-day="${idx}"></div></td></tr>`;
-    }).join("");
-  }
-
   populateScheduleSelector();
   renderScheduleTiming();
 }
@@ -1455,32 +1452,76 @@ function renderCalendarMonth(){
     } else if(ctx.type === "class"){
       monthCtxPill.textContent = `Class: ${ctx.name}`;
       monthCtxPill.style.background = "var(--ink)";
-      monthCtxPill.style.color = "#fff";
+      monthCtxPill.style.color = "#F2F3F6";
     } else if(ctx.type === "batch"){
       monthCtxPill.textContent = `Batch: ${ctx.name}`;
       monthCtxPill.style.background = "var(--ink)";
-      monthCtxPill.style.color = "#fff";
+      monthCtxPill.style.color = "#F2F3F6";
     }
   }
   const first=new Date(y,m,1).getDay(), last=new Date(y,m+1,0).getDate();
-  let html=['SUN','MON','TUE','WED','THU','FRI','SAT'].map(d=>`<div class="calendar-cell head">${d}</div>`).join("");
-  for(let i=0;i<first;i++) html+=`<div class="calendar-cell" style="background:#fff"></div>`;
+  // Phase 1: weekday headers are the recurring-template editor (same source as renderWeekly)
+  let tplWd = Settings.workingDays;
+  if(ctx.type === "class") tplWd = getWorkingDaysForClass(ctx.name);
+  else if(ctx.type === "batch") tplWd = getWorkingDaysForBatch(ctx.name);
+  const tplNames=['SUN','MON','TUE','WED','THU','FRI','SAT'];
+  let html=tplNames.map((d,idx)=>{
+    const on = asBool(tplWd[idx] ?? tplWd[String(idx)]);
+    const cls = on ? "weekly-day-card working" : "weekly-day-card off";
+    const status = on ? "WORKING" : "OFF";
+    return `<div class="${cls}" data-day="${idx}" role="button" tabindex="0" title="Toggle ${d} in recurring template"><div class="w-name">${d}</div><div class="w-status">${status}</div></div>`;
+  }).join("");
+  let tplLegend=$("calTemplateLegend");
+  if(!tplLegend && calendarGrid.parentNode){
+    tplLegend=document.createElement("div");
+    tplLegend.id="calTemplateLegend";
+    tplLegend.style.cssText="font-size:10px;letter-spacing:0.04em;color:var(--ink-2);margin:0 0 6px;";
+    calendarGrid.parentNode.insertBefore(tplLegend, calendarGrid);
+  }
+  if(tplLegend) tplLegend.textContent="Headers edit the recurring weekly template \u00B7 cells show resolved days including overrides and holidays.";
+  for(let i=0;i<first;i++) html+=`<div class="calendar-cell" style="background:#F2F3F6"></div>`;
   for(let d=1;d<=last;d++){
     const iso=toLocalISO(new Date(y,m,d));
     const hol=isHoliday(iso), ov=getOverride(iso), todayCls=iso===todayISO()?" today":"";
     const working = isWorkingDayForContext(iso, ctx);
     const typeCls = ov ? "override" : (working ? "working" : "non-working");
     const tag = ov ? esc(ov.note) : (hol ? esc(hol.name) : (working ? "WORKING" : "NON-WORKING"));
-    html+=`<div class="calendar-cell ${typeCls}${todayCls}"><div class="day">${d}</div><div class="tag">${tag}</div></div>`;
+    html+=`<div class="calendar-cell ${typeCls}${todayCls}" data-date="${iso}"><div class="day">${d}</div><div class="tag">${tag}</div></div>`;
   }
   calendarGrid.innerHTML=html;
+  renderRangeIndex(y);
+}
+/* Compact range index: read-only count + jump list for the displayed
+   year. All editing stays in the day sheet; no new data path. */
+let calRangeIndexOpen=false;
+function rangesInYear(y){
+  const lo=y+"-01-01", hi=y+"-12-31";
+  return Holidays.filter(h=>h.start<=hi&&h.end>=lo);
+}
+function renderRangeIndex(y){
+  let wrap=$("calRangeIndex");
+  if(!wrap && calendarGrid.parentNode){
+    wrap=document.createElement("div");
+    wrap.id="calRangeIndex";
+    wrap.style.cssText="margin:8px 0 0;font-size:10px;letter-spacing:0.04em;color:var(--ink-2);";
+    calendarGrid.parentNode.insertBefore(wrap, calendarGrid.nextSibling);
+  }
+  if(!wrap) return;
+  const rows=rangesInYear(y);
+  wrap.innerHTML=
+    `<button class="btn" id="calRangeIndexToggle" style="font-size:10px;">Holiday ranges in ${y} (${rows.length})</button>`+
+    `<div id="calRangeIndexRows" style="display:${calRangeIndexOpen?"block":"none"};margin-top:4px;">`+
+    (rows.length?rows.map(h=>`<div><button class="btn" data-range-start="${esc(h.start)}" style="font-size:10px;">${esc(h.name)} \u00B7 ${_fmtShort(h.start)} \u2192 ${_fmtShort(h.end)} \u00B7 ${esc(h.type)}</button></div>`).join(""):`<div>None configured — add ranges from any day sheet.</div>`)+
+    `</div>`;
+  $("calRangeIndexToggle").onclick=()=>{ calRangeIndexOpen=!calRangeIndexOpen; renderRangeIndex(y); };
+  wrap.querySelectorAll("[data-range-start]").forEach(b=>{ b.onclick=()=>openDaySheet(b.dataset.rangeStart); });
 }
 function renderClasses(){
   if(!classBody) return;
   if(!Classes.length){ classBody.innerHTML=`<tr><td colspan="3"><div class="empty" style="padding:14px;font-size:10px"><b>No classes configured</b></div></td></tr>`; return; }
   classBody.innerHTML=Classes.map(c=>{
     const n=Students.filter(s=>s.class===c).length;
-    return `<tr><td>${esc(c)}</td><td style="text-align:center">${n}</td><td style="text-align:right"><div style="display:flex;gap:4px;justify-content:flex-end"><button class="btn danger" data-del-class="${esc(c)}" style="padding:1px 6px;font-size:9px">DELETE</button><button class="btn" data-sched-class="${esc(c)}" style="padding:1px 6px;font-size:9px">Schedule →</button></div></td></tr>`;
+    return `<tr><td>${esc(c)}</td><td style="text-align:center">${n}</td><td style="text-align:right"><div style="display:flex;gap:4px;justify-content:flex-end"><button class="btn danger icon-del" data-del-class="${esc(c)}" aria-label="Remove class">${TRASH_ICON}</button><button class="btn" data-sched-class="${esc(c)}" style="padding:1px 6px;font-size:9px">Schedule →</button></div></td></tr>`;
   }).join("");
 }
 function renderBatches(){
@@ -1496,9 +1537,84 @@ function renderBatches(){
     return `<tr><td>${esc(b)}</td><td>${n}</td><td><button class="btn" data-sched-batch="${esc(b)}" style="padding:1px 6px;font-size:10px">Schedule →</button></td></tr>`;
   }).join("");
 }
+function formatAuditDetails(raw, action){
+  if(!raw) return "—";
+  const text = String(raw).trim();
+  if(!text) return "—";
+
+  // Parse JSON objects or extract key settings if JSON was serialized
+  let obj = null;
+  if((text.startsWith("{") && text.endsWith("}")) || (text.startsWith("[") && text.endsWith("]"))){
+    try {
+      obj = JSON.parse(text);
+    } catch(e) {
+      obj = null;
+    }
+  }
+
+  if(obj && typeof obj === "object" && !Array.isArray(obj)){
+    const labelMap = {
+      schoolName: "School",
+      region: "Region",
+      academicYear: "Academic year",
+      schoolOpeningDate: "Opening date",
+      attendanceStartDate: "Attendance start",
+      presentCutoff: "Present cutoff",
+      lateCutoff: "Late cutoff",
+      lateThreshold: "Late cutoff",
+      minPercent: "Min attendance"
+    };
+    const parts = [];
+    const priorityKeys = [
+      "schoolName", "region", "academicYear", "schoolOpeningDate",
+      "presentCutoff", "lateCutoff"
+    ];
+    for(const k of priorityKeys){
+      if(obj[k] !== undefined && obj[k] !== null && obj[k] !== ""){
+        parts.push(`${labelMap[k]}: ${obj[k]}`);
+      }
+    }
+    // Include other simple settings
+    for(const [k, v] of Object.entries(obj)){
+      if(!priorityKeys.includes(k) && labelMap[k] && v !== undefined && v !== null && v !== "" && typeof v !== "object"){
+        const val = (k === "minPercent") ? `${v}%` : v;
+        parts.push(`${labelMap[k]}: ${val}`);
+      }
+    }
+    if(parts.length > 0){
+      return parts.join(" · ");
+    }
+  }
+
+  // Handle truncated JSON strings (e.g. [:500] from backend)
+  if(text.startsWith("{") && (text.includes('"schoolName"') || text.includes('"presentCutoff"'))){
+    const labelMap = {
+      schoolName: "School",
+      region: "Region",
+      academicYear: "Academic year",
+      schoolOpeningDate: "Opening date",
+      presentCutoff: "Present cutoff",
+      lateCutoff: "Late cutoff"
+    };
+    const parts = [];
+    for(const [k, label] of Object.entries(labelMap)){
+      const re = new RegExp(`"${k}"\\s*:\\s*"([^"\\\\]*)"`);
+      const m = text.match(re);
+      if(m && m[1]){
+        parts.push(`${label}: ${m[1]}`);
+      }
+    }
+    if(parts.length > 0){
+      return parts.join(" · ");
+    }
+  }
+
+  return text;
+}
+
 function renderAudit(){
   if(!Audit.length){ auditBody.innerHTML=`<tr><td colspan="4"><div class="empty"><b>No audit history</b>Changes appear here.</div></td></tr>`; return; }
-  auditBody.innerHTML=Audit.map(a=>`<tr><td>${esc(a.time)}</td><td>${esc(a.action)}</td><td>${esc(a.details)}</td><td>${esc(a.by)}</td></tr>`).join("");
+  auditBody.innerHTML=Audit.map(a=>`<tr><td>${esc(a.time)}</td><td>${esc(a.action)}</td><td>${esc(formatAuditDetails(a.details, a.action))}</td><td>${esc(a.by)}</td></tr>`).join("");
 }
 function renderAll(){
   renderClassFilters();
@@ -1696,6 +1812,8 @@ function openReEnroll(id){
       loadAll();
     });
 }
+/* Shared outline trash glyph (stroke=currentColor → ink-aware by construction) */
+const TRASH_ICON='<svg class="del-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><rect x="6" y="7" width="12" height="13" rx="1.5"/><path d="M10 11v6M14 11v6"/></svg>';
 async function deleteStudent(id){
   const s=Students.find(x=>x.id===id); if(!s) return;
   if(!(await glassConfirm("Deactivate "+s.name+"? Their fingerprint slot is freed and roll is released. History is kept.",{title:"Deactivate student",okText:"Deactivate",danger:true}))) return;
@@ -1739,15 +1857,15 @@ function printHTML(htmlContent, docTitle){
     }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      color: #0A0A0A;
-      background: #FFFFFF;
+      color: #181A20;
+      background: #F2F3F6;
       padding: 24px;
       max-width: 900px;
       margin: 0 auto;
       line-height: 1.4;
     }
     .report-header {
-      border-bottom: 2px solid #0A0A0A;
+      border-bottom: 2px solid #181A20;
       padding-bottom: 12px;
       margin-bottom: 16px;
     }
@@ -1758,7 +1876,7 @@ function printHTML(htmlContent, docTitle){
       text-transform: uppercase;
       letter-spacing: 0.05em;
       margin: 0 0 6px 0;
-      color: #0A0A0A;
+      color: #181A20;
     }
     .report-subtitle {
       font-size: 11px;
@@ -1778,7 +1896,7 @@ function printHTML(htmlContent, docTitle){
       border-radius: 2px;
       font-size: 10px;
       font-weight: 500;
-      color: #0A0A0A;
+      color: #181A20;
     }
     .stats-row {
       display: flex !important;
@@ -1801,7 +1919,7 @@ function printHTML(htmlContent, docTitle){
       font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
       font-size: 16px !important;
       font-weight: 600 !important;
-      color: #0A0A0A !important;
+      color: #181A20 !important;
       letter-spacing: -0.02em !important;
       line-height: 1.2 !important;
     }
@@ -1817,7 +1935,7 @@ function printHTML(htmlContent, docTitle){
     }
     .table-wrap {
       border: 1px solid #E9E6E0 !important;
-      background: #FFFFFF !important;
+      background: #F2F3F6 !important;
       margin: 14px 0 20px 0 !important;
       overflow: visible !important;
       contain: none !important;
@@ -1849,14 +1967,14 @@ function printHTML(htmlContent, docTitle){
       color: #6B6B6B !important;
       text-align: left !important;
       padding: 8px 10px !important;
-      border-bottom: 1.5px solid #0A0A0A !important;
+      border-bottom: 1.5px solid #181A20 !important;
       background: #F6F4EF !important;
       white-space: nowrap !important;
     }
     td {
       padding: 7px 10px !important;
       border-bottom: 1px solid #E9E6E0 !important;
-      color: #0A0A0A !important;
+      color: #181A20 !important;
       vertical-align: middle !important;
       font-variant-numeric: tabular-nums !important;
       white-space: normal !important;
@@ -1874,7 +1992,7 @@ function printHTML(htmlContent, docTitle){
       text-transform: uppercase !important;
       padding: 2px 6px !important;
       border: 1px solid #E9E6E0 !important;
-      background: #FFFFFF !important;
+      background: #F2F3F6 !important;
       border-radius: 2px !important;
       white-space: nowrap !important;
     }
@@ -1914,13 +2032,13 @@ function printHTML(htmlContent, docTitle){
       text-transform: uppercase !important;
       letter-spacing: 0.08em !important;
       margin-bottom: 8px !important;
-      color: #0A0A0A !important;
+      color: #181A20 !important;
       border-bottom: 1px solid #E9E6E0 !important;
       padding-bottom: 4px !important;
     }
     .detail-card {
       border: 1px solid #E9E6E0 !important;
-      background: #FFFFFF !important;
+      background: #F2F3F6 !important;
       padding: 16px !important;
       margin: 12px 0 !important;
       display: flex !important;
@@ -1929,7 +2047,7 @@ function printHTML(htmlContent, docTitle){
     .detail-photo {
       width: 140px !important;
       height: 180px !important;
-      border: 1px solid #0A0A0A !important;
+      border: 1px solid #181A20 !important;
       background: #F6F4EF !important;
       overflow: hidden !important;
       flex-shrink: 0 !important;
@@ -1947,7 +2065,7 @@ function printHTML(htmlContent, docTitle){
       justify-content: center !important;
       font-family: "Newsreader", Georgia, serif !important;
       font-size: 54px !important;
-      color: #0A0A0A !important;
+      color: #181A20 !important;
     }
     .detail-grid {
       display: grid !important;
@@ -1968,7 +2086,7 @@ function printHTML(htmlContent, docTitle){
       display: block !important;
       font-size: 11px !important;
       font-weight: 500 !important;
-      color: #0A0A0A !important;
+      color: #181A20 !important;
     }
     .empty {
       padding: 16px !important;
@@ -2079,6 +2197,14 @@ document.getElementById("adminClose").onclick=()=>{
   adminLayer.classList.remove("open");
   resumeSensorScan();
 };
+// Ink toggle: white ⇄ black interface text only (nothing else changes)
+(function(){
+  const b=document.getElementById("inkToggleBtn"); if(!b) return;
+  const apply=v=>{ const el=document.documentElement; el.classList.add("ink-switching"); el.dataset.ink=v; try{localStorage.setItem("atl_ink",v);}catch(e){} b.innerHTML=v==="dark"?'<span class="ink-moon"></span>':"\u2600"; clearTimeout(apply._t); apply._t=setTimeout(()=>el.classList.remove("ink-switching"), 220); };
+  let cur="white"; try{cur=localStorage.getItem("atl_ink")||"white";}catch(e){}
+  apply(cur==="dark"?"dark":"white");
+  b.onclick=()=>apply(document.documentElement.dataset.ink==="dark"?"white":"dark");
+})();
 adminNav.onclick=(e)=>{
   const btn = e.target.closest("button");
   if(!btn) return;
@@ -2286,13 +2412,12 @@ const handleAttendanceExport = async () => {
 
 const handleAttendanceRefresh = async () => {
   const btn = attRefreshBtn || $("todayRefreshBtn");
-  const prev = btn ? btn.textContent : "Refresh";
-  if(btn){ btn.textContent = "Refreshing…"; btn.disabled = true; }
+  if(btn){ btn.disabled = true; }
   try {
     await loadTodayAttendance();
     await renderAttendance();
   } finally {
-    if(btn){ setTimeout(() => { btn.textContent = prev; btn.disabled = false; }, 300); }
+    if(btn){ btn.disabled = false; }
   }
 };
 
@@ -2332,45 +2457,108 @@ if(attBatchFilter) attBatchFilter.addEventListener("change", () => {
 if(attStudentFilter) attStudentFilter.addEventListener("change", renderAttendance);
 if(attStatusFilter) attStatusFilter.addEventListener("change", renderAttendance);
 if(attSort) attSort.addEventListener("change", renderAttendance);
+/* Section Clear: full attendance reset — preset Today, dates emptied,
+   year override dropped, all filters to All, shell shut, table reloaded */
+function clearAttendanceSection(){
+  try{ closeDtPops(); }catch(e){ console.error(e); }
+  try{ attAcadFrom=attAcadTo=null; }catch(e){ console.error(e); }
+  try{ if(attSingleDate) attSingleDate.value=""; }catch(e){ console.error(e); }
+  try{ if(attFromDate) attFromDate.value=""; }catch(e){ console.error(e); }
+  try{ if(attToDate) attToDate.value=""; }catch(e){ console.error(e); }
+  ["attClassFilter","attBatchFilter","attStudentFilter","attStatusFilter"].forEach(id=>{
+    try{ const el=$(id); if(el) el.value=""; }catch(e){ console.error(e); }
+  });
+  try{ if(attSort) attSort.value="time_desc"; }catch(e){ console.error(e); }
+  try{ populateAttStudents(); }catch(e){ console.error(e); }
+  try{ _dtCommitPreset("today"); }catch(e){ console.error(e); }
+  try{ renderAttendance(); }catch(e){ console.error(e); }
+}
 
 $("calPrevBtn").onclick=()=>{ calendarMonth.setMonth(calendarMonth.getMonth()-1); renderCalendarMonth(); };
 $("calNextBtn").onclick=()=>{ calendarMonth.setMonth(calendarMonth.getMonth()+1); renderCalendarMonth(); };
 if($("calTodayBtn")) $("calTodayBtn").onclick=()=>{ calendarMonth=new Date(); renderCalendarMonth(); };
-$("addHolidayBtn").onclick=()=>{
-  $("holidayModalBody").innerHTML=`<div class="form-grid">
-    <div class="form-field full"><label>Name</label><input id="holidayName" placeholder="Diwali vacation"></div>
-    <div class="form-field"><label>Start date</label><input type="date" id="holidayStart"></div>
-    <div class="form-field"><label>End date</label><input type="date" id="holidayEnd"></div>
-    <div class="form-field"><label>Type</label><select id="holidayType"><option value="holiday">Holiday</option><option value="vacation">Vacation</option><option value="exam">Exam day (working)</option></select></div>
-    <div class="form-field full" style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="holidayCancel">Cancel</button><button class="btn primary" id="holidaySave">Save holiday</button></div>
-    <div class="inline-error" id="holidayErr" style="display:none"></div></div>`;
-  openModal(holidayModal);
-  $("holidayCancel").onclick=()=>closeModal(holidayModal);
-  $("holidaySave").onclick=async()=>{
-    const name=$("holidayName").value.trim(), start=$("holidayStart").value, end=$("holidayEnd").value||start, err=$("holidayErr");
+/* Day sheet: resolution read ONLY from the shared truth functions —
+   override → holiday (exam = working) → active-context template.
+   Overrides and holidays are global; only the template follows context. */
+function daySheetSource(iso, ctx){
+  const ov=getOverride(iso);
+  if(ov) return {badge:ov.isWorking?"WORKING":"NON-WORKING",
+    text:"Date override (global) — "+(ov.isWorking?"working":"non-working")+(ov.note?": "+ov.note:"")};
+  const hol=isHoliday(iso);
+  if(hol){
+    const type=String(hol.type||"holiday").toLowerCase();
+    const exam=type==="exam";
+    return {badge:exam?"WORKING":"NON-WORKING",
+      text:"Holiday range (global) — "+hol.name+" ("+hol.type+")"+(exam?", counts as working":"")};
+  }
+  const w=isWorkingDayForContext(iso, ctx);
+  const ctxName=(!ctx||ctx.type==="global")?"Global":(ctx.type==="class"?"Class: "+ctx.name:"Batch: "+ctx.name);
+  return {badge:w?"WORKING":"NON-WORKING",
+    text:"Weekly template ("+ctxName+") — "+(w?"working":"non-working")};
+}
+function openDaySheet(iso){
+  const ctx=getScheduleContext();
+  const src=daySheetSource(iso, ctx);
+  const ov=getOverride(iso);
+  const hol=isHoliday(iso);
+  const resolvedWorking=src.badge==="WORKING";
+  const dt=new Date(iso+"T00:00:00");
+  const sep=`<div style="height:1px;background:var(--hairline);margin:14px 0;"></div>`;
+  const secLbl=`font-size:10px;font-weight:500;letter-spacing:0.06em;text-transform:uppercase;color:var(--ink-2);margin-bottom:10px;`;
+  daySheetTitle.textContent=dt.toLocaleDateString("en-GB",{weekday:"long"})+", "+_fmtShort(iso);
+  daySheetBody.innerHTML=
+    `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span class="setup-legend-context">${esc(src.badge)}</span></div>`+
+    `<div style="font-size:11px;color:var(--ink-2);line-height:1.5;">${esc(src.text)}</div>`+
+    sep+
+    `<div style="${secLbl}">Day status</div>`+
+    `<div class="form-grid">`+
+    `<div class="form-field full"><label>Note</label><input id="dsNote" placeholder="Note (optional)" value="${esc(ov?ov.note:"")}"></div>`+
+    `<div class="form-field full" style="display:flex;gap:16px;flex-wrap:wrap;align-items:center">`+
+    `<button class="btn" id="dsFlip">${resolvedWorking?"Mark non-working":"Mark working"}</button>`+
+    (ov?`<button class="btn danger" id="dsClear">Clear override</button>`:"")+
+    `</div></div>`+
+    sep+
+    `<div style="${secLbl}">Holiday range</div>`+
+    (hol?`<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:10px">`+
+    `<button class="btn danger" id="dsDelHol">Remove ${esc(hol.name)} range</button></div>`:"")+
+    `<div class="form-grid">`+
+    `<div class="form-field full"><label>Name</label><input id="dsHolName" placeholder="Diwali vacation" value="${esc(hol?hol.name:"")}"></div>`+
+    `<div class="form-field"><label>Start date</label><input type="date" id="dsHolStart" value="${esc(hol?hol.start:iso)}"></div>`+
+    `<div class="form-field"><label>End date</label><input type="date" id="dsHolEnd" value="${esc(hol?hol.end:iso)}"></div>`+
+    `<div class="form-field"><label>Type</label><select id="dsHolType"><option value="holiday"${!hol||hol.type==="holiday"?" selected":""}>Holiday</option><option value="vacation"${hol&&hol.type==="vacation"?" selected":""}>Vacation</option><option value="exam"${hol&&hol.type==="exam"?" selected":""}>Exam day (working)</option></select></div>`+
+    `<div class="form-field full" style="display:flex;gap:16px;flex-wrap:wrap;align-items:center"><button class="btn primary" id="dsHolSave">Save holiday</button><button class="btn" id="dsClose">Close</button></div>`+
+    `<div class="inline-error" id="dsHolErr" style="display:none"></div></div>`;
+  openModal(daySheetModal);
+  $("dsFlip").onclick=async()=>{
+    const note=$("dsNote").value.trim();
+    Overrides=Overrides.filter(o=>o.date!==iso);
+    Overrides.push({date:iso,isWorking:!resolvedWorking,note});
+    if(await persistCalendar()){ renderOverrides(); renderCalendarMonth(); openDaySheet(iso); }
+  };
+  if(ov) $("dsClear").onclick=async()=>{
+    Overrides=Overrides.filter(o=>o.date!==iso);
+    if(await persistCalendar()){ renderOverrides(); renderCalendarMonth(); openDaySheet(iso); }
+  };
+  if(hol){
+    $("dsDelHol").onclick=async()=>{
+      if(!(await glassConfirm(`Remove holiday range "${hol.name}" (${hol.start}..${hol.end})? Days fall back to the weekly template.`,{title:"Remove holiday range",okText:"Remove",danger:true}))) return;
+      Holidays=Holidays.filter(h=>h.start!==hol.start);
+      if(await persistCalendar()){ renderHolidays(); renderCalendarMonth(); openDaySheet(iso); }
+    };
+  }
+  const editStart=hol?hol.start:null;
+  $("dsHolSave").onclick=async()=>{
+    const name=$("dsHolName").value.trim(), start=$("dsHolStart").value, end=$("dsHolEnd").value||start, err=$("dsHolErr");
     if(!name||!start||!end||start>end){ err.textContent="Name and a valid date range are required."; err.style.display="block"; return; }
-    Holidays.push({name,start,end,category:"",type:$("holidayType").value});
-    if(await persistCalendar()){ closeModal(holidayModal); renderHolidays(); renderCalendarMonth(); }
+    Holidays=Holidays.filter(h=>h.start!==start&&h.start!==editStart);
+    Holidays.push({name,start,end,category:"",type:$("dsHolType").value});
+    if(await persistCalendar()){ renderHolidays(); renderCalendarMonth(); openDaySheet(iso); }
   };
-};
-$("addOverrideBtn").onclick=()=>{
-  $("overrideModalBody").innerHTML=`<div class="form-grid">
-    <div class="form-field"><label>Date</label><input type="date" id="overrideDate"></div>
-    <div class="form-field"><label>Becomes</label><select id="overrideWorking"><option value="1">Working day</option><option value="0">Holiday</option></select></div>
-    <div class="form-field full"><label>Note</label><input id="overrideNote" placeholder="Special working Saturday"></div>
-    <div class="form-field full" style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="overrideCancel">Cancel</button><button class="btn primary" id="overrideSave">Save override</button></div>
-    <div class="inline-error" id="overrideErr" style="display:none"></div></div>`;
-  openModal(overrideModal);
-  $("overrideCancel").onclick=()=>closeModal(overrideModal);
-  $("overrideSave").onclick=async()=>{
-    const date=$("overrideDate").value, note=$("overrideNote").value.trim(), err=$("overrideErr");
-    if(!date){ err.textContent="A date is required."; err.style.display="block"; return; }
-    Overrides=Overrides.filter(o=>o.date!==date);
-    Overrides.push({date,isWorking:$("overrideWorking").value==="1",note});
-    if(await persistCalendar()){ closeModal(overrideModal); renderOverrides(); renderCalendarMonth(); }
-  };
-};
+  $("dsClose").onclick=()=>closeModal(daySheetModal);
+}
 async function onDayToggleClick(e){
+  const cell=e.target.closest("[data-date]");
+  if(cell){ openDaySheet(cell.dataset.date); return; }
   const toggle=e.target.closest("[data-day]"); if(!toggle) return;
   const day=String(toggle.dataset.day);
   const ctx=getScheduleContext();
@@ -2401,8 +2589,16 @@ async function onDayToggleClick(e){
     if(await persistCalendar()){ renderWeekly(); renderCalendarMonth(); renderToday(); renderReports(); }
   }
 }
-if($("weeklyDaysRow")) $("weeklyDaysRow").addEventListener("click", onDayToggleClick);
-if($("weeklyTable")) $("weeklyTable").addEventListener("click", onDayToggleClick);
+if($("calendarGrid")){
+  $("calendarGrid").addEventListener("click", onDayToggleClick);
+  $("calendarGrid").addEventListener("keydown", (e)=>{
+    if(e.key !== "Enter" && e.key !== " ") return;
+    const t = e.target && e.target.closest ? e.target.closest("[data-day]") : null;
+    if(!t) return;
+    e.preventDefault();
+    onDayToggleClick(e);
+  });
+}
 if($("calClassSelect")) $("calClassSelect").onchange=()=>{ renderWeekly(); renderCalendarMonth(); if(currentTab==="attendance" || currentTab==="today") renderAttendance(); };
 $("calResetWeekBtn").onclick=async()=>{
   const ctx=getScheduleContext();
@@ -2487,60 +2683,11 @@ if($("schedRevertTimingBtn")) $("schedRevertTimingBtn").onclick=async()=>{
   }
   renderScheduleTiming();
 };
-$("holidayBody").addEventListener("click",async(e)=>{
-  const edit=e.target.closest("[data-edit-holiday]");
-  if(edit){
-    const h=Holidays.find(x=>x.start===edit.dataset.editHoliday); if(!h) return;
-    $("holidayModalBody").innerHTML=`<div class="form-grid">
-      <div class="form-field full"><label>Name</label><input id="holidayName" value="${esc(h.name)}"></div>
-      <div class="form-field"><label>Start date</label><input type="date" id="holidayStart" value="${esc(h.start)}"></div>
-      <div class="form-field"><label>End date</label><input type="date" id="holidayEnd" value="${esc(h.end)}"></div>
-      <div class="form-field"><label>Type</label><select id="holidayType"><option value="holiday" ${h.type==="holiday"?"selected":""}>Holiday</option><option value="vacation" ${h.type==="vacation"?"selected":""}>Vacation</option><option value="exam" ${h.type==="exam"?"selected":""}>Exam day (working)</option></select></div>
-      <div class="form-field full" style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="holidayCancel">Cancel</button><button class="btn primary" id="holidaySave">Save holiday</button></div>
-      <div class="inline-error" id="holidayErr" style="display:none"></div></div>`;
-    const origStart=h.start;
-    Holidays=Holidays.filter(x=>x.start!==origStart);
-    openModal(holidayModal);
-    $("holidayCancel").onclick=()=>{ Holidays.push(h); closeModal(holidayModal); renderHolidays(); renderCalendarMonth(); };
-    $("holidaySave").onclick=async()=>{
-      const name=$("holidayName").value.trim(), start=$("holidayStart").value, end=$("holidayEnd").value||start, err=$("holidayErr");
-      if(!name||!start||!end||start>end){ err.textContent="Name and a valid date range are required."; err.style.display="block"; return; }
-      Holidays.push({name,start,end,category:"",type:$("holidayType").value});
-      if(await persistCalendar()){ closeModal(holidayModal); renderHolidays(); renderCalendarMonth(); } else Holidays.push(h);
-    };
-    return;
-  }
-  const btn=e.target.closest("[data-del-holiday]"); if(!btn) return;
-  Holidays=Holidays.filter(h=>h.start!==btn.dataset.delHoliday);
-  if(await persistCalendar()){ renderHolidays(); renderCalendarMonth(); }
-});
-$("overrideBody").addEventListener("click",async(e)=>{
-  const edit=e.target.closest("[data-edit-override]");
-  if(edit){
-    const o=Overrides.find(x=>x.date===edit.dataset.editOverride); if(!o) return;
-    $("overrideModalBody").innerHTML=`<div class="form-grid">
-      <div class="form-field"><label>Date</label><input type="date" id="overrideDate" value="${esc(o.date)}"></div>
-      <div class="form-field"><label>Becomes</label><select id="overrideWorking"><option value="1" ${o.isWorking?"selected":""}>Working day</option><option value="0" ${!o.isWorking?"selected":""}>Holiday</option></select></div>
-      <div class="form-field full"><label>Note</label><input id="overrideNote" value="${esc(o.note)}"></div>
-      <div class="form-field full" style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="overrideCancel">Cancel</button><button class="btn primary" id="overrideSave">Save override</button></div>
-      <div class="inline-error" id="overrideErr" style="display:none"></div></div>`;
-    const orig=o.date;
-    Overrides=Overrides.filter(x=>x.date!==orig);
-    openModal(overrideModal);
-    $("overrideCancel").onclick=()=>{ Overrides.push(o); closeModal(overrideModal); renderOverrides(); renderCalendarMonth(); };
-    $("overrideSave").onclick=async()=>{
-      const date=$("overrideDate").value, note=$("overrideNote").value.trim(), err=$("overrideErr");
-      if(!date){ err.textContent="A date is required."; err.style.display="block"; return; }
-      Overrides=Overrides.filter(x=>x.date!==date);
-      Overrides.push({date,isWorking:$("overrideWorking").value==="1",note});
-      if(await persistCalendar()){ closeModal(overrideModal); renderOverrides(); renderCalendarMonth(); } else Overrides.push(o);
-    };
-    return;
-  }
-  const btn=e.target.closest("[data-del-override]"); if(!btn) return;
-  Overrides=Overrides.filter(o=>o.date!==btn.dataset.delOverride);
-  if(await persistCalendar()){ renderOverrides(); renderCalendarMonth(); }
-});
+/* Old modals + table listeners retired with the list sections (Phases 2-3):
+   the day editor is the only schedule writer now — flip/note/Clear,
+   section-3 save, Edit-prefill, Remove-confirm. renderHolidays/
+   renderOverrides stay as early-returning no-ops while their bodies
+   are absent. */
 if(classBody) classBody.addEventListener("click", async e=>{
   const delBtn = e.target.closest("[data-del-class]");
   if(delBtn){
@@ -3425,8 +3572,6 @@ document.addEventListener("keydown",(e)=>{
       if(adminLayer && adminLayer.classList.contains("open")) return;
       resumeSensorScan();
     }
-    else if(holidayModal && holidayModal.classList.contains("open")) closeModal(holidayModal);
-    else if(overrideModal && overrideModal.classList.contains("open")) closeModal(overrideModal);
     else if(correctionModal && correctionModal.classList.contains("open")) closeModal(correctionModal);
     else if(adminLayer && adminLayer.classList.contains("open")){
       finishEnrollUi();
@@ -3436,10 +3581,11 @@ document.addEventListener("keydown",(e)=>{
   }
 });
 // ---- init ----
+function bootFail(e){ console.error(e); document.body.insertAdjacentHTML("afterbegin",'<div style="position:fixed;top:0;left:0;right:0;z-index:99999;background:#8A3A3A;color:#fff;font:12px sans-serif;padding:8px 12px">Boot failed: '+String((e&&e.message)||e)+'</div>'); }
 cacheLoad();
-renderAll();
+try{ renderAll(); }catch(e){ bootFail(e); }
 setState("ready");
-loadAll().then(()=>{ setTimeout(sensorScanLoop,300); });
+loadAll().then(()=>{ setTimeout(sensorScanLoop,300); }, bootFail);
 setInterval(()=>{
   if(typeof document!=="undefined" && document.hidden) return;
   loadTodayAttendance().then(()=>{ if(currentTab==="attendance" || currentTab==="today") renderAttendance(); });
@@ -3543,9 +3689,23 @@ function enhancePhotoField(input){
     document.removeEventListener('pointerdown',onDocDown,true);
     document.removeEventListener('keydown',onKeyDown,true);
     window.removeEventListener('resize',onCloseOnly,true);
-    window.removeEventListener('scroll',onCloseOnly,true);
+    window.removeEventListener('scroll',onScrollClose,true);
   }
   function onCloseOnly(){ closePop(false); }
+  /* Inner list scrolls bubble to window: only an OUTER scroll closes */
+  function onScrollClose(e){ if(popEl && e.target && !popEl.contains(e.target)) closePop(false); }
+  /* Hover closes only once the cursor has left BOTH the control and the list */
+  let hoverT=null;
+  function schedHoverClose(){
+    clearTimeout(hoverT);
+    hoverT=setTimeout(()=>{
+      try{
+        const hw=openWrap&&openWrap.matches&&openWrap.matches(':hover');
+        const hp=popEl&&popEl.matches&&popEl.matches(':hover');
+        if(!hw&&!hp) closePop(false);
+      }catch(e){ closePop(false); }
+    },140);
+  }
   function onDocDown(e){
     if(!openWrap) return;
     if(openWrap.contains(e.target)) return;
@@ -3570,7 +3730,7 @@ function enhancePhotoField(input){
   }
   function syncBtn(sel,btn){
     const lab=btn.querySelector('.gsel-lab'); if(lab) lab.textContent=labelOf(sel);
-    btn.title=labelOf(sel); btn.disabled=!!sel.disabled;
+    btn.disabled=!!sel.disabled;
   }
   function openPop(wrap,sel,btn){
     closePop(false);
@@ -3595,12 +3755,17 @@ function enhancePhotoField(input){
       }else if(ch.tagName==='OPTION'){ addOpt(ch); }
     });
     document.body.appendChild(popEl);
-    const rc=btn.getBoundingClientRect();
+    popEl.addEventListener('mouseleave',schedHoverClose);
+    const rc=wrap.getBoundingClientRect();
     popEl.style.minWidth=Math.max(rc.width,140)+'px';
+    popEl.style.maxWidth=Math.max(140,window.innerWidth-16)+'px';
     const h=Math.min(260,popEl.offsetHeight||260);
     let top=rc.bottom+4;
     if(top+h>window.innerHeight-8) top=Math.max(8,rc.top-4-h);
-    let left=Math.min(rc.left,window.innerWidth-popEl.offsetWidth-8);
+    /* Left-align to the control; if the popup would spill past the
+       viewport's right edge, right-align to the control instead */
+    let left=rc.left;
+    if(left+popEl.offsetWidth>window.innerWidth-8) left=Math.max(8,rc.right-popEl.offsetWidth);
     popEl.style.top=top+'px'; popEl.style.left=Math.max(8,left)+'px';
     hiIdx=map.findIndex(r=>r.classList.contains('sel')); if(hiIdx<0) hiIdx=0;
     map.forEach((r,j)=>r.classList.toggle('hi',j===hiIdx));
@@ -3608,10 +3773,11 @@ function enhancePhotoField(input){
     document.addEventListener('pointerdown',onDocDown,true);
     document.addEventListener('keydown',onKeyDown,true);
     window.addEventListener('resize',onCloseOnly,true);
-    window.addEventListener('scroll',onCloseOnly,true);
+    window.addEventListener('scroll',onScrollClose,true);
   }
   function enhance(sel){
     if(!sel||sel.tagName!=='SELECT'||sel.dataset.gsel) return;
+    if(sel.id==='attDatePreset') return; /* segmented strip owns this one */
     sel.dataset.gsel='1';
     const wrap=document.createElement('span'); wrap.className='gsel';
     try{
@@ -3629,7 +3795,10 @@ function enhancePhotoField(input){
     wrap.appendChild(btn);
     const sync=()=>syncBtn(sel,btn); sel.addEventListener('change',sync); sync();
     try{ new MutationObserver(sync).observe(sel,{childList:true}); }catch(e){}
-    btn.addEventListener('click',()=>{ if(sel.disabled) return; if(openWrap===wrap){ closePop(false); return; } openPop(wrap,sel,btn); });
+    /* Hover owns open/close (click toggle retired — it fought the hover);
+       keyboard Enter/Space/Arrows still open for accessibility. */
+    wrap.addEventListener('mouseenter',()=>{ if(sel.disabled) return; if(openWrap!==wrap) openPop(wrap,sel,btn); });
+    wrap.addEventListener('mouseleave',schedHoverClose);
     btn.addEventListener('keydown',(e)=>{
       if(sel.disabled) return;
       if(e.key==='ArrowDown'||e.key==='ArrowUp'||e.key==='Enter'||e.key===' '){ e.preventDefault(); if(openWrap!==wrap) openPop(wrap,sel,btn); }
@@ -3642,6 +3811,379 @@ function enhancePhotoField(input){
   try{
     new MutationObserver((muts)=>{
       muts.forEach(m=>{ m.addedNodes.forEach(n=>{ if(!n||!n.querySelectorAll) return; if(n.tagName==='SELECT') enhance(n); enhanceAll(n); }); });
+    }).observe(document.body,{childList:true,subtree:true});
+  }catch(e){}
+})();
+/* Date preset segmented strip — inline replacement for the
+   attDatePreset dropdown popup (no window; options flow left→right).
+   Native select stays hidden truth; clicks write its value and fire
+   change so the existing preset/custom/Apply flow runs untouched. */
+(function(){
+  function build(){
+    const sel=document.getElementById("attDatePreset"); if(!sel||sel.dataset.seg) return;
+    sel.dataset.seg="1";
+    const strip=document.createElement("span"); strip.className="seg-strip"; strip.setAttribute("role","group"); strip.setAttribute("aria-label","Date range");
+    const btns=[];
+    Array.from(sel.options).forEach(o=>{
+      const b=document.createElement("button"); b.type="button"; b.className="seg-btn"; b.textContent=o.textContent; b.dataset.v=o.value;
+      b.setAttribute("aria-pressed",o.value===sel.value?"true":"false");
+      b.addEventListener("click",()=>{
+        if(sel.value!==o.value){
+          sel.value=o.value;
+          /* Drive the flow directly (never rely on event delivery alone) */
+          try{
+            const v=o.value, isCustom=(v==="custom_day"||v==="custom_range");
+            if(v!=="academic"){ attAcadFrom=attAcadTo=null; }
+            if(typeof attSingleDate!=="undefined"&&attSingleDate) attSingleDate.style.display=(v==="custom_day")?"":"none";
+            if(typeof attFromDate!=="undefined"&&attFromDate) attFromDate.style.display=(v==="custom_range")?"":"none";
+            if(typeof attToDate!=="undefined"&&attToDate) attToDate.style.display=(v==="custom_range")?"":"none";
+            if(typeof attApplyBtn!=="undefined"&&attApplyBtn) attApplyBtn.style.display=isCustom?"":"none";
+            if(typeof renderAttendance==="function") renderAttendance();
+          }catch(e){}
+          try{ sel.dispatchEvent(new Event("change",{bubbles:true})); }catch(e){ try{ const ev=document.createEvent("HTMLEvents"); ev.initEvent("change",true,false); sel.dispatchEvent(ev); }catch(_){} }
+        }
+        sync();
+      });
+      strip.appendChild(b); btns.push(b);
+      if(o.value==="academic"||o.value==="custom_range"){
+        b.addEventListener("mouseenter",()=>{ try{ if(o.value==="academic") openAcadPop(b); else openRangePop(b); }catch(e){} });
+        /* Re-click toggles the shell shut (outside-press ignores anchor) */
+        b.addEventListener("click",()=>{ try{ if(_dtOpenFor===(o.value==="academic"?"A:":"R:")+o.value) closeDtPops(); }catch(e){ console.error(e); } });
+      }
+    });
+    function sync(){ btns.forEach(b=>{ const on=b.dataset.v===sel.value; b.classList.toggle("active",on); b.setAttribute("aria-pressed",on?"true":"false"); }); }
+    sel.addEventListener("change",sync); sync();
+    /* Section Clear: last item of the preset bar, parted by a hairline */
+    try{
+      const sep=document.createElement("span"); sep.className="seg-sep"; sep.setAttribute("aria-hidden","true");
+      strip.appendChild(sep);
+      const c=document.createElement("button"); c.type="button"; c.className="seg-btn seg-clear"; c.textContent="Clear";
+      c.setAttribute("aria-label","Clear attendance filters");
+      c.addEventListener("click",()=>{ try{ clearAttendanceSection(); }catch(e){ console.error(e); } });
+      strip.appendChild(c);
+    }catch(e){}
+    try{ sel.parentNode.insertBefore(strip,sel); }catch(e){}
+  }
+  if(document.readyState==="loading"){ document.addEventListener("DOMContentLoaded",build); } else { build(); }
+})();
+/* Academic-year + custom-range frost popups for the preset strip.
+   Year spans anchor to Settings.startDate month/day (no invented
+   cutoffs); range Apply auto-orders. Both write through the existing
+   custom_range machinery (attFromDate/attToDate + renderAttendance). */
+const MONTHS_S=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const MONTHS_L=["January","February","March","April","May","June","July","August","September","October","November","December"];
+function _pad2(n){ return (n<10?"0":"")+n; }
+function _iso(y,m,d){ return y+"-"+_pad2(m)+"-"+_pad2(d); }
+function _fmtShort(iso){ const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(iso||""); if(!m) return iso||"—"; return (+m[3])+" "+MONTHS_S[+m[2]-1]+" "+m[1]; }
+function _dtShell(){
+  closeDtPops();
+  const box=document.createElement("div"); box.className="dt-pop"; box.setAttribute("role","dialog");
+  box.id="dtRangeAcadPop";
+  document.body.appendChild(box);
+  return box;
+}
+let _dtOpenFor=null;
+function closeDtPops(){
+  _dtOpenFor=null;
+  const old=document.getElementById("dtRangeAcadPop"); if(old){ try{old.remove();}catch(e){} }
+  document.removeEventListener("pointerdown",_dtDocDown,true);
+  document.removeEventListener("keydown",_dtKey,true);
+  window.removeEventListener("scroll",_dtScroll,true);
+  window.removeEventListener("resize",closeDtPops);
+}
+function _dtDocDown(e){ const box=document.getElementById("dtRangeAcadPop"); if(box&&!box.contains(e.target)&&!(box._dtAnchor&&box._dtAnchor.contains&&box._dtAnchor.contains(e.target))) closeDtPops(); }
+function _dtKey(e){ if(e.key==="Escape"){ e.preventDefault(); closeDtPops(); } }
+function _dtScroll(e){ const box=document.getElementById("dtRangeAcadPop"); if(box&&e.target&&!box.contains(e.target)) closeDtPops(); }
+function _dtPlace(box,anchor){
+  const r=anchor.getBoundingClientRect();
+  box.style.visibility="hidden"; box.style.left="0px"; box.style.top="0px";
+  const w=box.offsetWidth,h=box.offsetHeight,vw=window.innerWidth,vh=window.innerHeight;
+  let left=Math.min(Math.max(8,r.left),Math.max(8,vw-w-8));
+  let top=r.bottom+6; if(top+h>vh-8) top=Math.max(8,r.top-h-6);
+  box.style.left=left+"px"; box.style.top=top+"px"; box.style.visibility="";
+}
+function _dtWire(box,anchor){
+  _dtPlace(box,anchor);
+  document.addEventListener("pointerdown",_dtDocDown,true);
+  document.addEventListener("keydown",_dtKey,true);
+  window.addEventListener("scroll",_dtScroll,true);
+  window.addEventListener("resize",closeDtPops);
+  /* No auto-close timer: hover OPENS, explicit acts CLOSE (Apply /
+     Clear / Done / year pick / outside press / Esc / scroll / resize /
+     anchor re-click). A grace timer can never tell "reading the calendar"
+     from "walked away" — so it kept murdering slow picks mid-flow. */
+}
+function _dtCommitPreset(v){
+  /* Arm the hidden preset select so renderAttendance honors the pick,
+     then fire change so the existing reveal/sync/render flow runs. */
+  try{
+    const sel=document.getElementById("attDatePreset");
+    if(sel){
+      if(sel.value!==v) sel.value=v;
+      try{ sel.dispatchEvent(new Event("change",{bubbles:true})); }
+      catch(e){ try{ const ev=document.createEvent("HTMLEvents"); ev.initEvent("change",true,false); sel.dispatchEvent(ev); }catch(_){} }
+    }
+  }catch(e){}
+}
+function acadYearOptions(){
+  const out=[];
+  const m=/^(\d{4})/.exec((typeof Settings!=="undefined"&&Settings&&Settings.academicYear)||"");
+  const y0=m?+m[1]:new Date().getFullYear();
+  const sm=/^(\d{4})-(\d{2})-(\d{2})$/.exec((typeof Settings!=="undefined"&&Settings&&Settings.startDate)||"");
+  const mo=sm?+sm[2]:8, dy=sm?+sm[3]:14;
+  for(let y=y0;y>y0-3;y--){
+    const e=new Date(y+1,mo-1,dy); e.setDate(e.getDate()-1);
+    out.push({label:y+"–"+String(y+1).slice(2),from:_iso(y,mo,dy),to:_iso(e.getFullYear(),e.getMonth()+1,e.getDate())});
+  }
+  return out;
+}
+function openAcadPop(anchor){
+  const key="A:"+((anchor&&anchor.dataset&&anchor.dataset.v)||"");
+  if(_dtOpenFor===key) return; _dtOpenFor=key;
+  const box=_dtShell(); box._dtAnchor=anchor;
+  const head=document.createElement("div"); head.className="dt-head";
+  const title=document.createElement("div"); title.className="dt-title"; title.textContent="Academic year";
+  head.appendChild(title); box.appendChild(head);
+  const curLbl=String((typeof Settings!=="undefined"&&Settings&&Settings.academicYear)||"");
+  acadYearOptions().forEach(opt=>{
+    const b=document.createElement("button"); b.type="button"; b.className="dt-acad-btn";
+    const cur=(attAcadFrom===opt.from&&attAcadTo===opt.to)||(!attAcadFrom&&curLbl.indexOf(String(opt.label).slice(0,4))===0);
+    if(cur) b.classList.add("sel");
+    const m1=document.createElement("span"); m1.className="dt-acad-main"; m1.textContent=opt.label;
+    const m2=document.createElement("span"); m2.className="dt-acad-sub"; m2.textContent=_fmtShort(opt.from)+" → "+_fmtShort(opt.to);
+    b.appendChild(m1); b.appendChild(m2);
+    b.addEventListener("click",()=>{ attAcadFrom=opt.from; attAcadTo=opt.to; _dtCommitPreset("academic"); try{renderAttendance();}catch(e){ console.error(e); } closeDtPops(); });
+    box.appendChild(b);
+  });
+  const foot=document.createElement("div"); foot.className="dt-foot";
+  const clear=document.createElement("button"); clear.type="button"; clear.textContent="Clear";
+  clear.addEventListener("click",()=>{ attAcadFrom=attAcadTo=null; try{renderAttendance();}catch(e){ console.error(e); } closeDtPops(); });
+  const done=document.createElement("button"); done.type="button"; done.textContent="Done";
+  done.addEventListener("click",closeDtPops);
+  foot.appendChild(clear); foot.appendChild(done); box.appendChild(foot);
+  _dtWire(box,anchor);
+}
+function _monthGrid(box,label,view,onPick,isSel){
+  if(label){ const sec=document.createElement("div"); sec.className="dt-sec"; sec.textContent=label; box.appendChild(sec); }
+  const head=document.createElement("div"); head.className="dt-head";
+  const title=document.createElement("div"); title.className="dt-title"; title.style.fontSize="10.5px";
+  const nav=document.createElement("div"); nav.className="dt-nav";
+  const prev=document.createElement("button"); prev.type="button"; prev.textContent="‹";
+  const next=document.createElement("button"); next.type="button"; next.textContent="›";
+  nav.appendChild(prev); nav.appendChild(next); head.appendChild(title); head.appendChild(nav); box.appendChild(head);
+  const grid=document.createElement("div"); grid.className="dt-grid"; box.appendChild(grid);
+  function draw(){
+    title.textContent=MONTHS_L[view.m]+" "+view.y;
+    grid.innerHTML="";
+    ["Su","Mo","Tu","We","Th","Fr","Sa"].forEach(d=>{ const s=document.createElement("div"); s.className="dt-dow"; s.textContent=d; grid.appendChild(s); });
+    const first=new Date(view.y,view.m,1).getDay(), dim=new Date(view.y,view.m+1,0).getDate(), dpm=new Date(view.y,view.m,0).getDate();
+    for(let i=first-1;i>=0;i--) addDay(dpm-i,true);
+    for(let d=1;d<=dim;d++) addDay(d,false);
+    const tail=(7-((first+dim)%7))%7;
+    for(let d=1;d<=tail;d++) addDay(d,true);
+  }
+  function addDay(d,out){
+    const b=document.createElement("button"); b.type="button"; b.className="dt-day"+(out?" out":""); b.textContent=d;
+    const dt=new Date(view.y,view.m+(out?(d>15?-1:1):0),d);
+    const iso=_iso(dt.getFullYear(),dt.getMonth()+1,dt.getDate());
+    if(isSel(iso)) b.classList.add("sel");
+    b.addEventListener("click",()=>{ onPick(iso); });
+    grid.appendChild(b);
+  }
+  prev.addEventListener("click",()=>{ view.m--; if(view.m<0){view.m=11;view.y--;} draw(); });
+  next.addEventListener("click",()=>{ view.m++; if(view.m>11){view.m=0;view.y++;} draw(); });
+  draw();
+  return draw;
+}
+function openRangePop(anchor){
+  const key="R:"+((anchor&&anchor.dataset&&anchor.dataset.v)||"");
+  if(_dtOpenFor===key) return; _dtOpenFor=key;
+  const t=new Date();
+  let from=(typeof attFromDate!=="undefined"&&attFromDate&&attFromDate.value)||"", to=(typeof attToDate!=="undefined"&&attToDate&&attToDate.value)||"";
+  let pickingTo=!!(from&&!to);
+  const box=_dtShell(); box._dtAnchor=anchor;
+  const head=document.createElement("div"); head.className="dt-head";
+  const title=document.createElement("div"); title.className="dt-title"; title.textContent="Custom range";
+  head.appendChild(title); box.appendChild(head);
+  const hint=document.createElement("div"); hint.className="dt-sec"; hint.style.marginTop="0";
+  box.appendChild(hint);
+  const base=from||_iso(t.getFullYear(),t.getMonth()+1,t.getDate());
+  const bm=/^(\d{4})-(\d{2})-(\d{2})$/.exec(base)||[0,t.getFullYear(),t.getMonth()+1,t.getDate()];
+  const view={y:+bm[1],m:+bm[2]-1};
+  function paintHint(){
+    hint.textContent=!from?"Tap the start day":(!to?"Tap the end day":_fmtShort(from)+" → "+_fmtShort(to));
+  }
+  const inSel=iso=>((from&&to&&iso>=from&&iso<=to)||(from&&!to&&iso===from)||(!from&&to&&iso===to));
+  const redraw=_monthGrid(box,"",view,iso=>{
+    if(!pickingTo){ from=iso; to=""; pickingTo=true; }
+    else { to=iso; if(from>to){ const x=from; from=to; to=x; } pickingTo=false; }
+    paintHint(); redraw();
+  },inSel);
+  paintHint();
+  const foot=document.createElement("div"); foot.className="dt-foot";
+  const clear=document.createElement("button"); clear.type="button"; clear.textContent="Clear";
+  clear.addEventListener("click",()=>{ try{ if(attFromDate)attFromDate.value=""; if(attToDate)attToDate.value=""; renderAttendance(); }catch(e){ console.error(e); } closeDtPops(); });
+  const apply=document.createElement("button"); apply.type="button"; apply.textContent="Apply";
+  apply.addEventListener("click",()=>{
+    if(!from) from=_iso(t.getFullYear(),t.getMonth()+1,t.getDate());
+    if(!to) to=from;
+    if(from>to){ const x=from; from=to; to=x; }
+    try{ if(attFromDate)attFromDate.value=from; if(attToDate)attToDate.value=to; _dtCommitPreset("custom_range"); try{renderAttendance();}catch(e){ console.error(e); } }catch(e){ console.error(e); }
+    closeDtPops();
+  });
+  foot.appendChild(clear); foot.appendChild(apply); box.appendChild(foot);
+  _dtWire(box,anchor);
+}
+/* Frosted tooltip engine — RETIRED per user call (no hover warnings
+   anywhere). Kept as a no-op shell so nothing references missing code. */
+/* Custom frost date/time picker — replaces native popups (browser chrome
+   can never wear the theme). Trigger glyph + portalled popup, same
+   architecture as the gsel dropdowns. Typing stays native; the picker
+   only writes well-formed values (date YYYY-MM-DD, time HH:MM 24h)
+   and fires input+change so all existing save flows keep working. */
+(function(){
+  if(window.__frostDtInit) return; window.__frostDtInit=true;
+  let popEl=null, popInput=null, popType=null;
+  const MONTHS=["January","February","March","April","May","June","July","August","September","October","November","December"];
+  const pad=n=>(n<10?"0":"")+n;
+  const viewKey={};
+  function closePop(){
+    if(popEl){ try{ popEl.remove(); }catch(e){} popEl=null; popInput=null; popType=null; }
+    document.removeEventListener("pointerdown",onDocDown,true);
+    document.removeEventListener("keydown",onKey,true);
+    window.removeEventListener("scroll",onScroll,true);
+    window.removeEventListener("resize",closePop);
+  }
+  function onDocDown(e){ if(popEl && !popEl.contains(e.target) && !(popInput&&popInput._dtTrig&&popInput._dtTrig.contains(e.target))) closePop(); }
+  /* Column scrolls bubble to window: only a scroll OUTSIDE the popup closes */
+  function onScroll(e){ if(popEl && e.target && !popEl.contains(e.target)) closePop(); }
+  function onKey(e){ if(e.key==="Escape"){ e.preventDefault(); closePop(); if(popInput){ try{ popInput.focus(); }catch(_){} } } }
+  function commit(input,val){
+    input.value=val;
+    try{ input.dispatchEvent(new Event("input",{bubbles:true})); }catch(e){}
+    try{ input.dispatchEvent(new Event("change",{bubbles:true})); }catch(e){}
+  }
+  function place(input){
+    if(!popEl) return;
+    const r=input.getBoundingClientRect();
+    popEl.style.visibility="hidden"; popEl.style.left="0px"; popEl.style.top="0px";
+    const w=popEl.offsetWidth, h=popEl.offsetHeight, vw=window.innerWidth, vh=window.innerHeight;
+    let left=Math.min(Math.max(8,r.left),Math.max(8,vw-w-8));
+    let top=r.bottom+6; if(top+h>vh-8) top=Math.max(8,r.top-h-6);
+    popEl.style.left=left+"px"; popEl.style.top=top+"px"; popEl.style.visibility="";
+  }
+  function openPop(input,type){
+    if(popEl && popInput===input && popType===type){ closePop(); return; }
+    closePop();
+    popInput=input; popType=type;
+    popEl=document.createElement("div"); popEl.className="dt-pop"; popEl.setAttribute("role","dialog");
+    if(type==="date") buildDate(popEl,input); else buildTime(popEl,input);
+    document.body.appendChild(popEl); place(input);
+    document.addEventListener("pointerdown",onDocDown,true);
+    document.addEventListener("keydown",onKey,true);
+    window.addEventListener("scroll",onScroll,true);
+    window.addEventListener("resize",closePop);
+  }
+  function parseDate(v){ const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(v||""); if(!m) return null; const d=new Date(+m[1],+m[2]-1,+m[3]); return isNaN(d)?null:d; }
+  function buildDate(box,input){
+    const today=new Date(); today.setHours(0,0,0,0);
+    let sel=parseDate(input.value);
+    let vk=input.id||input.name||"dt";
+    let view=viewKey[vk];
+    if(!view){ const base=sel||today; view={y:base.getFullYear(),m:base.getMonth()}; }
+    const head=document.createElement("div"); head.className="dt-head";
+    const title=document.createElement("div"); title.className="dt-title";
+    const nav=document.createElement("div"); nav.className="dt-nav";
+    const prev=document.createElement("button"); prev.type="button"; prev.textContent="‹ Prev";
+    const next=document.createElement("button"); next.type="button"; next.textContent="Next ›";
+    prev.addEventListener("click",()=>{ view.m--; if(view.m<0){view.m=11;view.y--;} draw(); });
+    next.addEventListener("click",()=>{ view.m++; if(view.m>11){view.m=0;view.y++;} draw(); });
+    nav.appendChild(prev); nav.appendChild(next); head.appendChild(title); head.appendChild(nav); box.appendChild(head);
+    const grid=document.createElement("div"); grid.className="dt-grid"; box.appendChild(grid);
+    const foot=document.createElement("div"); foot.className="dt-foot";
+    const clear=document.createElement("button"); clear.type="button"; clear.textContent="Clear";
+    const tBtn=document.createElement("button"); tBtn.type="button"; tBtn.textContent="Today";
+    clear.addEventListener("click",()=>{ viewKey[vk]=view; commit(input,""); closePop(); });
+    tBtn.addEventListener("click",()=>{ const t=new Date(); view={y:t.getFullYear(),m:t.getMonth()}; viewKey[vk]=view; commit(input,t.getFullYear()+"-"+pad(t.getMonth()+1)+"-"+pad(t.getDate())); closePop(); });
+    foot.appendChild(clear); foot.appendChild(tBtn); box.appendChild(foot);
+    function draw(){
+      viewKey[vk]=view;
+      title.textContent=MONTHS[view.m]+" "+view.y;
+      grid.innerHTML="";
+      ["Su","Mo","Tu","We","Th","Fr","Sa"].forEach(d=>{ const s=document.createElement("div"); s.className="dt-dow"; s.textContent=d; grid.appendChild(s); });
+      const first=new Date(view.y,view.m,1).getDay(), dim=new Date(view.y,view.m+1,0).getDate(), dpm=new Date(view.y,view.m,0).getDate();
+      for(let i=first-1;i>=0;i--) addDay(dpm-i,true);
+      for(let d=1;d<=dim;d++) addDay(d,false);
+      const tail=(7-((first+dim)%7))%7;
+      for(let d=1;d<=tail;d++) addDay(d,true);
+    }
+    function addDay(d,out){
+      const b=document.createElement("button"); b.type="button"; b.className="dt-day"+(out?" out":""); b.textContent=d;
+      const dt=new Date(view.y,view.m+(out?(d>15?-1:1):0),d);
+      if(dt.getTime()===today.getTime()) b.classList.add("today");
+      if(sel&&dt.getFullYear()===sel.getFullYear()&&dt.getMonth()===sel.getMonth()&&dt.getDate()===sel.getDate()) b.classList.add("sel");
+      b.addEventListener("click",()=>{ viewKey[vk]={y:dt.getFullYear(),m:dt.getMonth()}; commit(input,dt.getFullYear()+"-"+pad(dt.getMonth()+1)+"-"+pad(dt.getDate())); closePop(); });
+      grid.appendChild(b);
+    }
+    draw();
+  }
+  function parseTime(v){ const m=/^(\d{1,2}):(\d{2})/.exec(v||""); if(!m) return null; const h=+m[1],mi=+m[2]; if(h>23||mi>59) return null; return {h:h,mi:mi}; }
+  function buildTime(box,input){
+    let cur=parseTime(input.value)||{h:8,mi:0};
+    const head=document.createElement("div"); head.className="dt-head";
+    const title=document.createElement("div"); title.className="dt-title"; title.textContent="Time";
+    head.appendChild(title); box.appendChild(head);
+    const cols=document.createElement("div"); cols.className="dt-cols"; box.appendChild(cols);
+    const hCol=document.createElement("div"); hCol.className="dt-col";
+    const mCol=document.createElement("div"); mCol.className="dt-col";
+    const aCol=document.createElement("div"); aCol.className="dt-col";
+    cols.appendChild(hCol); cols.appendChild(mCol); cols.appendChild(aCol);
+    const foot=document.createElement("div"); foot.className="dt-foot";
+    const clear=document.createElement("button"); clear.type="button"; clear.textContent="Clear";
+    const done=document.createElement("button"); done.type="button"; done.textContent="Done";
+    clear.addEventListener("click",()=>{ commit(input,""); closePop(); });
+    done.addEventListener("click",closePop);
+    foot.appendChild(clear); foot.appendChild(done); box.appendChild(foot);
+    function h12(){ const h=cur.h%12; return h===0?12:h; }
+    function isPM(){ return cur.h>=12; }
+    function apply(){ commit(input,pad(cur.h)+":"+pad(cur.mi)); }
+    function fill(col,items,selVal,onPick){
+      col.innerHTML="";
+      items.forEach(v=>{
+        const b=document.createElement("button"); b.type="button"; b.textContent=v.label; if(v.val===selVal) b.classList.add("sel");
+        b.addEventListener("click",()=>{ onPick(v.val); refresh(); apply(); });
+        col.appendChild(b);
+      });
+    }
+    function refresh(){
+      fill(hCol,[1,2,3,4,5,6,7,8,9,10,11,12].map(h=>({label:pad(h),val:h})),h12(),v=>{ cur.h=(isPM()?12:0)+(v%12); });
+      const mins=[]; for(let m=0;m<60;m+=5) mins.push({label:pad(m),val:m});
+      if(cur.mi%5!==0) mins.push({label:pad(cur.mi),val:cur.mi});
+      mins.sort((a,b)=>a.val-b.val);
+      fill(mCol,mins,cur.mi,v=>{ cur.mi=v; });
+      fill(aCol,[{label:"AM",val:0},{label:"PM",val:1}],isPM()?1:0,v=>{ const h=cur.h%12; cur.h=v?h+12:h; });
+      [hCol,mCol,aCol].forEach(c=>{ const s=c.querySelector(".sel"); if(s){ try{ c.scrollTop=s.offsetTop-c.clientHeight/2+s.clientHeight/2; }catch(e){} } });
+    }
+    refresh();
+  }
+  function enhance(input){
+    if(!input||(input.tagName!=="INPUT")||input.dataset.dt) return;
+    const t=(input.type||"").toLowerCase(); if(t!=="time"&&t!=="date") return;
+    input.dataset.dt="1";
+    const wrap=document.createElement("span"); wrap.className="dt-wrap";
+    try{ input.parentNode.insertBefore(wrap,input); wrap.appendChild(input); }catch(e){ return; }
+    const trig=document.createElement("button"); trig.type="button"; trig.className="dt-trig";
+    trig.textContent=(t==="date"?"\u25A6":"\u25F7");
+    trig.setAttribute("aria-label",t==="date"?"Choose date":"Choose time");
+    trig.setAttribute("tabindex","-1");
+    trig.addEventListener("click",(e)=>{ e.preventDefault(); e.stopPropagation(); try{ input.focus(); }catch(_){} openPop(input,t); });
+    wrap.appendChild(trig); input._dtTrig=trig;
+  }
+  function enhanceAll(root){ try{ (root||document).querySelectorAll('input[type="time"],input[type="date"]').forEach(enhance); }catch(e){} }
+  enhanceAll(document);
+  try{
+    new MutationObserver((muts)=>{
+      muts.forEach(m=>{ m.addedNodes.forEach(n=>{ if(!n||!n.querySelectorAll) return; if(n.tagName==="INPUT") enhance(n); enhanceAll(n); }); });
     }).observe(document.body,{childList:true,subtree:true});
   }catch(e){}
 })();

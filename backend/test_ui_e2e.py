@@ -729,11 +729,7 @@ class UiE2eTest(unittest.TestCase):
         self.assertIn("Batches", select_html)
         self.assertIn("batch:Robotics-A", select_html)
 
-        # 2. Check default Global schedule context & timing card
-        timing_card = self.page.locator("#schedTimingCard")
-        self.assertTrue(timing_card.is_visible())
-        badge = self.page.locator("#schedContextBadge")
-        self.assertIn("GLOBAL SCHEDULE", badge.inner_text().upper())
+        # 2. Check default Global schedule context via the month pill
         month_label = self.page.locator("#calMonthContextLabel")
         self.assertIn("Global", month_label.inner_text())
 
@@ -743,10 +739,11 @@ class UiE2eTest(unittest.TestCase):
         cal_select.select_option(class_val)
         self.page.wait_for_timeout(300)
 
-        self.assertIn("CLASS", badge.inner_text().upper())
         self.assertIn("Class:", month_label.inner_text())
 
         # 4. Set custom timings for this class
+        badge = self.page.locator("#schedContextBadge")
+        notice = self.page.locator("#schedInheritNotice")
         present_input = self.page.locator("#schedPresentCutoff")
         late_input = self.page.locator("#schedLateCutoff")
         present_input.fill("07:45")
@@ -761,7 +758,6 @@ class UiE2eTest(unittest.TestCase):
         # Verify custom timing notice is active and revert button is displayed
         revert_btn = self.page.locator("#schedRevertTimingBtn")
         self.assertTrue(revert_btn.is_visible())
-        notice = self.page.locator("#schedInheritNotice")
         self.assertIn("CUSTOM CLASS TIMING ACTIVE", notice.inner_text().upper())
 
         # 5. Switch to Batch context
@@ -773,7 +769,7 @@ class UiE2eTest(unittest.TestCase):
         self.assertIn("INHERITING", notice.inner_text().upper())
 
         # 6. Toggle a working day in weekly schedule for this batch
-        sunday_card = self.page.locator("#weeklyDaysRow .weekly-day-card").first
+        sunday_card = self.page.locator("#calendarGrid .weekly-day-card").first
         initially_working = "working" in (sunday_card.get_attribute("class") or "")
         sunday_card.click()
         self.page.wait_for_timeout(400)
@@ -787,7 +783,7 @@ class UiE2eTest(unittest.TestCase):
         self.page.wait_for_function("!document.getElementById('pane-setup').classList.contains('hidden')", timeout=3000)
 
         self.assertEqual(cal_select.input_value(), "batch:Robotics-A")
-        self.assertIn("BATCH · ROBOTICS-A", badge.inner_text().upper())
+        self.assertIn("Batch: Robotics-A", month_label.inner_text())
 
         # Clean up and close
         self.page.click("#adminClose")
@@ -898,6 +894,155 @@ class UiE2eTest(unittest.TestCase):
         self.assertTrue(self.page.locator("#attRefreshBtn").is_visible())
         self.assertTrue(self.page.locator("#attPrintBtn").is_visible())
         self.assertTrue(self.page.locator("#attExportBtn").is_visible())
+
+        # Close Admin
+        self.page.click("#adminClose")
+        self.page.wait_for_function("!document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
+
+    def test_15_calendar_day_editor_window_roundtrip(self):
+        """Unified day-editor window: set status + note, reload persists, clear restores, holiday create/edit/remove."""
+        self.page.goto(f"{_BASE_URL}/", wait_until="networkidle")
+
+        # Open Admin panel
+        self.page.once("dialog", lambda dialog: dialog.accept("1234"))
+        self.page.click("#openAdminBtn")
+        self.page.wait_for_function("document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
+
+        # Navigate to Setup tab
+        self.page.click("#adminNav button[data-tab='setup']")
+        self.page.wait_for_function("!document.getElementById('pane-setup').classList.contains('hidden')", timeout=3000)
+        self.page.wait_for_function("document.querySelectorAll('#calendarGrid .calendar-cell[data-date]').length > 0", timeout=4000)
+
+        # 1. Click a working day cell — the day sheet opens with date + resolution
+        cell = self.page.locator("#calendarGrid .calendar-cell[data-date].working").first
+        iso = cell.get_attribute("data-date")
+        self.assertIsNotNone(iso)
+        cell.click()
+        self.page.wait_for_function("document.getElementById('daySheetModal').classList.contains('open')", timeout=3000)
+        title = self.page.locator("#daySheetTitle").inner_text()
+        self.assertTrue(len(title.strip()) > 0)
+        body_text = self.page.locator("#daySheetBody").inner_text()
+        self.assertIn("WORKING", body_text.upper())
+        self.assertIn("DAY STATUS", body_text.upper())
+        self.assertIn("HOLIDAY RANGE", body_text.upper())
+
+        # 2. Set status + note in place — one click, no second window
+        self.assertEqual(self.page.locator("#dsFlip").inner_text().strip(), "Mark non-working")
+        self.page.locator("#dsNote").fill("E2E sheet probe")
+        self.page.locator("#dsFlip").click()
+        self.page.wait_for_function(
+            f"document.querySelector('#calendarGrid [data-date=\"{iso}\"]').classList.contains('non-working')",
+            timeout=4000)
+        self.assertFalse(self.page.evaluate("document.getElementById('overrideModal') !== null"))
+        # Editor refreshed in place with the note kept and the verb flipped
+        self.assertEqual(self.page.locator("#dsNote").input_value(), "E2E sheet probe")
+        self.assertEqual(self.page.locator("#dsFlip").inner_text().strip(), "Mark working")
+
+        # 3. The cell re-resolves to non-working in place
+        self.page.wait_for_function(
+            f"document.querySelector('#calendarGrid [data-date=\"{iso}\"]').classList.contains('non-working')",
+            timeout=4000)
+
+        # 4. Reload — the override persists server-side
+        self.page.reload(wait_until="networkidle")
+        self.page.once("dialog", lambda dialog: dialog.accept("1234"))
+        self.page.click("#openAdminBtn")
+        self.page.wait_for_function("document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
+        self.page.click("#adminNav button[data-tab='setup']")
+        self.page.wait_for_function("!document.getElementById('pane-setup').classList.contains('hidden')", timeout=3000)
+        self.page.wait_for_function(
+            f"document.querySelector('#calendarGrid [data-date=\"{iso}\"]') !== null",
+            timeout=4000)
+        cls = self.page.locator(f"#calendarGrid [data-date=\"{iso}\"]").get_attribute("class") or ""
+        self.assertIn("non-working", cls)
+
+        # 5. Clean up through the sheet — Clear override restores the template day
+        self.page.locator(f"#calendarGrid [data-date=\"{iso}\"]").click()
+        self.page.wait_for_function("document.getElementById('daySheetModal').classList.contains('open')", timeout=3000)
+        self.page.locator("#dsClear").click()
+        self.page.wait_for_function(
+            f"document.querySelector('#calendarGrid [data-date=\"{iso}\"]').classList.contains('working')",
+            timeout=4000)
+
+        # 6. Holiday create inside section 3 on a different day (start prefilled)
+        hol_iso = self.page.evaluate(
+            """(prev) => {
+              const cells = [...document.querySelectorAll('#calendarGrid .calendar-cell[data-date].working')];
+              const c = cells.find(x => x.dataset.date !== prev);
+              return c ? c.dataset.date : null;
+            }""", iso)
+        self.assertIsNotNone(hol_iso)
+        self.page.locator(f"#calendarGrid [data-date=\"{hol_iso}\"]").click()
+        self.page.wait_for_function("document.getElementById('daySheetModal').classList.contains('open')", timeout=3000)
+        self.assertEqual(self.page.locator("#dsHolStart").input_value(), hol_iso)
+        self.page.locator("#dsHolName").fill("E2E sheet range")
+        self.page.locator("#dsHolSave").click()
+        self.page.wait_for_function(
+            f"document.querySelector('#calendarGrid [data-date=\"{hol_iso}\"]').textContent.includes('E2E sheet range')",
+            timeout=4000)
+
+        # 6b. Range index counts the year; row click jumps to the range sheet
+        idx_toggle = self.page.locator("#calRangeIndexToggle")
+        self.assertIn("(1)", idx_toggle.inner_text())
+        idx_toggle.click()
+        idx_row = self.page.locator("#calRangeIndexRows [data-range-start]").first
+        self.assertEqual(idx_row.get_attribute("data-range-start"), hol_iso)
+        idx_row.click()
+        self.page.wait_for_function("document.getElementById('daySheetModal').classList.contains('open')", timeout=3000)
+        self.assertEqual(self.page.locator("#dsHolName").input_value(), "E2E sheet range")
+
+        # 7. Section 3 auto-prefills on a range day, no Edit verb; rename moves the range
+        self.page.locator(f"#calendarGrid [data-date=\"{hol_iso}\"]").click()
+        self.page.wait_for_function("document.getElementById('daySheetModal').classList.contains('open')", timeout=3000)
+        self.assertIsNone(self.page.evaluate("document.getElementById('dsEditHol')"))
+        self.assertEqual(self.page.locator("#dsHolName").input_value(), "E2E sheet range")
+        self.assertEqual(self.page.locator("#dsHolStart").input_value(), hol_iso)
+        self.assertEqual(self.page.locator("#dsHolEnd").input_value(), hol_iso)
+        self.assertEqual(self.page.locator("#dsHolType").input_value(), "holiday")
+        self.assertTrue(self.page.locator("#dsDelHol").is_visible())
+        # Rename: move the start to a third working day
+        hol2_iso = self.page.evaluate(
+            """(prev) => {
+              const cells = [...document.querySelectorAll('#calendarGrid .calendar-cell[data-date].working')];
+              const c = cells.find(x => x.dataset.date !== prev[0] && x.dataset.date !== prev[1]);
+              return c ? c.dataset.date : null;
+            }""", [iso, hol_iso])
+        self.assertIsNotNone(hol2_iso)
+        self.page.locator("#dsHolStart").fill(hol2_iso)
+        self.page.locator("#dsHolSave").click()
+        self.page.wait_for_function(
+            f"document.querySelector('#calendarGrid [data-date=\"{hol2_iso}\"]').textContent.includes('E2E sheet range')",
+            timeout=4000)
+        self.page.wait_for_function(
+            f"!document.querySelector('#calendarGrid [data-date=\"{hol_iso}\"]').textContent.includes('E2E sheet range')",
+            timeout=4000)
+        ranges = self.page.evaluate("fetch('/api/settings').then(r=>r.json()).then(s=>s.holidays || [])")
+        mine = [h for h in ranges if "E2E sheet range" in h]
+        self.assertEqual(len(mine), 1)
+        self.assertTrue(mine[0].startswith(hol2_iso))
+
+        # 8. Remove (confirm) restores the template
+        self.page.locator(f"#calendarGrid [data-date=\"{hol2_iso}\"]").click()
+        self.page.wait_for_function("document.getElementById('daySheetModal').classList.contains('open')", timeout=3000)
+        self.page.locator("#dsDelHol").click()
+        self.page.locator(".gconfirm").wait_for(state="visible", timeout=3000)
+        self.page.locator(".gconfirm-ok").click()
+        self.page.wait_for_function(
+            f"document.querySelector('#calendarGrid [data-date=\"{hol2_iso}\"]').classList.contains('working')",
+            timeout=4000)
+
+        # 9. Drag-dismiss guard: press in the note field, release on the veil — stays open
+        note_box = self.page.locator("#dsNote").bounding_box()
+        self.assertIsNotNone(note_box)
+        self.page.mouse.move(note_box["x"] + note_box["width"] / 2, note_box["y"] + note_box["height"] / 2)
+        self.page.mouse.down()
+        self.page.mouse.move(10, 10, steps=5)
+        self.page.mouse.up()
+        self.page.wait_for_timeout(200)
+        self.assertTrue(self.page.evaluate("document.getElementById('daySheetModal').classList.contains('open')"))
+        # Plain veil click (press + release outside the card) still dismisses
+        self.page.mouse.click(10, 10)
+        self.page.wait_for_function("!document.getElementById('daySheetModal').classList.contains('open')", timeout=3000)
 
         # Close Admin
         self.page.click("#adminClose")
