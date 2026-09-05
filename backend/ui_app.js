@@ -329,10 +329,9 @@ const promptText=$("promptText"),
   reportStats=$("reportStats"), reportBody=$("reportBody"),
   holidayBody=$("holidayBody"), overrideBody=$("overrideBody"),
   calendarGrid=$("calendarGrid"), calMonthLabel=$("calMonthLabel"),
-  classBody=$("classBody"), auditBody=$("auditBody"),
+  classCubes=$("classCubes"), auditBody=$("auditBody"),
   enrollModal=$("enrollModal"), holidayModal=$("holidayModal"),
   overrideModal=$("overrideModal"), correctionModal=$("correctionModal"),
-  classScheduleModal=$("classScheduleModal"),
   daySheetModal=$("daySheetModal"), daySheetTitle=$("daySheetTitle"), daySheetBody=$("daySheetBody"),
   enrollTitle=$("enrollTitle"), enrollSub=$("enrollSub"), enrollBody=$("enrollBody");
 
@@ -345,7 +344,7 @@ let attAcadFrom=null, attAcadTo=null;
 
 function openModal(m){ m.classList.add("open"); }
 function closeModal(m){ m.classList.remove("open"); }
-[enrollModal, holidayModal, overrideModal, correctionModal, classScheduleModal, daySheetModal].forEach(m=>{
+[enrollModal, holidayModal, overrideModal, correctionModal, daySheetModal].forEach(m=>{
   if(!m) return;
   /* Veil dismiss needs press AND release on the veil: a drag that
      starts inside (e.g. finishing a text selection outside the card)
@@ -745,8 +744,11 @@ async function renderAttendance(){
     if(attToDate) attToDate.style.display = "none";
   } else if(preset === "custom_range"){
     if(attSingleDate) attSingleDate.style.display = "none";
-    if(attFromDate) attFromDate.style.display = "";
-    if(attToDate) attToDate.style.display = "";
+    /* Range picking lives in the hover/tap frost popup — the bar
+       never hosts inline date boxes (old-UI single-row bar). The
+       hidden inputs stay the value truth the popup commits. */
+    if(attFromDate) attFromDate.style.display = "none";
+    if(attToDate) attToDate.style.display = "none";
     from = attFromDate.value || today;
     to = attToDate.value || today;
     if(!attFromDate.value) attFromDate.value = from;
@@ -776,7 +778,10 @@ async function renderAttendance(){
     if(attToDate) attToDate.style.display = "none";
   }
 
-  if(attApplyBtn) attApplyBtn.style.display = (preset === "custom_range" || preset === "custom_day") ? "" : "none";
+  /* Apply retired from the bar: the range popup commits directly
+     and the single date auto-renders on change — no inline button
+     in any preset state. */
+  if(attApplyBtn) attApplyBtn.style.display = "none";
 
   const isSingleDay = (from === to);
   const isToday = (from === today);
@@ -1380,22 +1385,6 @@ function renderCalendarMonth(){
   const y=calendarMonth.getFullYear(), m=calendarMonth.getMonth();
   calMonthLabel.textContent=calendarMonth.toLocaleDateString('en-GB',{month:'long',year:'numeric'});
   const ctx = getScheduleContext();
-  const monthCtxPill = $("calMonthContextLabel");
-  if(monthCtxPill){
-    if(ctx.type === "global"){
-      monthCtxPill.textContent = "Global";
-      monthCtxPill.style.background = "";
-      monthCtxPill.style.color = "";
-    } else if(ctx.type === "class"){
-      monthCtxPill.textContent = `Class: ${ctx.name}`;
-      monthCtxPill.style.background = "var(--ink)";
-      monthCtxPill.style.color = "#F2F3F6";
-    } else if(ctx.type === "batch"){
-      monthCtxPill.textContent = `Batch: ${ctx.name}`;
-      monthCtxPill.style.background = "var(--ink)";
-      monthCtxPill.style.color = "#F2F3F6";
-    }
-  }
   const first=new Date(y,m,1).getDay(), last=new Date(y,m+1,0).getDate();
   // Phase 1: weekday headers are the recurring-template editor (same source as renderWeekly)
   let tplWd = Settings.workingDays;
@@ -1412,10 +1401,10 @@ function renderCalendarMonth(){
   if(!tplLegend && calendarGrid.parentNode){
     tplLegend=document.createElement("div");
     tplLegend.id="calTemplateLegend";
-    tplLegend.style.cssText="font-size:10px;letter-spacing:0.04em;color:var(--ink-2);margin:0 0 6px;";
-    calendarGrid.parentNode.insertBefore(tplLegend, calendarGrid);
+    tplLegend.style.cssText="font-size:10px;letter-spacing:0.04em;color:var(--ink-2);margin:8px 0 0;";
+    calendarGrid.after(tplLegend);
   }
-  if(tplLegend) tplLegend.textContent="Headers show the recurring weekly template \u00B7 cells show resolved days including overrides and holidays. Edit schedules through the class/batch Schedule popup.";
+  if(tplLegend) tplLegend.textContent="Headers show the recurring weekly template \u00B7 cells show resolved days including overrides and holidays. Edit schedules through the class/batch schedule editor.";
   for(let i=0;i<first;i++) html+=`<div class="calendar-cell" style="background:#F2F3F6"></div>`;
   for(let d=1;d<=last;d++){
     const iso=toLocalISO(new Date(y,m,d));
@@ -1427,26 +1416,81 @@ function renderCalendarMonth(){
   }
   calendarGrid.innerHTML=html;
 }
-function renderClasses(){
-  if(!classBody) return;
-  if(!Classes.length){ classBody.innerHTML=`<tr><td colspan="3"><div class="empty" style="padding:14px;font-size:10px"><b>No classes configured</b></div></td></tr>`; return; }
-  classBody.innerHTML=Classes.map(c=>{
-    const n=Students.filter(s=>s.class===c).length;
-    return `<tr><td>${esc(c)}</td><td style="text-align:center">${n}</td><td style="text-align:right"><div style="display:flex;gap:4px;justify-content:flex-end"><button class="btn danger icon-del" data-del-class="${esc(c)}" aria-label="Remove class">${TRASH_ICON}</button><button class="btn" data-sched-class="${esc(c)}" style="padding:1px 6px;font-size:9px">Schedule →</button></div></td></tr>`;
-  }).join("");
+/* Class cubes: display regroup only — batches stay one flat global
+   list, zero data change. Batch B nests under class C iff ≥1 student
+   has class=C AND batch=B (same Students/Batches state the selector
+   uses); a batch used by two classes shows under both. Batches with
+   zero students anywhere collect in an Ungrouped cube last. */
+let selKind="class", selName=null; // master-detail selection (class or batch tile)
+let cubeView="class"; // left list shows one kind at a time (CLASSES|BATCHES tabs)
+function syncCsCtx(){ csCtx={type:selKind,name:selName}; }
+function batchesForClass(c){
+  return [...new Set(Students.filter(s=>s.class===c).map(s=>s.batch).filter(Boolean))].sort();
 }
-function renderBatches(){
-  const tbody = $("batchBody");
-  if(!tbody) return;
-  const allBatches=[...new Set([...(Batches||[]), ...Students.map(s=>s.batch).filter(Boolean)])].sort();
-  if(!allBatches.length){
-    tbody.innerHTML=`<tr><td colspan="3"><div class="empty"><b>No batches configured</b></div></td></tr>`;
-    return;
+function allBatchesList(){
+  return [...new Set([...(Batches||[]), ...Students.map(s=>s.batch).filter(Boolean)])].sort();
+}
+/* Tab switch: left list swaps kind; selection follows into the
+   shown kind (first item) so the right card never disagrees. */
+function setCubeView(v){
+  cubeView=(v==="batch")?"batch":"class";
+  const pool=(cubeView==="batch")?allBatchesList():Classes;
+  if(!pool.includes(selName)){ selKind=cubeView; selName=pool[0]||null; }
+  syncCsCtx();
+  const sel=$("calClassSelect");
+  if(sel&&selName){
+    sel.value = selKind==="class"?`class:${selName}`:`batch:${selName}`;
+    if(selKind==="class"&&!sel.value) sel.value=selName;
+    renderWeekly(); renderCalendarMonth();
   }
-  tbody.innerHTML=allBatches.map(b=>{
-    const n=Students.filter(s=>s.batch===b).length;
-    return `<tr><td>${esc(b)}</td><td>${n}</td><td><button class="btn" data-sched-batch="${esc(b)}" style="padding:1px 6px;font-size:10px">Schedule →</button></td></tr>`;
-  }).join("");
+  renderClasses();
+}
+function renderClasses(){
+  if(!classCubes) return;
+  const tabC=$("cubeTabClasses"), tabB=$("cubeTabBatches");
+  if(tabC) tabC.classList.toggle("active",cubeView==="class");
+  if(tabB) tabB.classList.toggle("active",cubeView==="batch");
+  const classRow=$("classAddRow"), batchRow=$("batchAddRow");
+  if(classRow) classRow.hidden=(cubeView!=="class");
+  if(batchRow) batchRow.hidden=(cubeView!=="batch");
+  /* List refills here; the right pane renders below into
+     #classDetail so one render owns list + editor together. */
+  if(!Classes.length){ selKind="class"; selName=null; classCubes.innerHTML=`<div class="empty" style="padding:14px;font-size:10px"><b>No classes configured</b></div>`; return; }
+  const allBatches=allBatchesList();
+  const pool=(cubeView==="batch")?allBatches:Classes;
+  const valid=(selKind===cubeView&&pool.includes(selName));
+  if(!valid){ selKind=cubeView; selName=pool[0]||null; }
+  syncCsCtx();
+  const tile=(k,label,n)=>`<div class="class-cube${selKind===k&&selName===label?" active":""}" data-kind="${k}" data-cube="${esc(label)}" role="tab"><span class="cube-name">${esc(label)}</span><span class="cube-count">${n}</span></div>`;
+  const rows=(cubeView==="batch"?allBatches:Classes).map(label=>tile(cubeView,label,Students.filter(s=>cubeView==="batch"?s.batch===label:s.class===label).length)).join("");
+  classCubes.innerHTML=`<div id="cubeGrid">${rows}</div><div class="cube-wall"></div><div id="classDetail"></div>`;
+  renderCubeDetail();
+}
+/* Right-pane editor for the selected tile — class and batch share
+   one skeleton: head (bin kept on classes) + solid schedule
+   editor. Batch creation lives only in the left bar (BATCHES tab).
+   Editor skeleton keeps the popup cs* IDs so csRender/csSave run
+   verbatim. */
+function renderCubeDetail(){
+  const pane=$("classDetail"); if(!pane) return;
+  classCubes.querySelectorAll("#cubeGrid .class-cube").forEach(t=>t.classList.toggle("active",t.dataset.kind===selKind&&t.dataset.cube===selName));
+  if(!selName) { pane.innerHTML=""; return; }
+  let info="";
+  if(selKind==="batch"){
+    const n=Students.filter(s=>s.batch===selName).length;
+    info=`<div class="cube-head"><span class="cube-name">${esc(selName)}</span><span class="cube-count">${n}</span></div>`;
+  } else {
+    const n=Students.filter(s=>s.class===selName).length;
+    info=`<div class="cube-head"><span class="cube-name">${esc(selName)}</span><span class="cube-count">${n}</span><span class="cube-actions"><button class="btn danger icon-del" data-del-class="${esc(selName)}" aria-label="Remove class">${TRASH_ICON}</button></span></div>`;
+  }
+  pane.innerHTML=`<div class="cube-detail" data-kind="${selKind}" data-detail="${esc(selName)}">${info}<div class="sched-solid"><h3 id="csTitle">Schedule</h3><div id="csDays"></div><div class="form-grid"><div class="form-field"><label>Present cutoff</label><input type="time" id="csPresentCutoff" value="08:00"></div><div class="form-field"><label>Late cutoff</label><input type="time" id="csLateCutoff" value="08:30"></div><div class="form-field full"><div id="csTimingNotice" style="font-size:10.5px;color:var(--ink-2);line-height:1.5;"></div></div><div class="form-field full" style="display:flex;gap:8px;justify-content:flex-end"><button class="btn primary" id="csSaveTiming">Save</button></div></div></div></div>`;
+  wireSchedEditor();
+  csRender();
+}
+/* Editor wiring re-applied after every pane render (nodes are fresh). */
+function wireSchedEditor(){
+  if($("csDays")) $("csDays").onclick=onCsDayClick;
+  if($("csSaveTiming")) $("csSaveTiming").onclick=onCsSaveTiming;
 }
 function formatAuditDetails(raw, action){
   if(!raw) return "—";
@@ -1535,7 +1579,6 @@ function renderAll(){
   renderOverrides();
   renderCalendarMonth();
   renderClasses();
-  renderBatches();
   renderAudit();
   if(currentTab==="attendance" || currentTab==="today" || currentTab==="reports") renderAttendance();
 }
@@ -2092,7 +2135,6 @@ function updateTabs(){
   if(tab === "setup"){
     populateScheduleSelector();
     renderClasses();
-    renderBatches();
     renderWeekly();
     renderHolidays();
     renderOverrides();
@@ -2347,11 +2389,11 @@ if($("reportCsvBtn")) $("reportCsvBtn").onclick = handleAttendanceExport;
 
 if(attDatePreset) attDatePreset.addEventListener("change", () => {
   const v = attDatePreset.value;
-  const isCustom = (v === "custom_day" || v === "custom_range");
   if(attSingleDate) attSingleDate.style.display = (v === "custom_day") ? "" : "none";
-  if(attFromDate) attFromDate.style.display = (v === "custom_range") ? "" : "none";
-  if(attToDate) attToDate.style.display = (v === "custom_range") ? "" : "none";
-  if(attApplyBtn) attApplyBtn.style.display = isCustom ? "" : "none";
+  /* Range/academic pick via frost popup only — never inline boxes. */
+  if(attFromDate) attFromDate.style.display = "none";
+  if(attToDate) attToDate.style.display = "none";
+  if(attApplyBtn) attApplyBtn.style.display = "none";
   renderAttendance();
 });
 if(attSingleDate) attSingleDate.addEventListener("change", renderAttendance);
@@ -2440,9 +2482,9 @@ function openDaySheet(iso){
   };
 }
 /* Day cells open the read-only window; headers are display-only.
-   Weekday toggling lives in the class/batch schedule popup below —
+   Weekday toggling lives in the class/batch solid schedule editor —
    branch bodies lifted verbatim from the retired header path, with
-   the popup context plus a popup refresh. Single persist path. */
+   the editor context plus an editor refresh. Single persist path. */
 async function onDayToggleClick(e){
   const cell=e.target.closest("[data-date]");
   if(cell){ openDaySheet(cell.dataset.date); return; }
@@ -2480,9 +2522,10 @@ async function onCsDayClick(e){
   }
 }
 function openClassSchedule(ctx){
-  csCtx=ctx;
-  csRender();
-  openModal(classScheduleModal);
+  if(ctx.type==="class"){ selKind="class"; selName=ctx.name; }
+  else if(ctx.type==="batch"){ selKind="batch"; selName=ctx.name; }
+  renderClasses();
+  syncCsCtx();
 }
 function csRender(){
   if(!csCtx) return;
@@ -2510,13 +2553,12 @@ function csRender(){
       : `Custom batch timing active for ${ctx.name} — overrides class and global`;
   }
 }
-if($("csDays")) $("csDays").onclick=onCsDayClick;
-if($("csClose")) $("csClose").onclick=()=>closeModal(classScheduleModal);
+/* Editor nodes are per-render (wired by wireSchedEditor). */
 if($("calendarGrid")){
   $("calendarGrid").addEventListener("click", onDayToggleClick);
 }
 if($("calClassSelect")) $("calClassSelect").onchange=()=>{ renderWeekly(); renderCalendarMonth(); if(currentTab==="attendance" || currentTab==="today") renderAttendance(); };
-/* Reset-week retired: template editing lives in the schedule popup. */
+/* Reset-week retired: template editing lives in the solid schedule editor. */
 $("addHolidayBtn").onclick=()=>{
   $("holidayModalBody").innerHTML=`<div class="form-grid">
     <div class="form-field full"><label>Name</label><input id="holidayName" placeholder="Diwali vacation"></div>
@@ -2551,11 +2593,11 @@ $("addOverrideBtn").onclick=()=>{
     if(await persistCalendar()){ closeModal(overrideModal); renderOverrides(); renderCalendarMonth(); }
   };
 };
-/* Popup timing save: lifted verbatim from the retired Setup bar —
-   same validators, same 3 branches, same global double-POST, same
-   mirror sync, same confirmations. Mechanical swaps only: cs* IDs
-   and the popup context. Tail closes the popup and refreshes. */
-if($("csSaveTiming")) $("csSaveTiming").onclick=async()=>{
+/* Solid timing save: lifted verbatim from the popup — same
+   validators, same 3 branches, same global double-POST, same mirror
+   sync, same confirmations. Only the tail changed: no modal to
+   close, so re-render the inline editor instead. */
+async function onCsSaveTiming(){
   const ctx = csCtx || getScheduleContext();
   const pVal = $("csPresentCutoff") ? $("csPresentCutoff").value : "08:00";
   const lVal = $("csLateCutoff") ? $("csLateCutoff").value : "08:30";
@@ -2599,9 +2641,9 @@ if($("csSaveTiming")) $("csSaveTiming").onclick=async()=>{
       await glassAlert(`Timings saved for batch ${ctx.name}.`);
     }
   }
-  closeModal(classScheduleModal);
+  csRender();
   renderWeekly(); renderCalendarMonth(); renderToday(); renderReports();
-};
+}
 /* Inherit-revert retired with the Setup bar: the popup is Save + Close.
    (Custom timings now stand until overwritten — flagged regression.) */
 $("holidayBody").addEventListener("click",async(e)=>{
@@ -2658,7 +2700,10 @@ $("overrideBody").addEventListener("click",async(e)=>{
   Overrides=Overrides.filter(o=>o.date!==btn.dataset.delOverride);
   if(await persistCalendar()){ renderOverrides(); renderCalendarMonth(); }
 });
-if(classBody) classBody.addEventListener("click", async e=>{
+/* Class tiles + editor bin: one delegated handler on the split
+   root (tiles and bin both live inside #classCubes).
+   (Head Schedule retired with the popup — the pane IS the editor.) */
+async function onCubesClick(e){
   const delBtn = e.target.closest("[data-del-class]");
   if(delBtn){
     const c = delBtn.dataset.delClass;
@@ -2671,49 +2716,23 @@ if(classBody) classBody.addEventListener("click", async e=>{
     }catch(err){ await glassAlert("Failed to remove class: "+err.message); }
     return;
   }
-  const btn = e.target.closest("[data-sched-class]");
-  if(!btn) return;
-  const c = btn.dataset.schedClass;
-  currentTab = "setup";
-  [...adminNav.children].forEach(b=>b.classList.toggle("active", b.dataset.tab==="setup"));
-  updateTabs();
-  const sel = $("calClassSelect");
-  if(sel){
-    sel.value = `class:${c}`;
-    if(!sel.value) sel.value = c;
-    renderWeekly();
-    renderCalendarMonth();
-    openClassSchedule({type:"class",name:c});
+  /* Tile select: same context sync as the row jumps, then the pane
+     re-renders in place — grid stands, right side adapts. */
+  const tile = e.target.closest("#cubeGrid .class-cube");
+  if(tile){
+    selKind=tile.dataset.kind||"class"; selName=tile.dataset.cube; syncCsCtx();
+    const sel=$("calClassSelect");
+    if(sel){
+      sel.value = selKind==="class"?`class:${selName}`:`batch:${selName}`;
+      if(selKind==="class"&&!sel.value) sel.value=selName;
+      renderWeekly(); renderCalendarMonth();
+    }
+    renderCubeDetail(); return;
   }
-});
-const batchBodyEl = $("batchBody");
-if(batchBodyEl) batchBodyEl.addEventListener("click", async e=>{
-  const delBtn = e.target.closest("[data-del-batch]");
-  if(delBtn){
-    const b = delBtn.dataset.delBatch;
-    if(!(await glassConfirm(`Remove batch "${b}"?`,{title:"Remove batch",okText:"Remove",danger:true}))) return;
-    try{
-      const next = (Batches||[]).filter(x=>x!==b);
-      await api("/api/settings",{method:"POST",body:JSON.stringify({batches:next})});
-      await loadClassesHolidaysSettings();
-      renderAll();
-    }catch(err){ await glassAlert("Failed to remove batch: "+err.message); }
-    return;
-  }
-  const btn = e.target.closest("[data-sched-batch]");
-  if(!btn) return;
-  const b = btn.dataset.schedBatch;
-  currentTab = "setup";
-  [...adminNav.children].forEach(b=>b.classList.toggle("active", b.dataset.tab==="setup"));
-  updateTabs();
-  const sel = $("calClassSelect");
-  if(sel){
-    sel.value = `batch:${b}`;
-    renderWeekly();
-    renderCalendarMonth();
-    openClassSchedule({type:"batch",name:b});
-  }
-});
+}
+if(classCubes) classCubes.addEventListener("click", onCubesClick);
+/* Batch rows retired from the class pane (batches live in their
+   own left stack) — selection travels through the tiles only. */
 $("addClassBtn").onclick=async()=>{
   const input=$("newClassName"), name=input.value.trim();
   if(!name) return;
@@ -2721,18 +2740,25 @@ $("addClassBtn").onclick=async()=>{
   try{ await api("/api/settings",{method:"POST",body:JSON.stringify({classes:Classes.concat(name)})}); input.value=""; await loadClassesHolidaysSettings(); renderAll(); }
   catch(e){ await glassAlert("Failed to add class: "+e.message); }
 };
-if($("addBatchBtn")) $("addBatchBtn").onclick=async()=>{
-  const input=$("newBatchName"), name=input.value.trim();
+/* Left-list view tabs + left-bar batch add. Static nodes — wire once. */
+if($("cubeTabClasses")) $("cubeTabClasses").onclick=()=>setCubeView("class");
+if($("cubeTabBatches")) $("cubeTabBatches").onclick=()=>setCubeView("batch");
+if($("addBatchBtn")) $("addBatchBtn").onclick=()=>submitBatchName($("newBatchName")?$("newBatchName").value:"", $("newBatchName"));
+/* Left-bar batch add: single persist path — same validators,
+   same POST, same refresh. New names surface in the BATCHES tab
+   until a student carries them into a class. */
+async function submitBatchName(name, inputEl){
+  name = (name||"").trim();
   if(!name) return;
   if((Batches||[]).some(b=>b.toLowerCase()===name.toLowerCase())){ await glassAlert("That batch already exists."); return; }
   try{
     const next = (Batches||[]).concat(name);
     await api("/api/settings",{method:"POST",body:JSON.stringify({batches:next})});
-    input.value="";
+    if(inputEl) inputEl.value="";
     await loadClassesHolidaysSettings();
     renderAll();
   }catch(e){ await glassAlert("Failed to add batch: "+e.message); }
-};
+}
 $("settingsSaveBtn").onclick=async()=>{
   try{
     const start=$("setAttendanceStart")?$("setAttendanceStart").value:"";
@@ -3547,7 +3573,6 @@ document.addEventListener("keydown",(e)=>{
     else if(holidayModal && holidayModal.classList.contains("open")) closeModal(holidayModal);
     else if(overrideModal && overrideModal.classList.contains("open")) closeModal(overrideModal);
     else if(correctionModal && correctionModal.classList.contains("open")) closeModal(correctionModal);
-    else if(classScheduleModal && classScheduleModal.classList.contains("open")) closeModal(classScheduleModal);
     else if(adminLayer && adminLayer.classList.contains("open")){
       finishEnrollUi();
       adminLayer.classList.remove("open");
@@ -3807,12 +3832,12 @@ function enhancePhotoField(input){
           sel.value=o.value;
           /* Drive the flow directly (never rely on event delivery alone) */
           try{
-            const v=o.value, isCustom=(v==="custom_day"||v==="custom_range");
+            const v=o.value;
             if(v!=="academic"){ attAcadFrom=attAcadTo=null; }
             if(typeof attSingleDate!=="undefined"&&attSingleDate) attSingleDate.style.display=(v==="custom_day")?"":"none";
-            if(typeof attFromDate!=="undefined"&&attFromDate) attFromDate.style.display=(v==="custom_range")?"":"none";
-            if(typeof attToDate!=="undefined"&&attToDate) attToDate.style.display=(v==="custom_range")?"":"none";
-            if(typeof attApplyBtn!=="undefined"&&attApplyBtn) attApplyBtn.style.display=isCustom?"":"none";
+            if(typeof attFromDate!=="undefined"&&attFromDate) attFromDate.style.display="none";
+            if(typeof attToDate!=="undefined"&&attToDate) attToDate.style.display="none";
+            if(typeof attApplyBtn!=="undefined"&&attApplyBtn) attApplyBtn.style.display="none";
             if(typeof renderAttendance==="function") renderAttendance();
           }catch(e){}
           try{ sel.dispatchEvent(new Event("change",{bubbles:true})); }catch(e){ try{ const ev=document.createEvent("HTMLEvents"); ev.initEvent("change",true,false); sel.dispatchEvent(ev); }catch(_){} }
@@ -4153,6 +4178,25 @@ function openRangePop(anchor){
     trig.setAttribute("tabindex","-1");
     trig.addEventListener("click",(e)=>{ e.preventDefault(); e.stopPropagation(); try{ input.focus(); }catch(_){} openPop(input,t); });
     wrap.appendChild(trig); input._dtTrig=trig;
+    /* Visibility mirror: hidden inputs hide the whole wrap, trigger
+       included — the three attendance date boxes start display:none
+       and must leave no orphan glyph in the bar. setProperty wins
+       over the .dt-wrap flex !important; removeProperty restores. */
+    function syncWrapVis(){ try{ if(getComputedStyle(input).display==="none"){ wrap.style.setProperty("display","none","important"); } else { wrap.style.removeProperty("display"); } }catch(e){} }
+    syncWrapVis();
+    try{ new MutationObserver(syncWrapVis).observe(input,{attributes:true,attributeFilter:["style","class","hidden"]}); }catch(e){}
+    /* Click-anywhere: the field body opens the same popup as the
+       trigger (same focus + openPop lines, trigger untouched).
+       Drags keep text selection: only a true click (no movement,
+       nothing selected) opens. Keyboard/typing never fire click. */
+    let _dtX=0, _dtY=0;
+    input.addEventListener("mousedown",(e)=>{ _dtX=e.clientX; _dtY=e.clientY; });
+    input.addEventListener("click",(e)=>{
+      if(Math.abs(e.clientX-_dtX)>4||Math.abs(e.clientY-_dtY)>4) return;
+      try{ const s=window.getSelection(); if(s&&!s.isCollapsed) return; }catch(_){}
+      try{ input.focus(); }catch(_){}
+      openPop(input,t);
+    });
   }
   function enhanceAll(root){ try{ (root||document).querySelectorAll('input[type="time"],input[type="date"]').forEach(enhance); }catch(e){} }
   enhanceAll(document);

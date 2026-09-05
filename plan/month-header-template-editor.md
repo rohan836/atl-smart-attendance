@@ -158,6 +158,186 @@ header weekday → its month column re-resolves. `test_13` green.
   again): `rangesInYear` / `renderRangeIndex` + call deleted,
   `test_15` index asserts replaced by table asserts.
 
+## Class cubes with nested batches (SHIPPED)
+- Flat Classes/Batches tables replaced by one frost tile per class
+  (name + count + bin + `Schedule →`, batches nested inside) plus
+  an `Ungrouped` cube last for zero-student batches. Grouping rule:
+  batch B under class C iff ≥1 student has class=C AND batch=B
+  (selector's own Students/Batches state); shared batches show
+  under both, display only, one flat entry, zero data change.
+- One add path: per-cube `+ Add batch` reuses the retired global
+  row's POST body verbatim (`submitBatchName`); new names surface
+  in Ungrouped until a student carries them into a class. No batch
+  bins (rows never had them), no auto-prefix, no `Grade|Batch`
+  creation on add. `renderBatches` folded into `renderClasses`;
+  del/sched branches lifted verbatim onto `#classCubes`.
+- `test_13`: cube flow (seed nesting, orphan via cube add row,
+  shared-batch-twice via temp POST student + DELETE cleanup),
+  plus absence proofs for every retired ID.
+
+## Master-detail class cubes (SHIPPED, layout only)
+- Left `#cubeGrid`: uniform tiles at month-header scale (name +
+  count only, head type scale); selected tile wears the month
+  active treatment (today outline + wash, both inks). First class
+  default-selected; Ungrouped selectable. 1px `var(--hairline)`
+  `.cube-wall` between grid and `#classDetail` (auto-flips dark).
+- Right pane (`renderCubeDetail`): selection's batches via
+  untouched `cubeBatchRow`, verbatim bin + `Schedule →`, verbatim
+  per-context add row into untouched `submitBatchName`. Tile
+  clicks re-render the pane only (branch inside the existing
+  class listener — no new handlers); full renders validate and
+  reselect. Grouping, claimed-set, Ungrouped rule untouched.
+- `test_13` rescoped: tile click → detail asserts (default
+  active, seed nesting, orphan in Ungrouped detail, shared
+  batch in both details); grouping asserts preserved.
+
+## Solid schedule editor (SHIPPED, popup removed)
+- Left `#cubeGrid` stacks CLASSES tiles over a flat BATCHES stack
+  (one `Batches` label between); Ungrouped tile retired — orphans
+  surface in the flat list. Right `#classDetail` carries the
+  editor solid (same cs* IDs, `csRender`/`onCsDayClick`/
+  `onCsSaveTiming` verbatim, Save tail re-renders instead of
+  closing). Tile clicks sync selector + month pill (ex-row-jump
+  lines) and re-render the pane. Head `Schedule →` retired with
+  the popup (bin kept); row `Schedule →` now selects the batch.
+  `#classScheduleModal` markup + shell CSS + csClose gone; element
+  CSS re-scoped `#classScheduleModal` → `#classDetail .sched-solid`
+  (specificity preserved via doubled scope).
+- `test_13` rewritten to the solid flow (tile click → editor
+  asserts, no modal waits) + modal/csClose absence proofs.
+
+## Text rows (SHIPPED, CSS only)
+- Tile boxes retired: left stacks are solid text rows divided by
+  1px `var(--hairline)` bars; hover + selected read by
+  opposite-pole text alone (admin-nav language, both inks).
+  DOM/IDs/logic/tests untouched — same locators still pass.
+
+## Solid schedule, zero response (SHIPPED, CSS only)
+- Editor days/time-fields/Save/clock-glyph answer hover with the
+  pointer cursor alone: fills, borders, underlines, and all hover/
+  focus color flips neutralized to resting values both inks
+  (triple-ID pins where the D1 blanket ruled). Typing, picking,
+  saving, and segment focus-legibility untouched.
+
+## Separate batches + solid day toggles (SHIPPED)
+- Nested batch rows removed from the class pane (head + add row +
+  editor only); batches live solely in their left stack. Dead
+  `cubeBatchRow` + row sched listener + row CSS deleted; grouping
+  rule (`batchesForClass`) kept and asserted via evaluate.
+- Day toggles unified: name + status one solid ink both states
+  (`#F2F3F6` white, `#181A20` dark) — only the WORKING/OFF word
+  swaps. All four hover rules deleted (zero response by absence).
+
+## Student-mirror Setup split (SHIPPED, CSS only)
+- Left list fixed to 340/280/360px + 24px gutter, wall, right
+  detail 28px gutter — same metrics as `list-pane`/`detail-pane`.
+- `.class-cube` copies `.student-row` frost block (56px to match
+  month cells, 6px 14px pad, radius 4, 8px gap, 0.06/0.1/0.2, pole-law
+  active) with translate + transition stripped (no-animation).
+  Text-row rules (hairline bars, text-only selection) deleted.
+- Add-class input + Add parked at the LEFT section's top-right:
+  title segment sized to the left column so controls hug the
+  wall boundary. No JS touched — IDs, handlers, selectors kept,
+  `test_13` valid as-is.
+- Residual: header-to-column alignment is approximate (±gap);
+  flag on screenshot if the Add row drifts off the wall.
+
+## CLASSES|BATCHES view tabs (SHIPPED)
+- Left list shows one kind at a time: text tabs CLASSES (left) +
+  BATCHES (right) sit in the left section's top row (same
+  340/280/360 segment the title used); class tiles untouched.
+- `cubeView` module state (default class) + `setCubeView`:
+  selection follows into the shown kind (first item), selector +
+  month + detail re-sync — right card never disagrees. Static
+  tab/add nodes wired once; `renderClasses` toggles tab active
+  + add-row visibility each render.
+- Batch input + Add takes the top-right spot in BATCHES view,
+  same `submitBatchName` persist path as the detail add row.
+- `test_13` reworked for tabs (tab clicks around batch asserts,
+  `newBatchName`/`addBatchBtn` now assert present, count `>=2`
+  in batch view, classes tab re-selected before class steps).
+- Batch creation now lives only in the left bar; `test_13` adds
+  Robotics-A through `#newBatchName`/`#addBatchBtn`.
+
+## Context selector on the month bar (SHIPPED)
+- `#calClassSelect` moved from the retired weekly header into the
+  month legend (middle, right of OVERRIDE); empty header deleted.
+  JS untouched (ID-based); the two scoped gsel rules retargeted
+  to `.setup-monthview-legend`; dead header/actions CSS removed.
+
+## Four-tile cap + inner scroll (SHIPPED, CSS only)
+- Pill retired: the selector IS the readout — `#calMonthContextLabel`
+  node, its CSS entries, and the `renderCalendarMonth` pill block
+  deleted; `test_13` asserts the selector value + pill absence.
+- `#cubeGrid` capped at 248px (4×56 tiles + 3×8 gaps) with
+  barless `overflow-y:auto` (`scrollbar-width:none` + hidden
+  webkit bar) — wheel / touch / trackpad scroll inside the left
+  bar, no visible scrollbar, page never stretches.
+
+## Toolbar geometry lock (SHIPPED, CSS + 2 empty nodes)
+- All four panes share one bar zone: 52px single row, same pads /
+  gaps / bottom bar / 20px gap below. Overflow scrolls barlessly
+  instead of wrapping — switching sections can't move bars or
+  content. Students search basis 100%→420px to ride the row.
+- Empty `.tab-toolbar` spacers (aria-hidden) top Setup + Backup.
+- Tradeoffs: toolbar content left-aligned (was centered on
+  Students); narrow screens scroll bars horizontally.
+
+## Attendance bar cleanup (SHIPPED — old-UI single row)
+- Honest provenance: the underlines + inline date boxes predate
+  this session (committed in `7527289`); they surfaced only in
+  Custom states while the old screenshot shows Today. Fixed anyway.
+- Filters text-only: select/gsel-btn/date-field underlines →
+  transparent (rest/hover/focus/dark), matching the preset pills.
+- Inline reveal retired: range/academic from/to + Apply stay
+  hidden (frost popup commits values); Custom Date keeps its one
+  inline field (no popup exists for it). Bar holds 52px in every
+  preset state; seg strip pinned nowrap.
+- `test_14` steps 4–5 rewritten (hidden asserts, machinery via
+  evaluate, 52px bar-height assert).
+- `test_14` harness fix: preset changes drive seg-pill clicks
+  (`select_option` can't target the hidden native select); plus
+  `.dt-trig:visible` counts per preset (1 in custom_day, 0 in
+  custom_range) guarding the orphan-glyph fix.
+
+## Shared-datum geometry lock (REVERTED with the swap below)
+- Kept: helper legend line below the grid; 56px cubes + 248px cap;
+  locked 28px editor head. Reverted: header-row hairline,
+  bottom-pinning, month-head-as-right-cell, 280 compression.
+
+## Month/editor swap (REVERTED per user order)
+- Month is back full-width in its section (legend + selector + nav
+  + grid, no pill); solid editor is back in the right pane
+  (`renderCubeDetail` → `#classDetail`, innerHTML rebuild,
+  `onCubesClick` on the split root only, left bar back to
+  340/280/360). `#scheduleEditor` fully removed (HTML/CSS/JS).
+- `test_13` repointed back: `detail` = `#classDetail`.
+- Verified live: editor-in-`#classDetail`, month-in-section,
+  `test_13` + `test_14` green locally.
+- Pre-existing failures (proven on stashed committed tree, not
+  this session): `test_15` override→grid refresh, `test_09`
+  USB text casing, `BinHoverTest` (`classBody` parked).
+
+## Geometry lock (SHIPPED — fixes tab-switch stretch + right mess)
+- Cause 1: header add row flowed past the title segment into the
+  detail side. Fix: tabs + add stacked in `.cube-left-head`,
+  same 340/280/360 + 24px box as `#cubeGrid` — controls end at
+  the wall; right side is display + edit only.
+- Cause 2: `#addBatchBtn`/`#newBatchName` missed every treatment
+  their class twins had (boxed ADD = taller header = stretch).
+  Fix: sibling-audit mirror into all six selector groups.
+- Cause 3: class detail carried an extra batch add row, so class
+  and batch cards had different skeletons. Fix: row deleted
+  (creation lives only in the left bar via `submitBatchName`);
+  dead listener + CSS + `.cube-add-btn` group entries removed.
+  Both details now share one skeleton: locked 28px head +
+  hairline + solid editor — schedule never shifts between views.
+
+## Add-class top-right (SHIPPED, move only)
+- Same input + button nodes moved into the Classes header row
+  (title left, controls right, capped 300px); IDs, handler, and
+  styles untouched.
+
 ## 2026-09-05 — "UI dead" incident + recovery record
 - Symptom: clicks, windows, popups, hovers all dead at once;
   dark text wrong after ink switch.
