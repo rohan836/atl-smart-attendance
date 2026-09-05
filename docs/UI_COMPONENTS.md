@@ -129,22 +129,16 @@ for canonical frost numbers see `docs/UI_TOKENS.md`.
   (`0.04–0.14` by state, `12px` blur for Pi perf, `8px` gaps, `4px`
   radius). Today keeps its ring marker. Legend + prev/next/today are
   text actions.
-- **Holidays / overrides**: no list tables — every month day cell
-  opens a unified day editor (`640px` frost card, three hairline-split
-  sections): (1) resolved badge + global-vs-template source line;
-  (2) Day status — one-click working/non-working flip (existing note
-  kept, else empty per the optional-note rule), inline note field,
-  Clear override on override days;
-  (3) Holiday range — name/start/end/type fields with the holiday
-  validators; filled form means edit mode, empty means create mode
-  (start prefilled with the clicked date); saves upsert by start so
-  renames can't orphan ranges; Remove on holiday days. Per-context
-  Present/Late timing lives in the Setup timing bar (inputs prefilled
+- **Holidays / overrides**: list tables own all editing — holiday
+  ranges and single-date overrides are added via `+ Add` buttons
+  and edited/removed via table Edit/Remove (`#holidayModal` /
+  `#overrideModal` forms with the holiday validators). Every month
+  day cell opens a read-only day window (resolved badge +
+  global-vs-template source line + Close) — no editing verbs.
+  Per-context Present/Late timing lives in the Setup timing bar (inputs prefilled
   from the active context with the inherit notice, `Save` +
   `Inherit` revert, three-branch save with validators and
-  confirmations). A collapsible read-only range index under the grid
-  counts the displayed year's holiday ranges and jumps to their
-  sheets. Single-POST persist throughout. Validated `YYYY-MM-DD[..YYYY-MM-DD]:type:name`
+  confirmations). Single-POST persist throughout. Validated `YYYY-MM-DD[..YYYY-MM-DD]:type:name`
   (`holiday|vacation|exam`, exam = working). Precedence:
   override → holiday/vacation/exam → weekly; weekly per-student
   Grade|Batch → batch → class → global; default Sun off, Mon–Sat on.

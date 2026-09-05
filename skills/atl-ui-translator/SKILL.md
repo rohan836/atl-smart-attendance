@@ -43,6 +43,7 @@ Never "just add." Each brief states: what to **add**, what to **change** (old �
 - Untasked work must be declared with reasons the moment it lands, never discovered in a later audit. Undeclared diff is indistinguishable from regression.
 - "Everything dead at once" (clicks + windows + popups + hovers) with clean static audit means stale cache or missing backend, not broken wiring: confirm URL + hard reload + boot banner before any code hunt. (A full audit — splice, IDs, dups, guards, CSS balance — came back clean; hard reload fixed it.)
 - Commit discipline is standing: every approved pass ends with a commit on the working branch (never main, never a tag) with a structured message, and the hash is reported. The current UI is always committed — no approved pixels live only in the working tree. User-side screenshots are referenced by date in the plan note for that pass.
+- Consequence-first planning (standing user order): whenever the user orders a change/add/merge, BEFORE writing any send-block, brief the consequences in plain words — what will move, what could break, what it costs (passes, rewrites, test churn), and end with a verdict: YES (do it), NO (don't), or YES-WITH-CHANGES. The user orders without knowing implications; the planner's job is to make them known first. Act as researcher, guide, engineer, and planner — never a silent relay.
 
 ## Canonical references
 `skills/atl-frosted-ui/SKILL.md` · `docs/UI_TOKENS.md` · `docs/UI_COMPONENTS.md` · `docs/ARCHITECTURE.md` · `docs/ADMIN.md`.

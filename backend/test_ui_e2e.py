@@ -899,8 +899,8 @@ class UiE2eTest(unittest.TestCase):
         self.page.click("#adminClose")
         self.page.wait_for_function("!document.getElementById('adminLayer').classList.contains('open')", timeout=3000)
 
-    def test_15_calendar_day_editor_window_roundtrip(self):
-        """Unified day-editor window: set status + note, reload persists, clear restores, holiday create/edit/remove."""
+    def test_15_calendar_holiday_override_tables_roundtrip(self):
+        """Holiday + override list tables own all editing: add/edit/remove with Month View integration; day window is read-only."""
         self.page.goto(f"{_BASE_URL}/", wait_until="networkidle")
 
         # Open Admin panel
@@ -913,37 +913,30 @@ class UiE2eTest(unittest.TestCase):
         self.page.wait_for_function("!document.getElementById('pane-setup').classList.contains('hidden')", timeout=3000)
         self.page.wait_for_function("document.querySelectorAll('#calendarGrid .calendar-cell[data-date]').length > 0", timeout=4000)
 
-        # 1. Click a working day cell — the day sheet opens with date + resolution
-        cell = self.page.locator("#calendarGrid .calendar-cell[data-date].working").first
-        iso = cell.get_attribute("data-date")
-        self.assertIsNotNone(iso)
-        cell.click()
-        self.page.wait_for_function("document.getElementById('daySheetModal').classList.contains('open')", timeout=3000)
-        title = self.page.locator("#daySheetTitle").inner_text()
-        self.assertTrue(len(title.strip()) > 0)
-        body_text = self.page.locator("#daySheetBody").inner_text()
-        self.assertIn("WORKING", body_text.upper())
-        self.assertIn("DAY STATUS", body_text.upper())
-        self.assertIn("HOLIDAY RANGE", body_text.upper())
+        # 1. Tables + both modals live
+        self.assertTrue(self.page.locator("#holidayBody").is_visible())
+        self.assertTrue(self.page.locator("#overrideBody").is_visible())
+        self.assertFalse(self.page.evaluate("document.getElementById('holidayModal') === null"))
+        self.assertFalse(self.page.evaluate("document.getElementById('overrideModal') === null"))
 
-        # 2. Set status + note in place — one click, no second window
-        self.assertEqual(self.page.locator("#dsFlip").inner_text().strip(), "Mark non-working")
-        self.page.locator("#dsNote").fill("E2E sheet probe")
-        self.page.locator("#dsFlip").click()
+        # 2. Add a holiday range through the table on a working day
+        hol_iso = self.page.locator("#calendarGrid .calendar-cell[data-date].working").first.get_attribute("data-date")
+        self.assertIsNotNone(hol_iso)
+        self.page.locator("#addHolidayBtn").click()
+        self.page.wait_for_function("document.getElementById('holidayModal').classList.contains('open')", timeout=3000)
+        self.page.locator("#holidayName").fill("E2E table range")
+        self.page.locator("#holidayStart").fill(hol_iso)
+        self.assertEqual(self.page.locator("#holidayType").input_value(), "holiday")
+        self.page.locator("#holidaySave").click()
+        self.page.wait_for_function("!document.getElementById('holidayModal').classList.contains('open')", timeout=3000)
         self.page.wait_for_function(
-            f"document.querySelector('#calendarGrid [data-date=\"{iso}\"]').classList.contains('non-working')",
+            "document.getElementById('holidayBody').innerText.includes('E2E table range')",
             timeout=4000)
-        self.assertFalse(self.page.evaluate("document.getElementById('overrideModal') !== null"))
-        # Editor refreshed in place with the note kept and the verb flipped
-        self.assertEqual(self.page.locator("#dsNote").input_value(), "E2E sheet probe")
-        self.assertEqual(self.page.locator("#dsFlip").inner_text().strip(), "Mark working")
-
-        # 3. The cell re-resolves to non-working in place
         self.page.wait_for_function(
-            f"document.querySelector('#calendarGrid [data-date=\"{iso}\"]').classList.contains('non-working')",
+            f"document.querySelector('#calendarGrid [data-date=\"{hol_iso}\"]').textContent.includes('E2E table range')",
             timeout=4000)
 
-        # 4. Reload — the override persists server-side
+        # 3. Reload — the range persists server-side
         self.page.reload(wait_until="networkidle")
         self.page.once("dialog", lambda dialog: dialog.accept("1234"))
         self.page.click("#openAdminBtn")
@@ -951,96 +944,103 @@ class UiE2eTest(unittest.TestCase):
         self.page.click("#adminNav button[data-tab='setup']")
         self.page.wait_for_function("!document.getElementById('pane-setup').classList.contains('hidden')", timeout=3000)
         self.page.wait_for_function(
-            f"document.querySelector('#calendarGrid [data-date=\"{iso}\"]') !== null",
-            timeout=4000)
-        cls = self.page.locator(f"#calendarGrid [data-date=\"{iso}\"]").get_attribute("class") or ""
-        self.assertIn("non-working", cls)
-
-        # 5. Clean up through the sheet — Clear override restores the template day
-        self.page.locator(f"#calendarGrid [data-date=\"{iso}\"]").click()
-        self.page.wait_for_function("document.getElementById('daySheetModal').classList.contains('open')", timeout=3000)
-        self.page.locator("#dsClear").click()
-        self.page.wait_for_function(
-            f"document.querySelector('#calendarGrid [data-date=\"{iso}\"]').classList.contains('working')",
+            "document.getElementById('holidayBody').innerText.includes('E2E table range')",
             timeout=4000)
 
-        # 6. Holiday create inside section 3 on a different day (start prefilled)
-        hol_iso = self.page.evaluate(
-            """(prev) => {
-              const cells = [...document.querySelectorAll('#calendarGrid .calendar-cell[data-date].working')];
-              const c = cells.find(x => x.dataset.date !== prev);
-              return c ? c.dataset.date : null;
-            }""", iso)
-        self.assertIsNotNone(hol_iso)
-        self.page.locator(f"#calendarGrid [data-date=\"{hol_iso}\"]").click()
-        self.page.wait_for_function("document.getElementById('daySheetModal').classList.contains('open')", timeout=3000)
-        self.assertEqual(self.page.locator("#dsHolStart").input_value(), hol_iso)
-        self.page.locator("#dsHolName").fill("E2E sheet range")
-        self.page.locator("#dsHolSave").click()
-        self.page.wait_for_function(
-            f"document.querySelector('#calendarGrid [data-date=\"{hol_iso}\"]').textContent.includes('E2E sheet range')",
-            timeout=4000)
-
-        # 6b. Range index counts the year; row click jumps to the range sheet
-        idx_toggle = self.page.locator("#calRangeIndexToggle")
-        self.assertIn("(1)", idx_toggle.inner_text())
-        idx_toggle.click()
-        idx_row = self.page.locator("#calRangeIndexRows [data-range-start]").first
-        self.assertEqual(idx_row.get_attribute("data-range-start"), hol_iso)
-        idx_row.click()
-        self.page.wait_for_function("document.getElementById('daySheetModal').classList.contains('open')", timeout=3000)
-        self.assertEqual(self.page.locator("#dsHolName").input_value(), "E2E sheet range")
-
-        # 7. Section 3 auto-prefills on a range day, no Edit verb; rename moves the range
-        self.page.locator(f"#calendarGrid [data-date=\"{hol_iso}\"]").click()
-        self.page.wait_for_function("document.getElementById('daySheetModal').classList.contains('open')", timeout=3000)
-        self.assertIsNone(self.page.evaluate("document.getElementById('dsEditHol')"))
-        self.assertEqual(self.page.locator("#dsHolName").input_value(), "E2E sheet range")
-        self.assertEqual(self.page.locator("#dsHolStart").input_value(), hol_iso)
-        self.assertEqual(self.page.locator("#dsHolEnd").input_value(), hol_iso)
-        self.assertEqual(self.page.locator("#dsHolType").input_value(), "holiday")
-        self.assertTrue(self.page.locator("#dsDelHol").is_visible())
-        # Rename: move the start to a third working day
-        hol2_iso = self.page.evaluate(
-            """(prev) => {
-              const cells = [...document.querySelectorAll('#calendarGrid .calendar-cell[data-date].working')];
-              const c = cells.find(x => x.dataset.date !== prev[0] && x.dataset.date !== prev[1]);
-              return c ? c.dataset.date : null;
-            }""", [iso, hol_iso])
-        self.assertIsNotNone(hol2_iso)
-        self.page.locator("#dsHolStart").fill(hol2_iso)
-        self.page.locator("#dsHolSave").click()
-        self.page.wait_for_function(
-            f"document.querySelector('#calendarGrid [data-date=\"{hol2_iso}\"]').textContent.includes('E2E sheet range')",
-            timeout=4000)
-        self.page.wait_for_function(
-            f"!document.querySelector('#calendarGrid [data-date=\"{hol_iso}\"]').textContent.includes('E2E sheet range')",
-            timeout=4000)
+        # 4. Table Edit prefills; rename moves the range, no orphan
+        self.page.locator("#holidayBody [data-edit-holiday]").first.click()
+        self.page.wait_for_function("document.getElementById('holidayModal').classList.contains('open')", timeout=3000)
+        self.assertEqual(self.page.locator("#holidayName").input_value(), "E2E table range")
+        self.assertEqual(self.page.locator("#holidayStart").input_value(), hol_iso)
+        self.page.locator("#holidayName").fill("E2E table range v2")
+        self.page.locator("#holidaySave").click()
+        self.page.wait_for_function("!document.getElementById('holidayModal').classList.contains('open')", timeout=3000)
         ranges = self.page.evaluate("fetch('/api/settings').then(r=>r.json()).then(s=>s.holidays || [])")
-        mine = [h for h in ranges if "E2E sheet range" in h]
+        mine = [h for h in ranges if "E2E table range" in h]
         self.assertEqual(len(mine), 1)
-        self.assertTrue(mine[0].startswith(hol2_iso))
+        self.assertIn("E2E table range v2", mine[0])
 
-        # 8. Remove (confirm) restores the template
-        self.page.locator(f"#calendarGrid [data-date=\"{hol2_iso}\"]").click()
-        self.page.wait_for_function("document.getElementById('daySheetModal').classList.contains('open')", timeout=3000)
-        self.page.locator("#dsDelHol").click()
-        self.page.locator(".gconfirm").wait_for(state="visible", timeout=3000)
-        self.page.locator(".gconfirm-ok").click()
+        # 5. Table Remove deletes directly and restores the template day
+        self.page.locator("#holidayBody [data-del-holiday]").first.click()
         self.page.wait_for_function(
-            f"document.querySelector('#calendarGrid [data-date=\"{hol2_iso}\"]').classList.contains('working')",
+            "!document.getElementById('holidayBody').innerText.includes('E2E table range')",
+            timeout=4000)
+        self.page.wait_for_function(
+            f"document.querySelector('#calendarGrid [data-date=\"{hol_iso}\"]').classList.contains('working')",
             timeout=4000)
 
-        # 9. Drag-dismiss guard: press in the note field, release on the veil — stays open
-        note_box = self.page.locator("#dsNote").bounding_box()
-        self.assertIsNotNone(note_box)
-        self.page.mouse.move(note_box["x"] + note_box["width"] / 2, note_box["y"] + note_box["height"] / 2)
-        self.page.mouse.down()
-        self.page.mouse.move(10, 10, steps=5)
-        self.page.mouse.up()
-        self.page.wait_for_timeout(200)
-        self.assertTrue(self.page.evaluate("document.getElementById('daySheetModal').classList.contains('open')"))
+        # 6. Add an override through the table on a working day
+        ov_iso = self.page.locator("#calendarGrid .calendar-cell[data-date].working").first.get_attribute("data-date")
+        self.assertIsNotNone(ov_iso)
+        self.page.locator("#addOverrideBtn").click()
+        self.page.wait_for_function("document.getElementById('overrideModal').classList.contains('open')", timeout=3000)
+        self.page.locator("#overrideDate").fill(ov_iso)
+        self.page.locator("#overrideWorking").select_option("0")
+        self.page.locator("#overrideNote").fill("E2E table probe")
+        self.page.locator("#overrideSave").click()
+        self.page.wait_for_function("!document.getElementById('overrideModal').classList.contains('open')", timeout=3000)
+        self.page.wait_for_function(
+            "document.getElementById('overrideBody').innerText.includes('E2E table probe')",
+            timeout=4000)
+        self.page.wait_for_function(
+            f"document.querySelector('#calendarGrid [data-date=\"{ov_iso}\"]').classList.contains('non-working')",
+            timeout=4000)
+
+        # 7. Table Edit prefills the override; note change saves
+        self.page.locator("#overrideBody [data-edit-override]").first.click()
+        self.page.wait_for_function("document.getElementById('overrideModal').classList.contains('open')", timeout=3000)
+        self.assertEqual(self.page.locator("#overrideDate").input_value(), ov_iso)
+        self.assertEqual(self.page.locator("#overrideNote").input_value(), "E2E table probe")
+        self.page.locator("#overrideNote").fill("E2E table probe v2")
+        self.page.locator("#overrideSave").click()
+        self.page.wait_for_function("!document.getElementById('overrideModal').classList.contains('open')", timeout=3000)
+        self.page.wait_for_function(
+            "document.getElementById('overrideBody').innerText.includes('E2E table probe v2')",
+            timeout=4000)
+
+        # 8. Table Remove restores the template day
+        self.page.locator("#overrideBody [data-del-override]").first.click()
+        self.page.wait_for_function(
+            "!document.getElementById('overrideBody').innerText.includes('E2E table probe')",
+            timeout=4000)
+        self.page.wait_for_function(
+            f"document.querySelector('#calendarGrid [data-date=\"{ov_iso}\"]').classList.contains('working')",
+            timeout=4000)
+
+        # 9. Day window is read-only resolved display — no editing verbs
+        self.page.locator(f"#calendarGrid [data-date=\"{ov_iso}\"]").click()
+        self.page.wait_for_function("document.getElementById('daySheetModal').classList.contains('open')", timeout=3000)
+        body_text = self.page.locator("#daySheetBody").inner_text()
+        self.assertIn("WORKING", body_text.upper())
+        self.assertIsNone(self.page.evaluate("document.getElementById('dsFlip')"))
+        self.assertIsNone(self.page.evaluate("document.getElementById('dsHolSave')"))
+        self.assertIsNone(self.page.evaluate("document.getElementById('dsClear')"))
+        self.assertIsNone(self.page.evaluate("document.getElementById('dsDelHol')"))
+        self.page.locator("#dsClose").click()
+        self.page.wait_for_function("!document.getElementById('daySheetModal').classList.contains('open')", timeout=3000)
+        # 9b. Shortcut door: window offers Add-override, modal opens prefilled, save lands a table row
+        self.page.locator(f"#calendarGrid [data-date=\"{ov_iso}\"]").click()
+        self.page.wait_for_function("document.getElementById('daySheetModal').classList.contains('open')", timeout=3000)
+        self.page.locator("#dsAddOv").click()
+        self.page.wait_for_function("!document.getElementById('daySheetModal').classList.contains('open')", timeout=3000)
+        self.page.wait_for_function("document.getElementById('overrideModal').classList.contains('open')", timeout=3000)
+        self.assertEqual(self.page.locator("#overrideDate").input_value(), ov_iso)
+        self.page.locator("#overrideNote").fill("E2E shortcut probe")
+        self.page.locator("#overrideSave").click()
+        self.page.wait_for_function("!document.getElementById('overrideModal').classList.contains('open')", timeout=3000)
+        self.page.wait_for_function(
+            "document.getElementById('overrideBody').innerText.includes('E2E shortcut probe')",
+            timeout=4000)
+        self.page.wait_for_function(
+            f"document.querySelector('#calendarGrid [data-date=\"{ov_iso}\"]').classList.contains('working')",
+            timeout=4000)
+        self.page.locator("#overrideBody [data-del-override]").first.click()
+        self.page.wait_for_function(
+            "!document.getElementById('overrideBody').innerText.includes('E2E shortcut probe')",
+            timeout=4000)
         # Plain veil click (press + release outside the card) still dismisses
+        self.page.locator(f"#calendarGrid [data-date=\"{ov_iso}\"]").click()
+        self.page.wait_for_function("document.getElementById('daySheetModal').classList.contains('open')", timeout=3000)
         self.page.mouse.click(10, 10)
         self.page.wait_for_function("!document.getElementById('daySheetModal').classList.contains('open')", timeout=3000)
 

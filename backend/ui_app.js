@@ -330,8 +330,8 @@ const promptText=$("promptText"),
   holidayBody=$("holidayBody"), overrideBody=$("overrideBody"),
   calendarGrid=$("calendarGrid"), calMonthLabel=$("calMonthLabel"),
   classBody=$("classBody"), auditBody=$("auditBody"),
-  enrollModal=$("enrollModal"),
-  correctionModal=$("correctionModal"),
+  enrollModal=$("enrollModal"), holidayModal=$("holidayModal"),
+  overrideModal=$("overrideModal"), correctionModal=$("correctionModal"),
   daySheetModal=$("daySheetModal"), daySheetTitle=$("daySheetTitle"), daySheetBody=$("daySheetBody"),
   enrollTitle=$("enrollTitle"), enrollSub=$("enrollSub"), enrollBody=$("enrollBody");
 
@@ -344,7 +344,7 @@ let attAcadFrom=null, attAcadTo=null;
 
 function openModal(m){ m.classList.add("open"); }
 function closeModal(m){ m.classList.remove("open"); }
-[enrollModal, correctionModal, daySheetModal].forEach(m=>{
+[enrollModal, holidayModal, overrideModal, correctionModal, daySheetModal].forEach(m=>{
   if(!m) return;
   /* Veil dismiss needs press AND release on the veil: a drag that
      starts inside (e.g. finishing a text selection outside the card)
@@ -1423,16 +1423,16 @@ function renderHolidays(){
     holidayBody.innerHTML=`<tr><td colspan="5"><div class="empty" style="padding:14px;border:1px dashed var(--line);background:var(--paper);border-radius:2px;font-size:11px;color:var(--ink-2)"><b>No holidays or vacations configured.</b>Click + Add holiday to schedule.</div></td></tr>`;
     return;
   }
-  holidayBody.innerHTML=Holidays.map(h=>`<tr><td>${esc(h.name)}</td><td>${esc(h.start)}</td><td>${esc(h.end)}</td><td><span class="badge">${esc(h.type)}</span></td><td style="text-align:right"><div style="display:flex;gap:6px;justify-content:flex-end"><button class="btn" data-edit-holiday="${esc(h.start)}" style="padding:2px 6px;font-size:9px">Edit</button><button class="btn danger icon-del" data-del-holiday="${esc(h.start)}" aria-label="Remove holiday">${TRASH_ICON}</button></div></td></tr>`).join("");
+  holidayBody.innerHTML=Holidays.map(h=>`<tr><td>${esc(h.name)}</td><td>${esc(h.start)}</td><td>${esc(h.end)}</td><td><span class="badge">${esc(h.type)}</span></td><td style="text-align:right"><div style="display:flex;gap:6px;justify-content:flex-end"><button class="btn" data-edit-holiday="${esc(h.start)}" style="padding:2px 6px;font-size:9px">Edit</button><button class="btn danger" data-del-holiday="${esc(h.start)}" style="padding:2px 6px;font-size:9px">Remove</button></div></td></tr>`).join("");
 }
 function renderOverrides(){
   const oBadge = $("overrideCountBadge"); if(oBadge) oBadge.textContent = Overrides.length;
   if(!overrideBody) return;
   if(!Overrides.length){
-    overrideBody.innerHTML=`<tr><td colspan="4"><div class="empty" style="padding:14px;border:1px dashed var(--line);background:var(--paper);border-radius:2px;font-size:11px;color:var(--ink-2)"><b>No date overrides configured.</b>Click + Add override for single-day exceptions.</div></td></tr>`;
+    overrideBody.innerHTML=`<tr><td colspan="4"><div class="empty" style="padding:14px;border:1px dashed var(--line);background:var(--paper);border-radius:2px;font-size:11px;color:var(--ink-2)"><b>⚡ No date overrides configured.</b>Click + Add override for single-day exceptions.</div></td></tr>`;
     return;
   }
-  overrideBody.innerHTML=Overrides.map(o=>`<tr><td>${esc(o.date)}</td><td>${o.isWorking?"Working":"Holiday"}</td><td>${esc(o.note)}</td><td style="text-align:right"><div style="display:flex;gap:6px;justify-content:flex-end"><button class="btn" data-edit-override="${esc(o.date)}" style="padding:2px 6px;font-size:9px">Edit</button><button class="btn danger icon-del" data-del-override="${esc(o.date)}" aria-label="Remove override">${TRASH_ICON}</button></div></td></tr>`).join("");
+  overrideBody.innerHTML=Overrides.map(o=>`<tr><td>${esc(o.date)}</td><td>${o.isWorking?"Working":"Holiday"}</td><td>${esc(o.note)}</td><td style="text-align:right"><div style="display:flex;gap:6px;justify-content:flex-end"><button class="btn" data-edit-override="${esc(o.date)}" style="padding:2px 6px;font-size:9px">Edit</button><button class="btn danger" data-del-override="${esc(o.date)}" style="padding:2px 6px;font-size:9px">Remove</button></div></td></tr>`).join("");
 }
 function renderWeekly(){
   populateScheduleSelector();
@@ -1489,32 +1489,6 @@ function renderCalendarMonth(){
     html+=`<div class="calendar-cell ${typeCls}${todayCls}" data-date="${iso}"><div class="day">${d}</div><div class="tag">${tag}</div></div>`;
   }
   calendarGrid.innerHTML=html;
-  renderRangeIndex(y);
-}
-/* Compact range index: read-only count + jump list for the displayed
-   year. All editing stays in the day sheet; no new data path. */
-let calRangeIndexOpen=false;
-function rangesInYear(y){
-  const lo=y+"-01-01", hi=y+"-12-31";
-  return Holidays.filter(h=>h.start<=hi&&h.end>=lo);
-}
-function renderRangeIndex(y){
-  let wrap=$("calRangeIndex");
-  if(!wrap && calendarGrid.parentNode){
-    wrap=document.createElement("div");
-    wrap.id="calRangeIndex";
-    wrap.style.cssText="margin:8px 0 0;font-size:10px;letter-spacing:0.04em;color:var(--ink-2);";
-    calendarGrid.parentNode.insertBefore(wrap, calendarGrid.nextSibling);
-  }
-  if(!wrap) return;
-  const rows=rangesInYear(y);
-  wrap.innerHTML=
-    `<button class="btn" id="calRangeIndexToggle" style="font-size:10px;">Holiday ranges in ${y} (${rows.length})</button>`+
-    `<div id="calRangeIndexRows" style="display:${calRangeIndexOpen?"block":"none"};margin-top:4px;">`+
-    (rows.length?rows.map(h=>`<div><button class="btn" data-range-start="${esc(h.start)}" style="font-size:10px;">${esc(h.name)} \u00B7 ${_fmtShort(h.start)} \u2192 ${_fmtShort(h.end)} \u00B7 ${esc(h.type)}</button></div>`).join(""):`<div>None configured — add ranges from any day sheet.</div>`)+
-    `</div>`;
-  $("calRangeIndexToggle").onclick=()=>{ calRangeIndexOpen=!calRangeIndexOpen; renderRangeIndex(y); };
-  wrap.querySelectorAll("[data-range-start]").forEach(b=>{ b.onclick=()=>openDaySheet(b.dataset.rangeStart); });
 }
 function renderClasses(){
   if(!classBody) return;
@@ -2477,9 +2451,10 @@ function clearAttendanceSection(){
 $("calPrevBtn").onclick=()=>{ calendarMonth.setMonth(calendarMonth.getMonth()-1); renderCalendarMonth(); };
 $("calNextBtn").onclick=()=>{ calendarMonth.setMonth(calendarMonth.getMonth()+1); renderCalendarMonth(); };
 if($("calTodayBtn")) $("calTodayBtn").onclick=()=>{ calendarMonth=new Date(); renderCalendarMonth(); };
-/* Day sheet: resolution read ONLY from the shared truth functions —
-   override → holiday (exam = working) → active-context template.
-   Overrides and holidays are global; only the template follows context. */
+/* Day window is read-only resolved display — tables own all holiday /
+   override editing. Resolution read ONLY from the shared truth
+   functions: override → holiday (exam = working) → active-context
+   template. Headers keep editing the template. */
 function daySheetSource(iso, ctx){
   const ov=getOverride(iso);
   if(ov) return {badge:ov.isWorking?"WORKING":"NON-WORKING",
@@ -2499,62 +2474,33 @@ function daySheetSource(iso, ctx){
 function openDaySheet(iso){
   const ctx=getScheduleContext();
   const src=daySheetSource(iso, ctx);
-  const ov=getOverride(iso);
-  const hol=isHoliday(iso);
-  const resolvedWorking=src.badge==="WORKING";
   const dt=new Date(iso+"T00:00:00");
-  const sep=`<div style="height:1px;background:var(--hairline);margin:14px 0;"></div>`;
-  const secLbl=`font-size:10px;font-weight:500;letter-spacing:0.06em;text-transform:uppercase;color:var(--ink-2);margin-bottom:10px;`;
   daySheetTitle.textContent=dt.toLocaleDateString("en-GB",{weekday:"long"})+", "+_fmtShort(iso);
   daySheetBody.innerHTML=
     `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span class="setup-legend-context">${esc(src.badge)}</span></div>`+
     `<div style="font-size:11px;color:var(--ink-2);line-height:1.5;">${esc(src.text)}</div>`+
-    sep+
-    `<div style="${secLbl}">Day status</div>`+
-    `<div class="form-grid">`+
-    `<div class="form-field full"><label>Note</label><input id="dsNote" placeholder="Note (optional)" value="${esc(ov?ov.note:"")}"></div>`+
-    `<div class="form-field full" style="display:flex;gap:16px;flex-wrap:wrap;align-items:center">`+
-    `<button class="btn" id="dsFlip">${resolvedWorking?"Mark non-working":"Mark working"}</button>`+
-    (ov?`<button class="btn danger" id="dsClear">Clear override</button>`:"")+
-    `</div></div>`+
-    sep+
-    `<div style="${secLbl}">Holiday range</div>`+
-    (hol?`<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:10px">`+
-    `<button class="btn danger" id="dsDelHol">Remove ${esc(hol.name)} range</button></div>`:"")+
-    `<div class="form-grid">`+
-    `<div class="form-field full"><label>Name</label><input id="dsHolName" placeholder="Diwali vacation" value="${esc(hol?hol.name:"")}"></div>`+
-    `<div class="form-field"><label>Start date</label><input type="date" id="dsHolStart" value="${esc(hol?hol.start:iso)}"></div>`+
-    `<div class="form-field"><label>End date</label><input type="date" id="dsHolEnd" value="${esc(hol?hol.end:iso)}"></div>`+
-    `<div class="form-field"><label>Type</label><select id="dsHolType"><option value="holiday"${!hol||hol.type==="holiday"?" selected":""}>Holiday</option><option value="vacation"${hol&&hol.type==="vacation"?" selected":""}>Vacation</option><option value="exam"${hol&&hol.type==="exam"?" selected":""}>Exam day (working)</option></select></div>`+
-    `<div class="form-field full" style="display:flex;gap:16px;flex-wrap:wrap;align-items:center"><button class="btn primary" id="dsHolSave">Save holiday</button><button class="btn" id="dsClose">Close</button></div>`+
-    `<div class="inline-error" id="dsHolErr" style="display:none"></div></div>`;
+    `<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-top:14px"><button class="btn" id="dsClose">Close</button><button class="btn" id="dsAddOv">Add override for this date…</button></div>`;
   openModal(daySheetModal);
-  $("dsFlip").onclick=async()=>{
-    const note=$("dsNote").value.trim();
-    Overrides=Overrides.filter(o=>o.date!==iso);
-    Overrides.push({date:iso,isWorking:!resolvedWorking,note});
-    if(await persistCalendar()){ renderOverrides(); renderCalendarMonth(); openDaySheet(iso); }
-  };
-  if(ov) $("dsClear").onclick=async()=>{
-    Overrides=Overrides.filter(o=>o.date!==iso);
-    if(await persistCalendar()){ renderOverrides(); renderCalendarMonth(); openDaySheet(iso); }
-  };
-  if(hol){
-    $("dsDelHol").onclick=async()=>{
-      if(!(await glassConfirm(`Remove holiday range "${hol.name}" (${hol.start}..${hol.end})? Days fall back to the weekly template.`,{title:"Remove holiday range",okText:"Remove",danger:true}))) return;
-      Holidays=Holidays.filter(h=>h.start!==hol.start);
-      if(await persistCalendar()){ renderHolidays(); renderCalendarMonth(); openDaySheet(iso); }
-    };
-  }
-  const editStart=hol?hol.start:null;
-  $("dsHolSave").onclick=async()=>{
-    const name=$("dsHolName").value.trim(), start=$("dsHolStart").value, end=$("dsHolEnd").value||start, err=$("dsHolErr");
-    if(!name||!start||!end||start>end){ err.textContent="Name and a valid date range are required."; err.style.display="block"; return; }
-    Holidays=Holidays.filter(h=>h.start!==start&&h.start!==editStart);
-    Holidays.push({name,start,end,category:"",type:$("dsHolType").value});
-    if(await persistCalendar()){ renderHolidays(); renderCalendarMonth(); openDaySheet(iso); }
-  };
   $("dsClose").onclick=()=>closeModal(daySheetModal);
+  $("dsAddOv").onclick=()=>{
+    closeModal(daySheetModal);
+    $("overrideModalBody").innerHTML=`<div class="form-grid">
+      <div class="form-field"><label>Date</label><input type="date" id="overrideDate" value="${esc(iso)}"></div>
+      <div class="form-field"><label>Becomes</label><select id="overrideWorking"><option value="1">Working day</option><option value="0">Holiday</option></select></div>
+      <div class="form-field full"><label>Note</label><input id="overrideNote" placeholder="Special working Saturday"></div>
+      <div class="form-field full" style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="overrideCancel">Cancel</button><button class="btn primary" id="overrideSave">Save override</button></div>
+      <div class="inline-error" id="overrideErr" style="display:none"></div></div>`;
+    openModal(overrideModal);
+    $("overrideCancel").onclick=()=>closeModal(overrideModal);
+    $("overrideSave").onclick=async()=>{
+      const date=$("overrideDate").value, note=$("overrideNote").value.trim(), err=$("overrideErr");
+      if(!date){ err.textContent="A date is required."; err.style.display="block"; return; }
+      Overrides=Overrides.filter(o=>o.date!==date);
+      Overrides.push({date,isWorking:$("overrideWorking").value==="1",note});
+      if(await persistCalendar()){ closeModal(overrideModal); renderOverrides(); renderCalendarMonth(); }
+    };
+    $("overrideNote").focus();
+  };
 }
 async function onDayToggleClick(e){
   const cell=e.target.closest("[data-date]");
@@ -2616,6 +2562,40 @@ $("calResetWeekBtn").onclick=async()=>{
     Settings.workingDays=defWd;
     if(await persistCalendar()){ renderWeekly(); renderCalendarMonth(); renderToday(); renderReports(); }
   }
+};
+$("addHolidayBtn").onclick=()=>{
+  $("holidayModalBody").innerHTML=`<div class="form-grid">
+    <div class="form-field full"><label>Name</label><input id="holidayName" placeholder="Diwali vacation"></div>
+    <div class="form-field"><label>Start date</label><input type="date" id="holidayStart"></div>
+    <div class="form-field"><label>End date</label><input type="date" id="holidayEnd"></div>
+    <div class="form-field"><label>Type</label><select id="holidayType"><option value="holiday">Holiday</option><option value="vacation">Vacation</option><option value="exam">Exam day (working)</option></select></div>
+    <div class="form-field full" style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="holidayCancel">Cancel</button><button class="btn primary" id="holidaySave">Save holiday</button></div>
+    <div class="inline-error" id="holidayErr" style="display:none"></div></div>`;
+  openModal(holidayModal);
+  $("holidayCancel").onclick=()=>closeModal(holidayModal);
+  $("holidaySave").onclick=async()=>{
+    const name=$("holidayName").value.trim(), start=$("holidayStart").value, end=$("holidayEnd").value||start, err=$("holidayErr");
+    if(!name||!start||!end||start>end){ err.textContent="Name and a valid date range are required."; err.style.display="block"; return; }
+    Holidays.push({name,start,end,category:"",type:$("holidayType").value});
+    if(await persistCalendar()){ closeModal(holidayModal); renderHolidays(); renderCalendarMonth(); }
+  };
+};
+$("addOverrideBtn").onclick=()=>{
+  $("overrideModalBody").innerHTML=`<div class="form-grid">
+    <div class="form-field"><label>Date</label><input type="date" id="overrideDate"></div>
+    <div class="form-field"><label>Becomes</label><select id="overrideWorking"><option value="1">Working day</option><option value="0">Holiday</option></select></div>
+    <div class="form-field full"><label>Note</label><input id="overrideNote" placeholder="Special working Saturday"></div>
+    <div class="form-field full" style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="overrideCancel">Cancel</button><button class="btn primary" id="overrideSave">Save override</button></div>
+    <div class="inline-error" id="overrideErr" style="display:none"></div></div>`;
+  openModal(overrideModal);
+  $("overrideCancel").onclick=()=>closeModal(overrideModal);
+  $("overrideSave").onclick=async()=>{
+    const date=$("overrideDate").value, note=$("overrideNote").value.trim(), err=$("overrideErr");
+    if(!date){ err.textContent="A date is required."; err.style.display="block"; return; }
+    Overrides=Overrides.filter(o=>o.date!==date);
+    Overrides.push({date,isWorking:$("overrideWorking").value==="1",note});
+    if(await persistCalendar()){ closeModal(overrideModal); renderOverrides(); renderCalendarMonth(); }
+  };
 };
 if($("schedSaveTimingBtn")) $("schedSaveTimingBtn").onclick=async()=>{
   const ctx = getScheduleContext();
@@ -2683,11 +2663,60 @@ if($("schedRevertTimingBtn")) $("schedRevertTimingBtn").onclick=async()=>{
   }
   renderScheduleTiming();
 };
-/* Old modals + table listeners retired with the list sections (Phases 2-3):
-   the day editor is the only schedule writer now — flip/note/Clear,
-   section-3 save, Edit-prefill, Remove-confirm. renderHolidays/
-   renderOverrides stay as early-returning no-ops while their bodies
-   are absent. */
+$("holidayBody").addEventListener("click",async(e)=>{
+  const edit=e.target.closest("[data-edit-holiday]");
+  if(edit){
+    const h=Holidays.find(x=>x.start===edit.dataset.editHoliday); if(!h) return;
+    $("holidayModalBody").innerHTML=`<div class="form-grid">
+      <div class="form-field full"><label>Name</label><input id="holidayName" value="${esc(h.name)}"></div>
+      <div class="form-field"><label>Start date</label><input type="date" id="holidayStart" value="${esc(h.start)}"></div>
+      <div class="form-field"><label>End date</label><input type="date" id="holidayEnd" value="${esc(h.end)}"></div>
+      <div class="form-field"><label>Type</label><select id="holidayType"><option value="holiday" ${h.type==="holiday"?"selected":""}>Holiday</option><option value="vacation" ${h.type==="vacation"?"selected":""}>Vacation</option><option value="exam" ${h.type==="exam"?"selected":""}>Exam day (working)</option></select></div>
+      <div class="form-field full" style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="holidayCancel">Cancel</button><button class="btn primary" id="holidaySave">Save holiday</button></div>
+      <div class="inline-error" id="holidayErr" style="display:none"></div></div>`;
+    const origStart=h.start;
+    Holidays=Holidays.filter(x=>x.start!==origStart);
+    openModal(holidayModal);
+    $("holidayCancel").onclick=()=>{ Holidays.push(h); closeModal(holidayModal); renderHolidays(); renderCalendarMonth(); };
+    $("holidaySave").onclick=async()=>{
+      const name=$("holidayName").value.trim(), start=$("holidayStart").value, end=$("holidayEnd").value||start, err=$("holidayErr");
+      if(!name||!start||!end||start>end){ err.textContent="Name and a valid date range are required."; err.style.display="block"; return; }
+      Holidays.push({name,start,end,category:"",type:$("holidayType").value});
+      if(await persistCalendar()){ closeModal(holidayModal); renderHolidays(); renderCalendarMonth(); } else Holidays.push(h);
+    };
+    return;
+  }
+  const btn=e.target.closest("[data-del-holiday]"); if(!btn) return;
+  Holidays=Holidays.filter(h=>h.start!==btn.dataset.delHoliday);
+  if(await persistCalendar()){ renderHolidays(); renderCalendarMonth(); }
+});
+$("overrideBody").addEventListener("click",async(e)=>{
+  const edit=e.target.closest("[data-edit-override]");
+  if(edit){
+    const o=Overrides.find(x=>x.date===edit.dataset.editOverride); if(!o) return;
+    $("overrideModalBody").innerHTML=`<div class="form-grid">
+      <div class="form-field"><label>Date</label><input type="date" id="overrideDate" value="${esc(o.date)}"></div>
+      <div class="form-field"><label>Becomes</label><select id="overrideWorking"><option value="1" ${o.isWorking?"selected":""}>Working day</option><option value="0" ${!o.isWorking?"selected":""}>Holiday</option></select></div>
+      <div class="form-field full"><label>Note</label><input id="overrideNote" value="${esc(o.note)}"></div>
+      <div class="form-field full" style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="overrideCancel">Cancel</button><button class="btn primary" id="overrideSave">Save override</button></div>
+      <div class="inline-error" id="overrideErr" style="display:none"></div></div>`;
+    const orig=o.date;
+    Overrides=Overrides.filter(x=>x.date!==orig);
+    openModal(overrideModal);
+    $("overrideCancel").onclick=()=>{ Overrides.push(o); closeModal(overrideModal); renderOverrides(); renderCalendarMonth(); };
+    $("overrideSave").onclick=async()=>{
+      const date=$("overrideDate").value, note=$("overrideNote").value.trim(), err=$("overrideErr");
+      if(!date){ err.textContent="A date is required."; err.style.display="block"; return; }
+      Overrides=Overrides.filter(x=>x.date!==date);
+      Overrides.push({date,isWorking:$("overrideWorking").value==="1",note});
+      if(await persistCalendar()){ closeModal(overrideModal); renderOverrides(); renderCalendarMonth(); } else Overrides.push(o);
+    };
+    return;
+  }
+  const btn=e.target.closest("[data-del-override]"); if(!btn) return;
+  Overrides=Overrides.filter(o=>o.date!==btn.dataset.delOverride);
+  if(await persistCalendar()){ renderOverrides(); renderCalendarMonth(); }
+});
 if(classBody) classBody.addEventListener("click", async e=>{
   const delBtn = e.target.closest("[data-del-class]");
   if(delBtn){
@@ -3572,6 +3601,8 @@ document.addEventListener("keydown",(e)=>{
       if(adminLayer && adminLayer.classList.contains("open")) return;
       resumeSensorScan();
     }
+    else if(holidayModal && holidayModal.classList.contains("open")) closeModal(holidayModal);
+    else if(overrideModal && overrideModal.classList.contains("open")) closeModal(overrideModal);
     else if(correctionModal && correctionModal.classList.contains("open")) closeModal(correctionModal);
     else if(adminLayer && adminLayer.classList.contains("open")){
       finishEnrollUi();

@@ -76,6 +76,23 @@ header weekday → its month column re-resolves. `test_13` green.
 - `test_15`: old-window steps rewritten to inline equivalents
   (incl. asserting `#overrideModal` is gone from the DOM).
 
+## Calendar merge REVERTED — tables own editing again (headers keep the template)
+- Restored verbatim from `9f19c68`: holiday + override list tables
+  markup (Row 3), `#holidayModal` / `#overrideModal` blocks, Add /
+  table-Edit / table-Remove handlers, `renderHolidays` /
+  `renderOverrides` bodies, Esc entries.
+- Removed from the calendar: day-window Day-status flip +
+  Holiday-range sections (window is read-only badge + source +
+  Close), the range index (`rangesInYear` / `renderRangeIndex` +
+  call), all `ds*` editing IDs + pins. Cells are read-only resolved
+  display; header template editing untouched.
+- `test_15` rewritten to the table flow (add / reload-persist /
+  edit-prefill + rename / direct remove for both tables, read-only
+  window asserts); other 14 unmodified.
+- Shortcut door (no new editor): read-only window gains `Add
+  override for this date…` → prefilled `#overrideModal`, verbatim
+  save path; `test_15` 9b covers prefill + save + cleanup.
+
 ## Edit-ceremony kill + rename fix (SHIPPED, stabilizer held)
 - Section 3 auto-prefills at open on holiday days; `dsEditHol`
   deleted. Saves track the prefilled original start and filter it
@@ -115,3 +132,26 @@ header weekday → its month column re-resolves. `test_13` green.
 - Verb REMOVED with the timing revert (its only target was the
   window section): `#calTimingBtn` button + wiring deleted,
   `test_15` step 10 deleted. Index untouched.
+- Index REMOVED with the calendar-merge revert (tables own overview
+  again): `rangesInYear` / `renderRangeIndex` + call deleted,
+  `test_15` index asserts replaced by table asserts.
+
+## 2026-09-05 — "UI dead" incident + recovery record
+- Symptom: clicks, windows, popups, hovers all dead at once;
+  dark text wrong after ink switch.
+- Diagnosis: full static audit came back CLEAN (one `<script>`
+  at body end, all IDs present exactly once, zero duplicate IDs,
+  render paths guarded, CSS braces/comments balanced, modal and
+  hover rules present, day-window builder intact). No code break.
+- Cause: stale browser cache serving an older pass. Fixed by
+  hard reload (`Ctrl+Shift+R`) at `http://127.0.0.1:5000/`.
+- Rule learned: "everything dead at once" + clean audit means
+  cache or missing backend — confirm URL + hard reload + boot
+  banner BEFORE any code hunt.
+- Diagnostics kept (failure-only, invisible on success):
+  `console.error` in 17 attendance-path catches; 3-line boot
+  banner (`bootFail` — sync render + async load covered).
+- Commit `5a23396` on `feature/ui-glass-redesign`: timing
+  revert + range index + boot diagnostics (10 files).
+  Left for follow-up commit: `backend/test_app.py`
+  (BinHoverTest) + `skills/atl-frosted-ui/`.

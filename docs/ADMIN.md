@@ -26,8 +26,8 @@ Unifies live operations and historical reporting into a single screen:
 Unifies school settings, classes, batches, rules, calendar, holidays, and schedule inheritance:
 - **School Information & Rules:** Name, address, academic year, attendance start date, present cutoff, and late cutoff.
 - **Classes & Batches:** Manage classes and section batches with student counts and quick schedule jumps.
-- **Schedule Context Selector:** Switch between Global, Class, and Batch contexts with visual inheritance notices and timing controls (`Save`, `Inherit` revert) in the Setup timing bar; a collapsible range index under the month grid counts the displayed year's holiday ranges and jumps to their day sheets.
-- **Weekly Template & Holidays:** Recurring weekday toggles live in the Month View header row (click/Enter/Space per active context); holidays and single-date overrides are created, edited, and removed through the day sheet on each month cell (click any date) — no list tables. Holiday ranges (`holiday`, `vacation`, `exam`) and resolved-day month cells included.
+- **Schedule Context Selector:** Switch between Global, Class, and Batch contexts with visual inheritance notices and timing controls (`Save`, `Inherit` revert) in the Setup timing bar.
+- **Weekly Template, Holidays & Overrides:** Recurring weekday toggles live in the Month View header row (click/Enter/Space per active context); holiday ranges (`holiday`, `vacation`, `exam`) and single-date overrides are created, edited, and removed through their list tables (`+ Add Holiday`, `+ Add Override`, table Edit/Remove via `#holidayModal`/`#overrideModal`). Month cells are read-only resolved display; the day window offers an `Add override for this date…` shortcut into the override modal (door only — tables stay the single editor).
 
 ## Backup
 
